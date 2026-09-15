@@ -1,0 +1,4 @@
+# Store every file exactly as it sits on disk. The whole tree is CRLF and the
+# worktrees are all on this one Windows box, so any conversion would only
+# manufacture diffs.
+* -text

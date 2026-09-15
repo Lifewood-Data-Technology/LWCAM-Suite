@@ -1,0 +1,73 @@
+name: lwcam
+description: "LWCAM (Lifewood Capture): pulls scanned images from an Android device's DCIM folder via ADB, stages them locally, then transfers them to a local/NAS destination — legacy Normal Mode and Box Mode capture workflows."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  get: ^4.7.2
+  shared_preferences: ^2.5.3
+  file_picker: ^10.3.2
+  path: ^1.9.1
+  path_provider: ^2.1.2
+  sqflite: ^2.4.2
+  sqflite_common_ffi: ^2.3.6
+  window_manager: ^0.5.1
+  flutter_local_notifications: ^22.0.1
+  bcrypt: ^1.1.3 # pure-Dart password hashing (no native DLL) — user auth
+  win32: ^5.5.0 # embed the scrcpy mirror window + job-object lifetime (FFI only, no DLL)
+  ffi: ^2.1.0 # native string/struct helpers for the win32 calls
+  hotkey_manager: ^0.2.3
+  postgres: ^3.5.0 # pure-Dart PostgreSQL client for SyncService (PgSyncSink)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/logo.png
+
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope-ExtraBold.ttf
+          weight: 800
+

@@ -1,0 +1,38 @@
+# ---- build outputs -----------------------------------------------------
+build/
+.dart_tool/
+.pytest_cache/
+__pycache__/
+*.pyc
+windows/flutter/ephemeral/
+
+# ---- vendored binaries, wheels, runtimes -------------------------------
+wheels/
+runtime/
+.venv/
+venv/
+DEV/All-In-One/apps/installer/vendor/
+DEV/All-In-One/apps/LWCAM/scrcpy/
+DEV/All-In-One/apps/LWCAM/LWIP/tools/
+
+# ---- compiled installers and archives ----------------------------------
+*.exe
+*.msi
+*.zip
+*.7z
+*.dll
+*.pdb
+*.lib
+*.obj
+
+# ---- snapshot extracted from the compiled installer --------------------
+# Kept on disk for build verification, not source. See CLAUDE.md.
+DEV/{app}/
+
+# ---- image corpora and export artifacts (per-project folders) ----------
+/Control/
+/artifacts/
+/Test/
+*.tif
+*.tiff
+*.dng

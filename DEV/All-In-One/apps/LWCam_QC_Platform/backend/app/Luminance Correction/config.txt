@@ -1,0 +1,38 @@
+# Luminance Correction settings.
+# Extracted from the All In One Workflow config.json "luminance" block
+# (the production-tuned values). Read by luminance_process.py at run time
+# (key = value; '#' starts a comment; keys are case-insensitive).
+
+# --- analysis / brightness ---
+analysis_max_dimension = 2200
+brightness_level        = 2
+target_luminance        = 178.27
+luminance_tolerance     = 5
+luminance_percentile    = 72
+min_luminance_scale     = 0.65
+max_luminance_scale     = 1.4
+highlight_tolerance     = 3
+
+# --- reference-profile matching ---
+profile_match_threshold    = 5
+profile_correction_passes  = 3
+warm_document_max_p72      = 135
+warm_saturation_threshold  = 0.30
+warm_red_green_threshold   = 18
+
+# Reference profiles: min_p72,target_p72,max_p72,max_p95,saturation,red_green,blue_green
+reference_profile_warm_form_dark  = 154.0,162.3,168.0,173.8,0.242,8.1,-25.9
+reference_profile_gray_form       = 160.0,168.9,174.0,178.9,0.078,2.0,-11.0
+reference_profile_light_form      = 170.0,178.0,182.0,185.9,0.137,4.3,-14.8
+reference_profile_warm_form_light = 160.0,168.3,174.0,183.7,0.232,13.1,-28.0
+reference_profile_cool_form       = 145.0,152.9,159.0,166.2,0.095,-6.1,-1.0
+reference_profile_orange_archival = 98.0,106.1,118.0,118.2,0.501,30.8,-31.0
+reference_profile_neutral_light   = 170.0,178.3,183.0,186.0,0.128,2.6,-9.4
+
+# --- exposure / output ---
+even_exposure            = true
+center_shadow_fix        = true
+protect_black_background = true
+processor_usage          = 0.5
+jpeg_quality             = 100
+custom_curve_points      =

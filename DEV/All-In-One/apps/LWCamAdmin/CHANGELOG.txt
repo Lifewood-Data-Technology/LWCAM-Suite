@@ -1,0 +1,617 @@
+================================================================================
+ LWCam Admin - CHANGELOG
+================================================================================
+
+- Split out of LWCAM (LifeTrans-Rework\LWCAM) on 2026-07-21 as an independent
+  fork-style app: every SuperAdmin capability (user/project/device management,
+  metadata templates, shared app settings) moved here wholesale, unchanged in
+  behavior except for the storage model below. No CHANGELOG history predates
+  this date — this app did not exist before it. See LWCAM's CHANGELOG.txt for
+  its side of the same-day split.
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - INSTALLER ACCEPTS ANY POSTGRESQL 18.x SETUP BESIDE IT
+--------------------------------------------------------------------------------
+
+- LWSuite.iss looked for the exact file postgresql-18.6-1-windows-x64.exe and
+  refused to install on a clean PC with EDB's newer 18.6-3 beside it. It now
+  matches postgresql-18.*-windows-x64.exe in the setup folder (PgSetupPath, the
+  highest name wins) for both the pre-install check and the unattended run;
+  build-installer.ps1 copies whichever 18.x sits in installer\vendor\postgresql.
+  Service name, paths and flags are identical across 18.x point releases.
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - LUMINANCE CORRECTION OFF BY DEFAULT
+--------------------------------------------------------------------------------
+
+- `NodeConfig.luminanceEnabled` defaults to false (constructor, fromJson), and
+  the QC engine's `luminance_enabled` likewise. Station Setup's switch starts off;
+  LWCAM's toolbar hides the button when the config has not loaded. FamilySearch's
+  standard is no manipulation and this is the one tool in the chain that is
+  enhancement by definition; a project that wants it turns it on in Station
+  Setup. An existing station picks the new default up at its next Station Setup
+  save unless the switch was already saved on.
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - STOP ADVERTISING .bmp TO LWIP - IT CANNOT WRITE ONE
+--------------------------------------------------------------------------------
+
+- `lwip_config_writer.dart`'s generated `extensions` list dropped `.bmp`.
+  LWIP's `image_ops.py::_write_image_atomic` has no BMP save branch and raises
+  "Unsupported output format" for one, so a single .bmp dropped into a marked
+  folder made the whole folder's worker job raise; the orchestrator's daemon
+  retry then polled and failed it forever - never published, never reported,
+  no error surfaced anywhere upstream. LWCAM has no BMP producer on any
+  capture path (grepped `lib/`), so the extension was never doing anything
+  but setting this trap. Same fix on LWIP's own defaults, logged in LWCAM's
+  CHANGELOG below. `test/services/lwip_config_writer_test.dart`'s golden
+  config updated to match.
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - ARCHIVE DATES ARE FREE TEXT: TEMPLATE EDITOR VERIFIED, NO CHANGE
+--------------------------------------------------------------------------------
+
+- capture_folders.start_date / end_date are now TEXT holding the archive date
+  verbatim (see LWCAM's entry of the same date). The template editor already
+  treats Start Date and End Date as ordinary keyed fields: an admin can switch
+  either to "Free text" (dropping its options) or keep a dropdown with any
+  option values; nothing validates them as years. metadata_template.dart stays
+  in step with LWCAM's copy (identical field model; only LWCAM's capture-time
+  evaluation methods differ, as before). No code changed in this app.
+- Untouched on purpose: `admin_pg_statements.dart` `tsOrNull` still coerces a
+  bare year/year-month for projects.start_date - the PROJECT's own start, a
+  timestamptz column that has nothing to do with archive dates.
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - LWIP REPLACEMENT WAITS FOR THE OLD ONE; ENGINE ON LOOPBACK
+--------------------------------------------------------------------------------
+
+Follow-ups to the review's skipped items.
+
+- Station Setup's save always starts the replacement LWIP now, even when the
+  running one has not exited within the 90 s stop wait. LWIP itself waits on
+  the instance lock (up to 15 min) instead of dying on it, and re-reads its
+  config once it holds the lock - so the old one finishes the folder it is
+  publishing, exits, and the new one takes over with the settings on disk.
+  Before, a save during a long q100 publish reported "could not be restarted"
+  and image processing was dead until the next logon. `stopLwipNow` keeps the
+  stop markers on a timeout (the old LWIP may not have read them yet); LWIP
+  clears leftovers only after it holds the lock and only those older than the
+  acquisition, so a marker meant for the new process survives. Two saves in a
+  row therefore leave exactly one LWIP running, on the LAST save's config.
+- The generated QC launcher binds uvicorn to 127.0.0.1, not 0.0.0.0. LWCAM
+  only ever calls its own PC's engine; on a two-PC site the QC PC runs its own
+  and reaches the capture PC over 5432 and the share. Same change in
+  installer/qc/START_QC_BACKEND.bat.
+
+Deploy\setup-lan-db.ps1 (two-PC site)
+- Prints the password from the newest C:\Users\*\LWCAM_DBs\lwcam_node_config.json
+  (what the station actually connects with) and says where it came from;
+  postgres-password.txt is the fallback, flagged as "generated, not verified".
+- Adds an inbound 445 rule from the cable subnet so the 2.Batches share is
+  reachable, and warns when the Server service is not running.
+
+TESTS: analyze clean, 137 pass. LWIP: 49 pass, 1 skipped (3 new lock tests).
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - REVIEW FIXES: LWIP INSTALL CHECK, WORKERS RANGE, LAUNCHER LOG
+--------------------------------------------------------------------------------
+
+- `resolveLwipRoot` also requires `runtime\.setup_ok`, the sentinel
+  SETUP_DESKEW_CROP.bat writes last and deletes first. pythonw.exe alone (zip
+  extracted, wheels failed) made Station Setup register and "start" a runtime
+  that died on `import cv2` with no log.
+- `lwipConfigProblem` rejects `processing_workers` outside 0 (auto) .. 61, the
+  range LWIP's config.py raises on; before, a typed 100 passed the form and LWIP
+  exited at start.
+- Generated QC launcher: the 10 MB rotation and the stdout/stderr redirect no
+  longer share one `except OSError: pass`. A rename refused because the old
+  engine still held the file skipped the redirect and left the backend with no
+  log at all - the case the log was added for.
+
+Deploy\setup-lan-db.ps1 / SETUP-LAN-DB.bat (two-PC site)
+- Refuses to strip a non-169.254 address from the adapter (that is the office
+  NIC named 'Ethernet', not the cable) and lists the adapters instead.
+- A commented-out `listen_addresses` no longer crashes the script on `$null.Trim()`.
+- Existing-rule check recognises `hostssl`/`hostnossl` and does not treat a
+  `reject` rule as "already present".
+- The append path writes through `Write-TextNoBom` like the other branches.
+- The final check requires a listener on 0.0.0.0/::/the cable address; a
+  localhost-only server no longer prints "[ok] listening".
+- The .bat pauses when the script exits non-zero so the error is readable.
+
+TESTS: 137 pass (lwip_autostart fixture now writes `.setup_ok`).
+
+--------------------------------------------------------------------------------
+ 2026-09-10 - THE GENERATED QC LAUNCHER NOW WRITES A LOG
+--------------------------------------------------------------------------------
+
+Station QC-STATION had no QC backend log at all, which is why both of the
+2026-09-09 faults - an unopenable Quality Check page and a 400 on the Completed
+tab - had to be diagnosed from a client-side error banner. The Run key launches
+`pythonw.exe`, which has no console, so every line the backend wrote was
+discarded. A log was added to the running process on the day, but the launcher
+this service generates had no redirection, so it was gone at the next logon.
+
+- New `qcBackendLogPath()`: `%USERPROFILE%\LWCAM_DBs\qc_backend.log`, beside
+  `qc_engine.log`, `scrcpy.log` and `lwip\runtime\deskew_crop.log`, in the same
+  folder as the node config. This follows LWCAM's own `QcEngineService._log`,
+  which writes `qc_engine.log` there for the identical stated reason: a release
+  exe has no console, so a field failure would otherwise be invisible.
+  `%LOCALAPPDATA%\LWCam\QC` is deliberately NOT used - SETUP_QC.bat and the
+  backend's node_config.py reserve that tree for caches (previews, qc_work,
+  qc_audit, ai_review), and a log there would break that split.
+- `writeQcBackendLauncher` redirects stdout and stderr to it, INSIDE the
+  existing `__main__` guard. That placement is load-bearing for the same reason
+  `uvicorn.run`'s is: the export's ProcessPoolExecutor re-executes this file in
+  every worker, and they must not each reopen the same handle. The setup lines
+  stay outside it, unchanged.
+- One handle for both streams (`sys.stderr = sys.stdout`), line-buffered, so
+  access and error output interleave chronologically instead of two handles
+  racing over one file. Matches qc_engine.log being a single file.
+- Bounded by one size check: over 10 MB, the old file is rotated to `.old`, so
+  the pair caps at roughly 20 MB. A RotatingFileHandler through uvicorn's
+  log_config is tidier and about triple the code.
+- `errors="replace"`, and the whole block is wrapped in `except OSError: pass`.
+  A traceback carrying an odd byte, or an unwritable folder, must not stop the
+  server starting - the log exists to report failures, not to cause one.
+
+TESTS: 139 passing, up from 136 (test/services/qc_backend_autostart_test.dart).
+Asserts the log path is in the generated launcher, that it is NOT under
+LOCALAPPDATA, that both streams share one handle, that the redirect sits AFTER
+the `__main__` guard, and that it sits BEFORE `uvicorn.run` - otherwise
+uvicorn's own startup output, the part that names a bad config, is lost. Same
+`contains`/`indexOf` idiom the file already uses for the guard invariant.
+
+Pairs with the LWCAM change of the same date: the QC task list now skips a
+folder it cannot render rather than failing the page, and this is the log that
+records which folder was skipped.
+
+--------------------------------------------------------------------------------
+ 2026-09-09 - STATION SETUP'S SAVE NOW ACTUALLY RESTARTS LWIP
+--------------------------------------------------------------------------------
+
+Saving Station Setup started LWIP but could never REPLACE a running one, so a
+changed setting did not take effect until the next logon. startLwipNow only
+starts, and a live instance holds work_root\orchestrator.lock - the second
+process took no lock and exited by itself, which its own comment describes as
+the intended guard. It is a fine guard and a bad restart: LWIP reads its config
+once at import. Same defect the QC engine had, fixed the same way on
+2026-09-04.
+
+It also mattered for upgrades. Setup used to leave LWIP running on purpose, so
+after an upgrade the save was the only thing that could have replaced the live
+pre-upgrade process - and it could not. A station ran pre-upgrade LWIP through
+two reinstalls on 2026-09-09 because of it; see LWCAM's CHANGELOG for the
+LWIP-side and installer-side halves.
+
+- New `stopLwipNow` (services/lwip_autostart_service.dart): writes LWIP's stop
+  file, then waits for it to drain. LWIP finishes the folder it is already
+  publishing and cancels the rest; dropped folders are not journalled, so the
+  next run reprocesses them.
+- The wait acquires LWIP's OWN orchestrator.lock rather than enumerating
+  processes - the same `RandomAccessFile.lock` pattern as FileLockService.
+  Holding the lock IS the proof the orchestrator has exited.
+- The stop file is written to both `work_root\stop.request` and
+  `%ProgramData%\LWCAM\lwip.stop`, because the installer needs the second one:
+  work_root is under %USERPROFILE% and an elevated install cannot be relied on
+  to resolve the operator's profile.
+- The save now stops before starting, UNCONDITIONALLY: turning processing off
+  has to stop the running instance too, not merely unregister the autostart.
+- On a 90s timeout the save does not start anything - a process spawned against
+  a held lock exits instantly and would report success. It surfaces the
+  existing `lwipAutostartWarning` instead, saying processing is still busy and
+  will start at the next logon.
+- The stop files are deleted in a `finally`, always. The first version of this
+  did not, and it took image processing down on a real station: the save stopped
+  LWIP, started a replacement, and the replacement read the request still
+  sitting on disk and exited 2ms after logging "Watching". A running LWIP
+  consumes the file itself, so the cleanup is usually a no-op - it matters
+  exactly when nothing was running to read it, which is also the case where the
+  wait returns instantly and a replacement is started straight away. LWIP now
+  also discards a request that predates its own startup, so neither side is a
+  single point of failure.
+
+--------------------------------------------------------------------------------
+ 2026-09-09 - LWIP OUTPUT FIDELITY, LUMINANCE CORRECTION TOGGLE
+--------------------------------------------------------------------------------
+
+- The generated deskew_crop_config.json now asks LWIP for jpeg_quality 100, was
+  90, and carries a new deskew_min_degrees of 0.2. FamilySearch rejected the
+  Taiping delivery for "evidence of image enhancement ... any compression", and
+  the cause was LWIP re-encoding every page at q90. At 100 with 4:4:4 chroma the
+  quantization tables match what the capture phone writes. See LWCAM's
+  CHANGELOG for the full analysis. Processed images are roughly 4x larger.
+- Station Setup gained "Allow luminance correction in QC" (NodeConfig
+  luminanceEnabled, default true). Off hides the Luminance correction button in
+  LWCAM's QC toolbar and makes the engine answer 503 - the button is not the
+  boundary, since anything speaking to the engine directly must be refused too.
+  Turn it off for clients whose standards forbid image enhancement.
+
+--------------------------------------------------------------------------------
+ 2026-09-06 - TAIPING BUILD: GROUP WORDING, ONE INSTANCE
+--------------------------------------------------------------------------------
+
+- Operator-visible "box" now reads "group", matching LWCAM: the App Settings
+  keying line ("Group Mode keying is active for capture PCs"), the
+  delete-project confirmation, the Station Setup sync helper text, and the
+  template editor's note about which groups pick up an edit. Wording only - no
+  identifier, column or stored value changed. The "Password box" wording in
+  Station Setup deliberately still says box: there it means a text field, not a
+  capture group.
+
+- One LWCam Admin per Windows account; a second launch closes the first. Same
+  mechanism as LWCAM, same reasoning.
+
+- Station Setup can point QC at images captured on another PC. New section,
+  "Images captured on another PC", holding the path as RECORDED during capture
+  and the same folder as this PC reaches it - normally a shared folder on the
+  capture machine.
+
+  LWCAM records capture_folders.folder_path as an absolute path on the CAPTURE
+  PC and owns that column; rewriting it would break LWCAM and LWIP, which read
+  the same value. So the QC engine swaps the prefix at the point of use
+  instead. That mechanism already existed and was already tested - it was only
+  reachable from the Vue console, which no longer ships, so on an installed
+  station there was no way to set it and a split capture/QC site could not be
+  configured at all.
+
+  Both boxes blank on a station that captures its own images, which is every
+  single-PC site: the recorded path already resolves and no remapping happens.
+
+  It also means the capture PC does not have to record UNC paths purely so
+  another PC can read them, which would have put its own image writes through
+  SMB.
+
+- The Device ID is no longer locked to SAX##. It was a regex in the user editor
+  that rejected anything else, which stopped site-shaped ids like MYTP01 from
+  being used at all. It is now free-form and upper-cased as it is typed, so
+  "mytp01" is stored and stamped as "MYTP01" and cannot read as a second device.
+  One constraint is kept deliberately: the id is interpolated straight into a
+  file name - the station's lwcam_stats_<id>.db and the <id>_IMG_<stamp>.jpg
+  prefix on every captured image - with no sanitising at either site, so a
+  path separator or a colon there would break the database path rather than be
+  rejected. The rule is therefore 2-32 characters of letters, digits, "_" or
+  "-", starting with a letter or digit. The check now lives in
+  AdminStoreService next to the uniqueness check, so it applies to edits as
+  well as creation rather than only to what the dialog happens to validate.
+
+--------------------------------------------------------------------------------
+ 2026-09-04 - STATION SETUP: SAVE NO LONGER PAYS 700 MS FOR NOTHING
+--------------------------------------------------------------------------------
+
+- Stopping the QC engine before a save enumerated every process on the PC in
+  PowerShell and then slept 700 ms whether or not anything had been stopped.
+  The name filter now runs in WMI and the settle delay applies only when a
+  process was terminated. The installer's copy of the same script matches.
+
+--------------------------------------------------------------------------------
+ 2026-09-04 - STATION SETUP: THE UPLOAD SECTION IS REAL
+--------------------------------------------------------------------------------
+
+- "Run Upload on this PC" now does something. With it on, the QC engine on
+  this station sends every published export package (the <GroupID>.zip or
+  <GroupID>/ folder in the QC output folder) to an S3 bucket and retries what
+  fails; progress and failures show on LWCAM's Exports screen. Four fields
+  appear under the toggle: the S3 path as s3://bucket/prefix, the region
+  (blank = the account default), the access key ID and the secret access key.
+  Written as uploadS3Path / uploadS3Region / uploadS3AccessKey /
+  uploadS3SecretKey in lwcam_node_config.json.
+
+  The toggle is disabled where QC is not installed, since the upload runs
+  inside the QC engine - the old "designate ahead of time" reading is gone.
+  Save refuses an enabled upload with a non-s3:// path or a missing key, with
+  the field named, the same rule the engine applies.
+
+  The secret lives in the per-machine node config in plaintext, exactly as
+  pgPassword and the OpenRouter key do and for the same reason: app_settings
+  is copied to every capture PC, this file is not.
+
+- New field under the toggle: "Uploaded folder", default 4.Uploaded beside
+  1.Images/2.Batches/3.Export (the installer creates it with the same
+  users-modify grant). Once a package is in the bucket the engine moves it out
+  of the QC output folder into this one, so 3.Export holds only what has not
+  gone up yet. Save creates the folder, and refuses one that is the output
+  folder or inside it - the engine lists everything in the output folder as a
+  package, so an Uploaded folder in there would be uploaded itself, forever.
+  Written as uploadDoneRoot.
+
+- New field: "Upload Summary folder", default <install root>\Upload Reports
+  (created by the installer with users-modify, and by Save). The engine keeps
+  Upload_Summary.db3 there: one SQLite row per uploaded package - capture_id,
+  title, image_count, folder_size_mb (decimal MB, 2 dp), upload_speed_mb_s,
+  upload_duration_s, local upload_date/upload_time, and rework as the text
+  TRUE/FALSE from GroupMetadataImage.csv. The file and table are created when
+  missing, missing columns are added to an existing file, and a repeat upload
+  of the same capture_id updates its row. The row is written after the upload
+  is verified and before the package moves to 4.Uploaded. Written as
+  uploadSummaryRoot; required while upload is on.
+
+- Installer: an upgrade repoints LWIP's logon entry itself. Setup deletes the
+  old venv (deliberately - see LWSuite.iss) but the HKCU Run value still named
+  venv\Scripts\pythonw.exe, so LWIP sat idle after every upgrade until
+  someone pressed Save here. RepointLwipAutostart swaps the interpreter path
+  for the new runtime and keeps the launcher argument.
+
+- Save now RESTARTS a running QC backend instead of only starting one. The
+  engine reads its configuration once at import, so on a station where it was
+  already up a save changed nothing: the fresh copy failed to bind the port and
+  exited, the old one kept its old settings until the next logon - and every
+  QC/AI/export/upload field on this screen looked saved while doing nothing.
+  Processes are matched by command line against the QC folder, the same rule
+  the installer uses, so LWIP's Python workers are never touched. An export in
+  flight resumes on the engine's own restart path.
+
+--------------------------------------------------------------------------------
+ 2026-09-04 - LIGHT THEME MIRROR: CORE UI COLORS
+--------------------------------------------------------------------------------
+
+- lib/theme/app_colors.dart and app_theme.dart copied byte-for-byte from LWCAM
+  (the two are a mirror by convention). Light mode: Dark Serpent body text,
+  #64736C secondary text, #DDE5E0 hairlines, #8A9891 muted outline, #D92D2D
+  error, Saffron corrected to #FBB347, Paper for hover and tonal-button /
+  tertiary containers, and text fields with a #C8D3CE rest border, Castleton
+  Green hover/focus border and a Paper fill when focused. See LWCAM's
+  CHANGELOG.txt for the full table. Dark mode unchanged.
+
+--------------------------------------------------------------------------------
+ 2026-09-03 - EXPORT OUTPUT FORMAT, AND THE DRIVE RULE IS NOW ADVICE
+--------------------------------------------------------------------------------
+
+- New QC toggle: "Package each export as a ZIP", default ON. Off publishes each
+  finished group as a plain <GroupID> folder holding the same two CSVs and the
+  same artifacts, for ingest teams that read the files directly instead of
+  unpacking. Which one is right belongs to the project, so it is a station
+  setting rather than a code change. Written as `exportZipOutput`.
+
+  Publishing is identical either way - the package is copied into a staging
+  folder inside the output directory, verified, then renamed into place - so a
+  process watching the output folder never sees a half-written group. An
+  unzipped package is verified against its own ArtifactMetadata.csv, checking
+  every artifact is present and still hashes to the MD5 recorded when it was
+  converted; that is stronger than the CRC check a ZIP gets, and free, because
+  those hashes are computed during the export anyway.
+
+- Station Setup shows Export workers above the ZIP toggle, so the note
+  explaining the worker count sits directly under the field it describes.
+
+- The QC work and output folders may now be on DIFFERENT drives. Saving used to
+  refuse this outright. Nothing in the engine requires one drive: every rename
+  it and LWIP perform targets a sibling of the destination, and the export's one
+  cross-root step copies before it renames. So 1.Images, 2.Batches and 3.Export
+  can each have their own disk, which is a sensible layout when one of them is a
+  fast scratch disk.
+
+  A split now shows a warning rather than blocking the save, because an
+  UNINTENDED one is worth knowing about: every finished package then crosses
+  volumes as a real byte copy. On separate physical disks that is usually a win;
+  on two partitions of one disk it is pure cost.
+
+--------------------------------------------------------------------------------
+ 2026-09-03 - EXPORT WORKER COUNT IS A STATION SETUP FIELD
+--------------------------------------------------------------------------------
+
+The QC export now converts and hashes images across several worker processes
+instead of one at a time (about three times faster on real scans). It sizes
+itself from the hardware using the same rule as LWIP - every core but one - and
+this field is how a station overrides that.
+
+- New QC field: "Export workers (0 = auto)", written to lwcam_node_config.json
+  as `exportWorkerCount` and read by the QC engine as `export_worker_count`.
+  Disabled when QC is not installed on the PC, like the other QC fields.
+
+- Why it exists rather than being left on auto: LWIP sizes itself by the same
+  rule, so a station where both run can end up with two pools of cores-1 workers
+  competing for the same cores. Neither breaks, but both slow down. Setting a
+  number here is how an operator gives the export a smaller share.
+
+- Out-of-range values are clamped by the engine rather than rejected here. The
+  box is free text, and a settings value that fails validation on the engine
+  side would stop the QC backend from starting at all - QC down over a typo.
+
+- FIX, found while testing the above: the generated QC backend launcher
+  (runtime\qc_backend_autostart.py, invoked by the logon Run key) now guards
+  uvicorn.run behind `if __name__ == "__main__":`. That launcher runs as a
+  script, so it IS __main__, and Windows spawns each export worker by re-running
+  the main module - unguarded, every worker started its own uvicorn, blocked on
+  port 8080 instead of converting its image, and the export died with
+  BrokenProcessPool. It would have failed only on an INSTALLED station: the two
+  other launch paths (START_QC_BACKEND.bat and LWCAM's sidecar) both use
+  `python -m uvicorn`, which multiprocessing skips re-running. LWIP's launcher
+  has always had this guard; the QC one never needed it until the export began
+  spawning processes. Saving Station Setup rewrites the launcher, so an existing
+  station picks the fix up on the next save.
+
+--------------------------------------------------------------------------------
+ 2026-09-01 - STATION SETUP OWNS LWIP CLOUD REPORTING
+--------------------------------------------------------------------------------
+
+LWIP can now report finished folders to PostgreSQL itself, so a batch reaches QC
+even when LWCAM is closed (see LWCAM's CHANGELOG for why that mattered). Station
+Setup owns the switch and the credentials.
+
+- New LWIP field: "Report finished folders to the database", default ON. The
+  stations most at risk are the ones nobody revisits to configure, so opt-in
+  would have missed exactly the wrong machines.
+- NodeConfig.processingCloudReport feeds lwip_config_writer's 'cloud_report' key.
+- The generated LWIP launcher now sets LWCAM_NODE_CONFIG, exactly as the QC
+  backend's launcher does. No credential is copied: both are pointed at the one
+  node config this app already owns. lwipNodeConfigPath() is computed locally
+  rather than imported from the QC service - the two autostarts are unrelated and
+  neither should depend on the other for a path.
+
+--------------------------------------------------------------------------------
+ 2026-08-28 - CROP PADDING IS A STATION SETUP FIELD, READ FROM ONE SOURCE
+--------------------------------------------------------------------------------
+
+LWIP's crop padding - the pixels kept on each side of the detected content rect
+before cropping - was a literal in three unrelated places: the config writer
+here, the bundled standalone config, and the benchmark harness. Changing it
+meant finding all three and hoping nothing else had its own copy.
+
+It is now a Station Setup field, and the generated deskew_crop_config.json is
+the single source every consumer reads.
+
+- NodeConfig gains processingCropPadding (default 200, was 40 before today).
+  Added to BOTH apps' copies of the model: LWCAM reads the same file and can
+  rewrite it, and a key its model did not know about would be dropped on that
+  write, silently reverting the padding.
+- Station Setup's LWIP section gains "Crop padding (pixels kept on each side,
+  0 = crop tight)". lwip_config_writer reads config.processingCropPadding
+  instead of pinning a number.
+- lwipConfigProblem now rejects a negative padding, mirroring the rule python
+  enforces at load. Without it a typo left a crash-looping watcher on the
+  capture PC instead of a message on the screen where it was typed.
+- 0 is a meaningful value (crop tight to the detected edge) and is preserved,
+  never treated as "unset" and replaced by the default.
+
+--------------------------------------------------------------------------------
+ 2026-07-21
+--------------------------------------------------------------------------------
+
+- INITIAL RELEASE. PostgreSQL (schema v2 — see "LWCam Workflow & SQL update/
+  LWCam_database_20260720.sql") is the source of truth for users, projects,
+  and app_settings; this app is the ONLY writer of those tables. LWCAM only
+  ever pulls them (read-only, plus a tiny 3-call PG write whitelist for
+  password-change/login-stamp/has-data on its own side).
+
+- AdminStoreService (lib/services/admin_store_service.dart) reconciles
+  PostgreSQL-first with a local-JSON offline fallback (lwcam_users.json,
+  same file and default directory LWCAM's sync pull reads). Every mutation
+  reconciles first (pull-before-transform, so an online edit is never
+  applied on top of a stale local copy), applies validated changes
+  (device-ID/project-name/location-code uniqueness checked locally now,
+  matching PostgreSQL's UNIQUE constraints the old NAS-only UI never
+  checked), then pushes+pulls when online or queues offline
+  (dirty + tombstone, auto-pushed on reconnect by a 30s status timer).
+
+- Schema v2: users gained device_id (UNIQUE) and roles (comma-joined global
+  roles — read back from users.roles, not re-derived from user_projects, so
+  a zero-project admin keeps their role); projects gained project_key (the
+  stable identity every upsert now conflicts on, since project_id is a
+  human-editable label an admin can rename freely); a new app_settings
+  key/value table holds metadata-keying/shutter/default-temp-password
+  settings that used to live only in the NAS JSON.
+
+- SuperAdmin login (lib/auth/super_admin.dart, byte-identical to LWCAM's
+  copy) verifies against, in order: PostgreSQL's password-hash override →
+  the local snapshot's copy of it → the factory hash — works on a
+  brand-new PC with zero PostgreSQL connectivity, which is the intended
+  fresh-station bootstrap path: run a portable build once, use Station
+  Setup to write lwcam_node_config.json (the same file LWCAM's own
+  SyncBootstrap reads) and seed the initial lwcam_users.json snapshot.
+
+- Admin-viewable passwords do not exist (there is no passwordEnc field at
+  all) — User Management can only reset a password to the shared default,
+  matching LWCAM's own retirement of the feature on its side of the split.
+
+--------------------------------------------------------------------------------
+ 2026-07-22
+--------------------------------------------------------------------------------
+
+- Station Setup layout tidied: "Test connection" moved up directly below the
+  Sync interval field (it only concerns the PostgreSQL setup above it), and
+  "Local snapshot path" moved up to sit just under it, before the LWCAM
+  capture station section. Added placeholder "Quality Check (QC)" and
+  "Upload" sections after Image processing, each with its own enable toggle
+  (NodeConfig.qcEnabled/uploadEnabled, default off) — the phases aren't
+  implemented yet, but the toggles persist so a station can be designated
+  ahead of time, matching the modular-phase pattern.
+
+- Station Setup gained an "Image processing (LWIP)" section — this station's
+  toggle for the deskew/crop/thumbnail phase, plus optional input/output
+  folder overrides (blank = destination / <input>_processed) and a worker
+  count. Writes NodeConfig.processingEnabled/processingInputRoot/
+  processingOutputRoot/processingWorkers, which the LWCAM on this PC reads to
+  supervise LWIP. Save-time validation rejects an output folder inside the
+  input folder (mirrors LWIP's own check, so a misconfig fails here rather
+  than crash-looping python). Hint text notes: split-PC processing should
+  use UNC paths, and cloud reporting needs Capture-data sync enabled.
+
+- Dark/light mode toggle added as a Home app-bar icon — same placement and
+  behavior as LWCAM's (persisted per user via ThemeController).
+
+- Station Setup gained an "LWCAM capture station" section — this app is now
+  the ONLY place a station is configured (LWCAM's own Settings page was
+  removed; Settings/Devices are SuperAdmin-only, restoring the pre-split
+  rule): the image destination folder (new NodeConfig.destinationPath,
+  with a folder picker) and LWCAM's capture-data sync toggle (previously
+  hidden carry-through, now an editable switch). LWCAM reads both from the
+  shared lwcam_node_config.json at launch and on every login.
+
+--------------------------------------------------------------------------------
+ 2026-07-21 (review pass)
+--------------------------------------------------------------------------------
+
+Findings from a three-way review (cross-app contracts, LWCAM sync/auth,
+this app) — all verified against the code before fixing:
+
+- FIXED (critical): pushSnapshot now applies delete-tombstones BEFORE the
+  upserts (and recreating a deleted username drops its queued tombstone in
+  the store too). Previously an offline delete-then-recreate of the same
+  username pushed the new account and then soft-deleted it in the same
+  transaction — the account silently vanished everywhere on the next pull.
+
+- FIXED (critical): recreating a deleted project (or reusing a deleted
+  user's device ID) no longer wedges sync permanently. Soft-deleted rows
+  kept their UNIQUE-constrained values, so the recreate's INSERT hit a
+  unique violation on the dead row and every subsequent push failed
+  forever. Schema: users.device_id / projects.project_id / project_name
+  switched to PARTIAL unique indexes (live rows only). country_location_
+  code stays full UNIQUE (FK target from devices) — projectSoftDeleteSql
+  now frees it by rewriting it to '~deleted~<id>' instead (the devices FK
+  cascades; a still-bound device stays blocked until reassigned, as it
+  should). DROP AND RECREATE the database from the updated SQL file.
+
+- FIXED (major): the 30s reconcile timer (SyncStatusController) was never
+  registered — queued offline edits never auto-pushed on reconnect and the
+  Home status banner never updated on its own. Registered at startup.
+
+- FIXED (major): a dirty offline push could regress PostgreSQL fields LWCAM
+  owns — most seriously a capture user's self-changed password (the stale
+  whole-store snapshot carried the old hash). The user upsert's DO UPDATE
+  no longer touches password/must_change_password at all; explicit admin
+  resets (and recreates of deleted usernames) go through a new targeted
+  reset statement driven by a pendingPasswordResets queue in the store,
+  and projects.has_data is now monotonic (OR, never back to false).
+
+- FIXED (major): the Home status banner froze on its pre-save state after
+  any Station Setup save (it was bound to the deleted service instance's
+  Rx). It now re-binds via a bootstrap generation counter.
+
+- FIXED (major): the Devices screen gated on LWCAM's capture-outbox
+  syncEnabled flag (defaults false, no UI here) — dead on every admin-only
+  station. Now gates on this app's own pgConnectionEnabled + host.
+
+- FIXED (major): Station Setup rendered blank/default fields on its first
+  open per app run (async config load vs initialValue text fields) — an
+  admin could re-save defaults over a configured station. The form now
+  waits for the load, and every open re-reads the file from disk (LWCAM
+  shares it and may have rewritten it).
+
+- FIXED (minor): startup no longer blocks the window behind the initial
+  PG reconcile (~5s connect timeout when the host is unreachable); the
+  trySync pull-write now takes the same .lock as mutations (shared-folder
+  multi-admin edge); list parameters are now explicitly typed as text[]
+  (was relying on driver fallback behavior); Project IDs may no longer
+  contain '|' (the user_projects pair-encoding separator).
+
+--------------------------------------------------------------------------------
+ 2026-07-21 (later)
+--------------------------------------------------------------------------------
+
+- (Later tweak: the toggle was moved to the TOP of the PostgreSQL
+  connection section, above the Host field, and retitled "Enable
+  connection" — its state is the first thing an admin should see/set.)
+
+- Station Setup gained a "PostgreSQL connection" toggle
+  (NodeConfig.pgConnectionEnabled, default true). Previously the only way
+  to stop AdminStoreService's automatic PG reconcile was to blank out the
+  host, losing the saved credentials. The toggle lets an admin keep them
+  configured but stop connection attempts — trySync() now skips the probe
+  entirely when off, going straight to the same offline-queue branch a
+  real unreachable PG uses. Intended for a genuinely permanently-offline
+  site, or for testing offline behavior without discarding config. The
+  Home status bar shows a distinct "PostgreSQL connection disabled" line
+  (informational, not a warning) instead of the ordinary "Offline" one.
+  LWCAM never reads this field.
