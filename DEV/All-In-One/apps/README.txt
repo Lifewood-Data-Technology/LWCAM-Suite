@@ -35,7 +35,7 @@ Chinese version of this file: README_CN.txt
 Documentation is deliberately uniform. Every project has exactly three
 documents, and no others:
 
-  CLAUDE.md       The deep architecture reference. Written service by service,
+  AGENTS.md       The deep architecture reference. Written service by service,
                   with the design history and the reasoning behind every
                   non-obvious choice. This is where you go to understand the
                   code. English only — the filename is read by tooling.
@@ -49,9 +49,9 @@ Plus, where they exist:
   LWCAM\LWIP\README.txt / README_CN.txt
                   Full behavioural spec of the image watcher — stability
                   gates, atomic publication, checksum audits, recovery. LWIP
-                  has no CLAUDE.md, so this file is its whole documentation.
+                  has no AGENTS.md, so this file is its whole documentation.
 
-Reading order for a new developer: this file, then the CLAUDE.md of whichever
+Reading order for a new developer: this file, then the AGENTS.md of whichever
 application you are assigned to, then that project's README.txt when you are
 ready to build it.
 
@@ -68,7 +68,7 @@ calls it "LWIP", which now means something else entirely — and documented a
 checkpoint system deleted on 2026-07-20. FILE_LOCK_SERVICE_DOCS.md went with
 them because its API reference was wrong: it described a "200+ line" service
 with seven members, where lib/services/file_lock_service.dart is 111 lines with
-four. Everything of substance was folded into the CLAUDE.md and README.txt
+four. Everything of substance was folded into the AGENTS.md and README.txt
 files above. The originals remain in Lifewood's working copy.
 
 
@@ -134,7 +134,7 @@ Roles in one line each:
 Direction of truth:
   * PostgreSQL is the source of truth for users, projects and app settings.
   * The phone is the source of truth for captured image bytes, with one
-    documented exception (see LWCAM\CLAUDE.md, stageBoxFiles).
+    documented exception (see LWCAM\AGENTS.md, stageBoxFiles).
   * The local SQLite DB is the source of truth for box membership on the
     capture PC, and its sync_outbox rows exist nowhere else until pushed.
 
@@ -415,7 +415,7 @@ section 6.
       README_CN.txt is allowed to exist. README.txt is the English primary and
       should be updated first; README_CN.txt tracks it.
 
-Key files to read first (CLAUDE.md explains all of them in context):
+Key files to read first (AGENTS.md explains all of them in context):
   backend/app/core/paths.py          host-to-container path translation, the
                                      subtlest piece of the backend
   backend/app/core/node_config.py    the shared-config contract
@@ -452,7 +452,7 @@ The files:
         otherwise applies both migrations, then verifies that
         capture_folders.qc_locked_by exists and fails loudly if it does not.
   LWCAM\LWCam Workflow & SQL update\LWCam_database_20260720.sql
-        The capture-side authority referenced throughout LWCAM's CLAUDE.md.
+        The capture-side authority referenced throughout LWCAM's AGENTS.md.
         LWCAM's local SQLite capture tables mirror this file column for
         column. When you change one, change the other.
   LWCAM\LWCam Workflow & SQL update\LWCam_database_20260720_updated_ERD.drawio
@@ -505,7 +505,7 @@ Schema facts you will need:
     Crossing those lines causes silent data loss on the next sync tick.
   * There are exactly two writers of the capture_folders pipeline columns
     (is_deskewed / is_cropped / is_created_thumbnail / folder_path /
-    thumbnail_path / qc_status). See LWCAM\CLAUDE.md, the sync-pipeline
+    thumbnail_path / qc_status). See LWCAM\AGENTS.md, the sync-pipeline
     bullet, before adding a third.
 
 
@@ -553,8 +553,8 @@ The database schema and ERD ARE included — see section 6.
  8. FIRST DAY: RECOMMENDED ORDER
 --------------------------------------------------------------------------------
 
-  1. Read LWCAM\CLAUDE.md end to end. Then LWCamAdmin\CLAUDE.md and
-     LWCam_QC_Platform\CLAUDE.md. Budget two hours; they will save you a week.
+  1. Read LWCAM\AGENTS.md end to end. Then LWCamAdmin\AGENTS.md and
+     LWCam_QC_Platform\AGENTS.md. Budget two hours; they will save you a week.
   2. Install PostgreSQL. Create the login role the suite will use; you do not
      need to create the database itself.
   3. Build LWCam Admin, log in as SuperAdmin, fill in Station Setup. This
@@ -589,7 +589,7 @@ clean.
 --------------------------------------------------------------------------------
 
 Several things in this codebase look like mistakes and are not. Before
-"cleaning up", check this list and the CLAUDE.md History sections.
+"cleaning up", check this list and the AGENTS.md History sections.
 
   * `upload_contoller.dart` and `settings_page.dart` — see section 4.
   * print() logging with emoji prefixes is the established style across all

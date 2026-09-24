@@ -13,7 +13,7 @@ LWIP 独立纠偏/裁切工具
 它有两种运行方式：独立运行（START_DESKEW_CROP.bat，手工编辑配置），或由 LWCAM 作为
 流水线的图像处理阶段来监管。在被监管模式下，LWCAM 生成配置（folder_depth 2、以采集
 标记文件作为完成判据、512px 缩略图），负责启动和重启本工具，并读取输出清单和
-state.json 来更新数据库——本工具自身依然不接触任何数据库。参见 LWCAM 的 CLAUDE.md
+state.json 来更新数据库——本工具自身依然不接触任何数据库。参见 LWCAM 的 AGENTS.md
 中的 "Image-processing phase" 一节。
 
 

@@ -13,7 +13,7 @@ from what the others produce.
 A non-quarter-turn deskew/rotate is resampled with OpenCV's LANCZOS4, not
 Pillow's rotate(): Pillow's own transform() hard-refuses LANCZOS for an
 AFFINE method (raises from C, any Pillow version - see the fallback below),
-and the project's own interpolator comparison (CLAUDE.md) measured BICUBIC
+and the project's own interpolator comparison (AGENTS.md) measured BICUBIC
 well below LANCZOS4 on detail retention (0.48 vs 0.94 high-frequency
 retention). The export TIFF is the delivered artifact, so this is not a
 cosmetic choice. An exact quarter turn (0/90/180/270) still goes through

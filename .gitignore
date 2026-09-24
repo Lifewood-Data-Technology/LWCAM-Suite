@@ -26,7 +26,7 @@ DEV/All-In-One/apps/LWCAM/LWIP/tools/
 *.obj
 
 # ---- snapshot extracted from the compiled installer --------------------
-# Kept on disk for build verification, not source. See CLAUDE.md.
+# Kept on disk for build verification, not source. See AGENTS.md.
 DEV/{app}/
 
 # ---- image corpora and export artifacts (per-project folders) ----------
@@ -36,3 +36,6 @@ DEV/{app}/
 *.tif
 *.tiff
 *.dng
+
+# ---- editor/hand-made backups ------------------------------------------
+*.bak

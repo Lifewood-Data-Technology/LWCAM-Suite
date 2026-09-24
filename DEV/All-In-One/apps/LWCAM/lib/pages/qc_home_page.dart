@@ -157,6 +157,16 @@ Future<bool?> _confirmNextTask(QcNextUp next) {
 
 // Stateful only for the search field's TextEditingController: it has to
 // outlive a rebuild, or every keystroke would reset the caret to the start.
+/// The height every control in the scope bar is held to.
+///
+/// Material's segmented button is 40 by default and VisualDensity.compact —
+/// what adaptivePlatformDensity resolves to on Windows — takes 8 off it.
+/// Nothing applies that density to an input field, so the search box has to be
+/// told. Asserted against the real segmented button in
+/// test/pages/scope_bar_height_test.dart, which is the half of this that could
+/// drift.
+const double scopeBarControlHeight = 32;
+
 class _ScopeBar extends StatefulWidget {
   const _ScopeBar({required this.controller});
 
@@ -199,6 +209,13 @@ class _ScopeBarState extends State<_ScopeBar> {
               for (final scope in QcScope.values)
                 ButtonSegment(value: scope, label: Text(scope.label)),
             ],
+            // No checkmark on the selected segment. Every segment is sized to
+            // the widest, and the checkmark only lands on one of them, so the
+            // whole control changed width by 43px depending on WHICH scope was
+            // selected - widest on Completed, narrowest on My tasks. The theme
+            // already tints the selected segment's background and foreground,
+            // which is what the operator actually reads.
+            showSelectedIcon: false,
             selected: {controller.scope.value},
             onSelectionChanged: (selection) =>
                 controller.setScope(selection.first),
@@ -210,20 +227,44 @@ class _ScopeBarState extends State<_ScopeBar> {
           if (controller.scope.value == QcScope.completed) ...[
             SizedBox(
               width: 260,
+              // Pinned to the tabs' height. Left to itself the field is 40:
+              // an InputDecoration's icons default to a 48x48 tap target and
+              // nothing shrinks them at compact density, while the segmented
+              // control DOES shrink to 32. The Row is as tall as its tallest
+              // child, so entering Completed made the whole bar 8px taller and
+              // shoved the tabs down with it.
+              height: scopeBarControlHeight,
               child: TextField(
                 controller: _searchCtl,
                 onChanged: controller.search,
                 textInputAction: TextInputAction.search,
+                style: Theme.of(context).textTheme.bodyMedium,
                 decoration: InputDecoration(
                   isDense: true,
-                  prefixIcon: const Icon(Icons.search, size: 20),
+                  // Zero vertical padding: the SizedBox above fixes the height
+                  // and the field centres its content inside it.
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: scopeBarControlHeight,
+                  ),
                   hintText: 'Search Group ID or name',
                   border: const OutlineInputBorder(),
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: scopeBarControlHeight,
+                  ),
                   suffixIcon: controller.searchQuery.value.isEmpty
                       ? null
                       : IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
+                          icon: const Icon(Icons.clear, size: 16),
                           tooltip: 'Clear search',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: scopeBarControlHeight,
+                          ),
                           onPressed: () {
                             _searchCtl.clear();
                             controller.search('');

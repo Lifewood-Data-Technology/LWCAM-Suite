@@ -22,14 +22,30 @@ from PIL import Image, JpegImagePlugin
 
 from app.core.config import settings
 from app.core.errors import ApiCodes, BusinessError
+from app.services import export
 from app.routers.qc import apply_pending_ops, assert_luminance_enabled
 from app.services.export import convert_to_tiff, sanitise_tiff_tag
 
 
 GPS_IFD = 0x8825
+PREDICTOR = 317
 MAKE = 0x010F
 MODEL = 0x0110
 DATETIME = 0x0132
+
+
+def strip_bytes(path: Path) -> bytes:
+    """The compressed image data itself, read past the tags.
+
+    Two TIFFs that differ only in a declared-but-unapplied predictor would carry
+    identical strips; this is what makes that distinguishable from one where the
+    transform actually ran.
+    """
+    with Image.open(path) as artifact:
+        offsets = artifact.tag_v2[273]
+        counts = artifact.tag_v2[279]
+    raw = path.read_bytes()
+    return b"".join(raw[o:o + c] for o, c in zip(offsets, counts))
 
 
 def write_capture(path: Path, *, size: tuple[int, int] = (900, 1200)) -> None:
@@ -162,6 +178,61 @@ class ConvertToTiffTests(unittest.TestCase):
             self.assertEqual(tags.get(MODEL), "Xiaomi 14 Ultra")
             self.assertEqual(tags.get(DATETIME), "2026:08:04 14:29:30")
             self.assertTrue(icc)
+
+    def test_the_predictor_is_recorded_and_provenance_survives_it(self) -> None:
+        """Tag 317 has to arrive WITH the camera tags, not instead of them.
+
+        Pillow takes a single `tiffinfo`, so the predictor is written into the
+        same directory the provenance tags are assembled in. Passing it as its
+        own dict silently replaces that directory, and the delivery loses the
+        capture identity again - the exact regression this module exists for.
+        """
+        with TemporaryDirectory() as temporary:
+            page = Path(temporary) / "page.jpg"
+            target = Path(temporary) / "page.tif"
+            write_capture(page)
+
+            convert_to_tiff(page, target)
+
+            with Image.open(target) as artifact:
+                tags = artifact.tag_v2
+                icc = artifact.info.get("icc_profile")
+            self.assertEqual(tags.get(PREDICTOR), 2, "horizontal differencing")
+            self.assertIn(tags.get(259), (8, 32946), "must stay adobe_deflate")
+            self.assertEqual(tags.get(MAKE), "Xiaomi")
+            self.assertEqual(tags.get(MODEL), "Xiaomi 14 Ultra")
+            self.assertTrue(icc)
+
+    def test_the_predictor_is_applied_and_not_merely_declared(self) -> None:
+        """Written tag, unwritten effect, is the failure this guards against.
+
+        Compared against predictor 1 - TIFF's own "no prediction", not a second
+        code path - so the two files differ in exactly one thing. If the tag were
+        declared but the transform skipped, the compressed strips would be byte
+        identical; they must not be. And it has to be reversible, so both files
+        decode to the same pixels, which are the capture's own.
+
+        Size is deliberately NOT asserted. The gain is content dependent: the
+        delivered camera pages measured -16% to -37%, but this module's synthetic
+        fixture, once round-tripped through JPEG, gets slightly LARGER. Pinning a
+        byte count here would pin the fixture, not the behaviour.
+        """
+        with TemporaryDirectory() as temporary:
+            page = Path(temporary) / "page.jpg"
+            predicted = Path(temporary) / "predicted.tif"
+            plain = Path(temporary) / "plain.tif"
+            write_capture(page)
+
+            convert_to_tiff(page, predicted)
+            with patch.object(export, "TIFF_PREDICTOR_HORIZONTAL", 1):
+                convert_to_tiff(page, plain)
+
+            self.assertNotEqual(strip_bytes(predicted), strip_bytes(plain))
+            with Image.open(predicted) as a, Image.open(plain) as b, Image.open(page) as source:
+                self.assertEqual(a.tobytes(), b.tobytes(), "predictor is reversible")
+                # And the delivery still matches the capture it came from: a
+                # page with no ops is the camera's pixels, predictor or not.
+                self.assertEqual(a.tobytes(), source.convert(a.mode).tobytes())
 
     def test_gps_never_reaches_the_artifact(self) -> None:
         """LWIP strips GPS, and nothing here may put it back.

@@ -34,7 +34,7 @@ abstract final class AuditActions {
 }
 
 /// Local, append-only audit trail + a dedicated replacement log — see
-/// CLAUDE.md/CHANGELOG.txt: management asked for replacement history to live
+/// AGENTS.md/CHANGELOG.txt: management asked for replacement history to live
 /// in human-readable local logs, not the cloud DB (see also
 /// upload_stats_db.dart's replacement_records — local-operational only, never
 /// synced).

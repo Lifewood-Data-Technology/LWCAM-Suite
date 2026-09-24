@@ -115,6 +115,10 @@ LOGGER = logging.getLogger(__name__)
 # iMCU grid: 16 px for the 4:2:0 chroma the capture phone writes, 8 px for
 # 4:4:4. One snap to 16 serves both.
 LOSSLESS_CROP_GRID = 16
+# Pixels kept clear of rotation fill because QC's Lanczos4 resample reads 4 px
+# beyond each kept pixel, plus rounding; measured on real captures, a 1 px gap
+# left 70-93 fill-blended pixels, 5 px left 19, 8 px left 0.
+RESAMPLE_REACH = 8
 # Override for a station whose tools folder is elsewhere; the default is the
 # LWIP\tools folder the installer ships.
 JPEGTRAN_ENV = "LWIP_JPEGTRAN"
@@ -320,14 +324,13 @@ def deskew_crop_file(
     crop_box: tuple[int, int, int, int] | None = None
     qc_ops: list[dict[str, object]] = []
     if contour is not None:
-        # Bounding rect of the UNROTATED contour: a tilted page's corners sit
-        # inside this box (padding is what keeps them there), it is just
-        # larger than the axis-aligned box a straightened page would need.
-        x, y, width, height = cv2.boundingRect(contour)
-        left = max(0, x - padding)
-        top = max(0, y - padding)
-        right = min(image.shape[1], x + width + padding)
-        bottom = min(image.shape[0], y + height + padding)
+        # Keep enough of the camera frame for the final, straightened crop.
+        # A tilted page's padded output rectangle maps back to a larger
+        # quadrilateral; cropping only the unrotated contour's bbox would
+        # leave rotation-fill wedges inside that requested margin.
+        left, top, right, bottom = _source_crop_box(
+            contour, angle, padding, image.shape[1], image.shape[0]
+        )
         if right > left and bottom > top:
             # No decode, no encode: the delivered pixels ARE the camera's.
             # Orientation 2..8 means cv2 rotated the frame on decode, so the
@@ -414,11 +417,12 @@ def _build_qc_ops(
     expand=True)`) does to the frame: rotate the frame's own corners about
     its centre, take their bounding box for the expanded W/H, shift so its
     top-left is (0, 0), apply the same transform to the (already
-    output-frame-shifted) contour, then pad and clamp -- to the rotated frame
-    itself, not just to the canvas, so the padding cannot reach into the
-    black the expand leaves at the corners. No pixel is touched; this is pure
-    geometry so QC's later resample lands on the same box LWIP would have
-    cropped to itself.
+    output-frame-shifted) contour, then pad and clamp each side to the real
+    rotated source polygon. `_source_crop_box` keeps the inverse-rotated
+    padded rectangle in the JPEG crop whenever the capture has room, so this
+    clamp removes margin only where the photo itself ends. No pixel is
+    touched; this is pure geometry so QC's later resample lands on the same
+    box LWIP would have cropped to itself.
     """
     # -angle, not angle. `degrees` above is what QC PASSES to rotate(); the
     # direction the pixels then MOVE under it is the opposite one, and this
@@ -491,7 +495,7 @@ def _clamp_to_rotated_frame(
     cos_phi: float,
     sin_phi: float,
 ) -> tuple[float, float, float, float]:
-    """Shrink a padded crop rect until it holds none of the rotation fill.
+    """Trim only the sides of a padded crop that run into rotation fill.
 
     `Image.rotate(expand=True)` leaves black wedges at the corners of the
     expanded canvas, and QC's replay fills them the same way (geometry_ops
@@ -503,42 +507,110 @@ def _clamp_to_rotated_frame(
 
     A point p is inside the rotated source frame iff |u.(p - c)| <= W/2 and
     |v.(p - c)| <= H/2, for the rotated axes u = (cos, sin), v = (-sin, cos).
-    The worst corner of an axis-aligned rect is then a closed form in its own
-    half-extents, so the largest uniform shrink about its centre that
-    satisfies both is the smaller of two ratios -- no search, no iteration.
+    When a crop corner fails one of those half-planes, move an offending edge
+    inward only as far as that plane requires. Keep `RESAMPLE_REACH` pixels
+    clear so QC's Lanczos4 resample, including its rounding, cannot blend
+    rotation fill into a kept pixel. Recheck all corners after each trim because
+    an edge can participate in more than one plane.
 
-    No floor: the fill is invented content and never ships. On a capture
-    whose detected outline runs to the frame edge the shrink eats past the
-    padding into the outline itself - measured across 99 control captures,
-    at most 154px on a 5694px frame, and those pixels are the capture's own
-    outermost edge, which the rotation has already mixed with fill.
+    No fill is allowed into the delivery. If the page itself reaches the
+    capture edge, only the margin on that side is reduced; a uniform shrink
+    would needlessly take the same amount from all four sides.
     """
     cx, cy = centre
-    rcx, rcy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-    xh, yh = (x1 - x0) / 2.0, (y1 - y0) / 2.0
-    dx, dy = rcx - cx, rcy - cy
-    abs_cos, abs_sin = abs(cos_phi), abs(sin_phi)
-    # The pixel comes off the room, not the reach: min_x/min_y are floored, so
-    # the frame sits up to a pixel off the canvas grid this rect is measured
-    # against, and the shrink has to cover that.
-    scales = []
-    for reach, room in (
-        (
-            abs_cos * xh + abs_sin * yh,
-            half_width - abs(cos_phi * dx + sin_phi * dy) - 1.0,
-        ),
-        (
-            abs_sin * xh + abs_cos * yh,
-            half_height - abs(-sin_phi * dx + cos_phi * dy) - 1.0,
-        ),
-    ):
-        if reach > room:
-            scales.append(max(0.0, room) / reach)
-    if not scales:
-        return x0, y0, x1, y1
-    scale = min(scales)
-    xh, yh = xh * scale, yh * scale
-    return rcx - xh, rcy - yh, rcx + xh, rcy + yh
+    planes = (
+        (cos_phi, sin_phi, half_width - RESAMPLE_REACH),
+        (-cos_phi, -sin_phi, half_width - RESAMPLE_REACH),
+        (-sin_phi, cos_phi, half_height - RESAMPLE_REACH),
+        (sin_phi, -cos_phi, half_height - RESAMPLE_REACH),
+    )
+    for _ in range(32):
+        corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+        violation = None
+        for a, b, limit in planes:
+            maximum = max(a * (x - cx) + b * (y - cy) for x, y in corners)
+            if maximum > limit:
+                violation = (a, b, limit, maximum)
+                break
+        if violation is None:
+            return x0, y0, x1, y1
+
+        a, b, limit, _maximum = violation
+        candidates = []
+        for edge, indices, coefficient in (
+            ("left", (0, 3), -a),
+            ("right", (1, 2), a),
+            ("top", (0, 1), -b),
+            ("bottom", (2, 3), b),
+        ):
+            edge_max = max(
+                a * (corners[i][0] - cx) + b * (corners[i][1] - cy)
+                for i in indices
+            )
+            if coefficient > 1e-9 and edge_max > limit:
+                candidates.append((coefficient, edge, edge_max - limit))
+        if not candidates:
+            break
+        coefficient, edge, edge_excess = max(candidates)
+        movement = edge_excess / coefficient + 1e-6
+        if edge == "left":
+            x0 += movement
+        elif edge == "right":
+            x1 -= movement
+        elif edge == "top":
+            y0 += movement
+        else:
+            y1 -= movement
+        if x0 >= x1 or y0 >= y1:
+            break
+    return x0, y0, x1, y1
+
+
+def _source_crop_box(
+    contour_xy: np.ndarray,
+    angle: float,
+    padding: int,
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int]:
+    """Keep the inverse-rotated final padded crop available to QC.
+
+    The final crop is axis-aligned after deskew. Its four corners, mapped back
+    through the inverse deskew, define the source-space bounds needed to hold
+    all requested photo pixels. Clipping those bounds to the camera frame is
+    the only place padding is lost due to lack of source image.
+
+    A straight page keeps the exact box it always had: cv2.boundingRect's
+    exclusive right/bottom edge sits one pixel past the contour's last
+    point, and the float path below (ceil of that point) would be a pixel
+    short, which after snap_crop_box can land a whole 16 px block smaller.
+    """
+    if angle == 0.0:
+        x, y, box_width, box_height = cv2.boundingRect(contour_xy)
+        return (
+            max(0, x - padding),
+            max(0, y - padding),
+            min(width, x + box_width + padding),
+            min(height, y + box_height + padding),
+        )
+    phi = math.radians(-angle)
+    cos_phi, sin_phi = math.cos(phi), math.sin(phi)
+    cx, cy = width / 2.0, height / 2.0
+    points = contour_xy.reshape(-1, 2).astype(np.float64)
+    dx, dy = points[:, 0] - cx, points[:, 1] - cy
+    rotated_x = cx + dx * cos_phi - dy * sin_phi
+    rotated_y = cy + dx * sin_phi + dy * cos_phi
+    x0, x1 = float(rotated_x.min()) - padding, float(rotated_x.max()) + padding
+    y0, y1 = float(rotated_y.min()) - padding, float(rotated_y.max()) + padding
+    corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    source_x = [cx + (x - cx) * cos_phi + (y - cy) * sin_phi for x, y in corners]
+    source_y = [cy - (x - cx) * sin_phi + (y - cy) * cos_phi for x, y in corners]
+    left = max(0, math.floor(min(source_x)) - RESAMPLE_REACH)
+    top = max(0, math.floor(min(source_y)) - RESAMPLE_REACH)
+    right = min(width, math.ceil(max(source_x)) + RESAMPLE_REACH)
+    bottom = min(height, math.ceil(max(source_y)) + RESAMPLE_REACH)
+    return left, top, right, bottom
+
 
 def apply_qc_ops(image: Image.Image, qc_ops: list[dict[str, object]]) -> Image.Image:
     """Replays LWIP's deferred straightening ops on an already-written output

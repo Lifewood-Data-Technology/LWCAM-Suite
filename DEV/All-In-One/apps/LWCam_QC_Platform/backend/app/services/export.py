@@ -103,6 +103,20 @@ SOURCE_NAME_PATTERN = re.compile(
 SAFE_GROUP_PART = re.compile(r"^[A-Za-z0-9_-]+$")
 DEFLATE_COMPRESSION_TAGS = {8, 32946}
 
+# TIFF 6.0 Predictor (tag 317). 2 = horizontal differencing: deflate then
+# compresses the difference between neighbouring pixels instead of the pixels
+# themselves. Reversible, so the decoded image is identical byte for byte -- it
+# buys size, never quality. Measured over one exported folder of these pages:
+# 193.4 MB -> 137.6 MB (-29%, per page -16% to -37%), for about 40% more encode
+# time. The gain is content dependent - photographed pages, with their smooth
+# tonality and correlated grain, are the best case; flat graphic content can come
+# out marginally larger - but the delivery is photographed pages.
+#
+# Left unconditional rather than made a setting: the file is identical either
+# way, so a switch would only offer a station the larger one.
+TIFF_PREDICTOR_TAG = 317
+TIFF_PREDICTOR_HORIZONTAL = 2
+
 # Capture provenance carried into the exported TIFF. Restricted to tags TIFF
 # defines natively -- an EXIF-only tag has no legal home in a TIFF IFD, and the
 # pointer tags (ExifIFD 34665, GPSIFD 34853) cannot be rewritten by Pillow at
@@ -644,8 +658,12 @@ def convert_to_tiff(source_path: Path, target_path: Path, ops: list[dict] | None
                 if value in (None, ""):
                     continue
                 carried[tag] = value
-            if carried:
-                save_options["tiffinfo"] = carried
+            # The predictor rides in the provenance directory because Pillow
+            # accepts ONE tiffinfo: passing it separately would drop the camera
+            # tags this block just assembled. Set unconditionally, so a page
+            # whose EXIF carried nothing still gets the smaller encoding.
+            carried[TIFF_PREDICTOR_TAG] = TIFF_PREDICTOR_HORIZONTAL
+            save_options["tiffinfo"] = carried
             frame.save(fs_path(temp_path), format="TIFF", **save_options)
         os.replace(fs_path(temp_path), fs_path(target_path))
     finally:

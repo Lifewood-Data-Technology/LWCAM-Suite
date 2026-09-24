@@ -1,18 +1,18 @@
-# CLAUDE.md — LWCAM All-In-One workspace
+# AGENTS.md — LWCAM All-In-One workspace
 
 Guidance for Claude Code working in this workspace. Each app has its own
-`CLAUDE.md` with its architecture; this file covers what spans them — how to
+`AGENTS.md` with its architecture; this file covers what spans them — how to
 build and verify, what is already broken before you touch anything, and the
 deployment traps that are not visible from the source.
 
 `START-HERE.md` (one level up) is the operator-facing setup guide. This is the
 developer one.
 
-This file lives in the repository so it travels with the code. The copy at
-`../CLAUDE.md` is a pointer, not a duplicate: Claude Code loads `CLAUDE.md`
-upward from the working directory, which is the folder above this one, and that
-folder is outside the repository. Edit THIS file; the pointer never needs to
-change.
+This file lives in the repository so it travels with the code. The `AGENTS.md`
+at the root of the `Dev` work tree — one level ABOVE the repository, so not
+tracked here — is a pointer, not a duplicate: Claude Code walks upward from the
+working directory and loads every `AGENTS.md` it passes. Edit THIS file; the
+pointer describes the folder layout and never needs to change.
 
 ## The three apps
 
@@ -23,7 +23,9 @@ change.
 | `apps/LWCam_QC_Platform` | FastAPI backend + a Vue frontend that is **no longer shipped** (`LWSuite.iss:35`). The backend still runs; the frontend survives only as the reference for the Flutter QC port. |
 
 All three share one PostgreSQL schema. Column ownership is strict and enforced by
-convention only — see the table in `apps/LWCam_QC_Platform/CLAUDE.md`.
+convention only — see the table in `apps/LWCam_QC_Platform/AGENTS.md`, which
+exists on the `qc-platform`, `usa-demo` and `color-cal` branches. This branch
+carries no per-app doc for it.
 
 ## Gates, and the baseline they must beat
 

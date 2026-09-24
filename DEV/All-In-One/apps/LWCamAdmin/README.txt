@@ -21,7 +21,7 @@ Chinese version of this file: README_CN.txt
 DOCUMENTATION
 --------------------------------------------------------------------------------
 
-  CLAUDE.md       START HERE. Full architecture, the PostgreSQL gateway, the
+  AGENTS.md       START HERE. Full architecture, the PostgreSQL gateway, the
                   offline-queue mutation model, and why this app exists.
   CHANGELOG.txt   Dated change history from 2026-07-21, the day this app was
                   split out of LWCAM. Nothing predates that.

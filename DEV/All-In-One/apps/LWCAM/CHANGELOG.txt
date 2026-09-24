@@ -3,10 +3,22 @@
 ================================================================================
 
 - Forked from LifeTrans (life_transfer) on 2026-07-14, keeping legacy Normal
-  Mode + Box Mode and dropping Rework Mode entirely; see CLAUDE.md "History"
+  Mode + Box Mode and dropping Rework Mode entirely; see AGENTS.md "History"
   for the full rationale. Entries below this point predate the fork and
   describe the combined app; entries from 2026-07-14 onward describe LWCAM
   alone (its sibling LWRework has its own CHANGELOG.txt from the same point).
+
+--------------------------------------------------------------------------------
+ 2026-09-24 - LWIP: PRESERVE TILTED-PAGE BACKGROUND THROUGH QC DESKEW
+--------------------------------------------------------------------------------
+
+- `deskew_crop_file` now maps the final padded, straightened crop back into
+  camera coordinates before cropping the JPEG. This retains the real photo
+  background needed around a tilted page after QC rotates it.
+- The rotated-frame guard trims only the side or sides that run into the camera
+  frame boundary. A shortage at one edge no longer shrinks all four margins.
+- Added regression coverage for a 2-degree page with enough capture background
+  to retain 200px on every side after replaying the QC ops.
 
 --------------------------------------------------------------------------------
  2026-09-10 - LUMINANCE CORRECTION OFF BY DEFAULT
@@ -465,7 +477,7 @@ a 4-folder page keeping 3 rows. Two more assert the wiring: exactly two
 `task_vo_or_skip` calls in `list_tasks` and no bare `to_task_vo` left there, and
 that `claim_next` still does NOT use the wrapper.
 
-NOTE ON THE GATE: `apps/CLAUDE.md` records the QC platform's own suite as
+NOTE ON THE GATE: `apps/AGENTS.md` records the QC platform's own suite as
 8 fail / 385 pass. That suite is NOT IN THIS TREE - `backend/tests/` holds only
 the four files added since 2026-09-09, and there is no conftest.py. It is
 un-runnable here rather than merely un-run, consistent with this build's QC
@@ -1964,12 +1976,12 @@ SYNC: PER-BATCH BOX-ID CACHE NEVER HIT ACROSS ENTITY TYPES
   rename invalidation removed a key nobody wrote. Never returned a wrong id —
   purely wasted round-trips. Keys now match.
 
-DOCS: CLAUDE.md HAD DRIFTED FURTHER THAN THE REVIEW CLAIMED
+DOCS: AGENTS.md HAD DRIFTED FURTHER THAN THE REVIEW CLAIMED
 - It still asserted Rework Mode was removed at the fork, while the codebase has
   had a full QC-driven rework loop since 2026-07-30 — a reader would have
   treated every rework_* symbol as dead code. Now documented, with the fork-era
   statements explicitly marked as expired.
-- The DB recovery flow was in neither CLAUDE.md nor this changelog despite
+- The DB recovery flow was in neither AGENTS.md nor this changelog despite
   being a user-facing destructive action. Now documented in both.
 - Corrected: "the SOLE pipeline writer" (there are two — folderQcStatusPendingSql
   also writes them, as its own doc comment already admitted); schema "version 1"
@@ -2326,7 +2338,7 @@ CHANGE: REWORK NOW OPENS THE CAPTURE PAGE, SCOPED TO WHAT QC REJECTED
 - Only the folders and images QC rejected are shown, sourced from LWIP's INPUT
   folder (after a transfer the phone has no copy of them at all). Per folder:
   Edit Metadata. Per image: Recapture, or "Fixed by metadata".
-- Editing gallery_page.dart is a deliberate exception to the rule in CLAUDE.md
+- Editing gallery_page.dart is a deliberate exception to the rule in AGENTS.md
   that it is never touched for feature work. This feature exists for the camera
   and grid only that file has. Rework mode is additive behind one flag
   (_reworkMode) and the ONLY change to an existing hot path is the early return
@@ -3969,7 +3981,7 @@ PROJECT CLEANUP
   removed bundling entries for desktop_drop_plugin.dll and
   permission_handler_windows_plugin.dll, which no longer exist after the
   dependency pruning.
-- Added CLAUDE.md (codebase guide for AI-assisted development).
+- Added AGENTS.md (codebase guide for AI-assisted development).
 
 BUILD / TOOLCHAIN
 - Upgraded flutter_local_notifications 21.0.0 -> 22.0.1. The old version's

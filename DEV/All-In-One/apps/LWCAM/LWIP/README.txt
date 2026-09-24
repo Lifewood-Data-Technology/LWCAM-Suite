@@ -18,7 +18,7 @@ or SUPERVISED BY LWCAM as the pipeline's image-processing phase. In supervised
 mode LWCAM generates the config (folder_depth 2, the capture marker as the
 completion gate, 512px thumbnails), starts/restarts this tool, and reads the
 output manifests + state.json to update the database — this tool itself still
-touches no database. See LWCAM's CLAUDE.md ("Image-processing phase").
+touches no database. See LWCAM's AGENTS.md ("Image-processing phase").
 
 
 Configuration
@@ -71,6 +71,12 @@ deskew_min_degrees
     manifest, which the QC engine replays with Pillow once, at preview and
     export time. A tilt nobody can see is not worth QC paying for that
     resample either, which is why the threshold exists at all.
+
+For a tilted page, `crop_padding` is measured around the page after it has
+been straightened, at the final QC crop. LWIP maps that padded rectangle back
+into the camera frame before making its lossless JPEG crop, so rotation does
+not consume the background margin as empty corner wedges. If the camera frame
+ends before a full margin is available, only the affected side is shortened.
 
 workers
     Number of image worker processes. The conservative default is four because

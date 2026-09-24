@@ -16,7 +16,7 @@ Chinese version of this file: README_CN.txt
 DOCUMENTATION
 --------------------------------------------------------------------------------
 
-  CLAUDE.md          START HERE. Full architecture, service by service, plus
+  AGENTS.md          START HERE. Full architecture, service by service, plus
                      the design history and the reasons behind every
                      non-obvious choice. It is the best document in the repo.
   CHANGELOG.txt      Dated change history with rationale. Add an entry for

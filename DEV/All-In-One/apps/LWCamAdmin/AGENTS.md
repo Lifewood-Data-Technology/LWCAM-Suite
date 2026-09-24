@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 LWCam Admin (package name `lwcam_admin`, window title "LWCam Admin") is a **Flutter Windows desktop app** that holds every SuperAdmin capability that used to live in `LWCAM`: user management (accounts, roles, Device IDs, password resets), project management (CRUD, metadata templates), device reassignment, and shared app settings (metadata-keying toggle, remote-shutter config, default temp password). It is the ONLY writer of `users`/`projects`/`app_settings` in the PostgreSQL schema shared with LWCAM — LWCAM only ever pulls them.
 
-Split out of `LifeTrans-Rework\LWCAM` on 2026-07-21 as an independent fork-style copy (package, `lib/theme/`, Windows app identity — all separate; no shared library), following the same convention LWCAM/LWRework already established. See `LWCAM`'s CLAUDE.md "History" for the full split rationale. There is no capture workflow here at all — no ADB, no sqflite, no gallery/box UI; this app is pure user/project/settings administration plus a PostgreSQL connection.
+Split out of `LifeTrans-Rework\LWCAM` on 2026-07-21 as an independent fork-style copy (package, `lib/theme/`, Windows app identity — all separate; no shared library), following the same convention LWCAM/LWRework already established. See `LWCAM`'s AGENTS.md "History" for the full split rationale. There is no capture workflow here at all — no ADB, no sqflite, no gallery/box UI; this app is pure user/project/settings administration plus a PostgreSQL connection.
 
 Windows is the only target: `window_manager` for the desktop window, `postgres` (pure-Dart driver) for the database, no native DLL dependencies beyond what window_manager/screen_retriever need. The Inno Setup installer at `windows/runner/resources/LWCamAdmin.iss` has its own AppId GUID (distinct from LWCAM's and LWRework's, so both can be installed on one PC without collision) and bundles only `flutter_windows.dll` + the window-manager plugin DLLs — no `adb.exe`/`scrcpy` bundling, since this app never talks to a phone.
 

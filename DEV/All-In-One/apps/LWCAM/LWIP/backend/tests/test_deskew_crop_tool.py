@@ -225,13 +225,40 @@ class DeskewCropToolTests(unittest.TestCase):
             self.assertTrue(cv2.imwrite(str(source), canvas))
 
             result = image_ops.deskew_crop_file(str(source), str(destination), 20, 95)
-
-            # The crop box is the UNROTATED contour's bounding rect + padding
-            # (LWIP never rotates pixels), so it is bigger than the page's own
-            # 2000x1400 by more than padding alone once an 8-degree tilt is
-            # accounted for.
-            self.assertLess(abs(int(result["width"]) - 2240), 16)
-            self.assertLess(abs(int(result["height"]) - 1728), 16)
+            # LWIP never rotates pixels: the crop is the inverse-rotated
+            # padded page rect, clipped to this full-resolution source frame.
+            contour = image_ops._largest_content_contour(cv2.imread(str(source)))
+            self.assertIsNotNone(contour)
+            points = contour.reshape(-1, 2).astype(np.float64)
+            angle = float(result["angle"])
+            phi = np.deg2rad(-angle)
+            cos_phi, sin_phi = np.cos(phi), np.sin(phi)
+            centre = np.array((1600.0, 1200.0))
+            delta = points - centre
+            rotated = centre + np.column_stack((
+                delta[:, 0] * cos_phi - delta[:, 1] * sin_phi,
+                delta[:, 0] * sin_phi + delta[:, 1] * cos_phi,
+            ))
+            x0, y0 = rotated.min(axis=0) - 20
+            x1, y1 = rotated.max(axis=0) + 20
+            corners = np.array(((x0, y0), (x1, y0), (x1, y1), (x0, y1)))
+            inverse = centre + np.column_stack((
+                (corners[:, 0] - centre[0]) * cos_phi
+                + (corners[:, 1] - centre[1]) * sin_phi,
+                -(corners[:, 0] - centre[0]) * sin_phi
+                + (corners[:, 1] - centre[1]) * cos_phi,
+            ))
+            left, top = np.floor(inverse.min(axis=0)).astype(int)
+            right, bottom = np.ceil(inverse.max(axis=0)).astype(int)
+            expected = (
+                max(0, left - image_ops.RESAMPLE_REACH),
+                max(0, top - image_ops.RESAMPLE_REACH),
+                min(canvas.shape[1], right + image_ops.RESAMPLE_REACH),
+                min(canvas.shape[0], bottom + image_ops.RESAMPLE_REACH),
+            )
+            if result["lossless"]:
+                expected = image_ops.snap_crop_box(*expected, canvas.shape[1], canvas.shape[0])
+            self.assertEqual(tuple(result["crop"]), expected)
 
     def test_completed_output_is_released_and_never_reprocessed(self) -> None:
         """A journaled folder is RELEASED: the tool never touches its output
@@ -769,6 +796,52 @@ class OutputFidelityTests(unittest.TestCase):
             self.assertLess(abs((left + right) / 2 - (x + width / 2)), 20)
             self.assertLess(abs((top + bottom) / 2 - (y + height / 2)), 20)
 
+    def _assert_qc_ops_have_no_fill(
+        self, output: Path, qc_ops: list[dict[str, object]]
+    ) -> None:
+        """Replay [qc_ops] on an all-white frame the way QC's export does and
+        require every kept pixel to stay 255 - no fill, not even blended in.
+
+        Deliberately NOT apply_qc_ops: that is Pillow BICUBIC (reach ~2 px),
+        while the delivered TIFF is rotated by OpenCV LANCZOS4 (reach ~4 px,
+        QC's geometry_ops._rotate_cv2_lanczos), so a check on the thumbnail
+        replay passed with RESAMPLE_REACH = 1. Same canvas size and placement
+        as the export: Pillow's own expand size, centre mapped to centre.
+        """
+        with Image.open(output) as opened:
+            width, height = opened.size
+        frame = np.full((height, width), 255, dtype=np.uint8)
+        for op in qc_ops:
+            if op["op"] == "deskew":
+                degrees = float(op["degrees"])
+                h, w = frame.shape
+                new_w, new_h = Image.new("1", (w, h)).rotate(-degrees, expand=True).size
+                matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), -degrees, 1.0)
+                matrix[0, 2] += (new_w - w) / 2.0
+                matrix[1, 2] += (new_h - h) / 2.0
+                frame = cv2.warpAffine(
+                    frame, matrix, (new_w, new_h), flags=cv2.INTER_LANCZOS4,
+                    borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+                )
+            elif op["op"] == "crop":
+                h, w = frame.shape
+                x0, y0, x1, y1 = op["rect"]
+                frame = frame[round(y0 * h):round(y1 * h), round(x0 * w):round(x1 * w)]
+        self.assertEqual(int(frame.min()), 255, "QC ops blended rotation fill")
+
+    def _deskew_crop_unsnapped(self, source: Path, output: Path, padding: int) -> dict:
+        """deskew_crop_file on the resampling path: without jpegtran the trim
+        box is not grown to the 16 px grid, so no accidental slack can hide a
+        missing RESAMPLE_REACH."""
+        original = image_ops.jpegtran_path
+        image_ops.jpegtran_path = lambda: None
+        try:
+            return image_ops.deskew_crop_file(
+                str(source), str(output), padding, 100, deskew_min_degrees=0.2
+            )
+        finally:
+            image_ops.jpegtran_path = original
+
     def test_qc_ops_crop_holds_no_rotation_fill(self) -> None:
         """The delivered image must not carry the black wedges the deskew's
         own expand leaves at the corners.
@@ -782,39 +855,130 @@ class OutputFidelityTests(unittest.TestCase):
         replay turns the page back by -angle (see _build_qc_ops), squaring it
         up. Lay it down the other way and the replay doubles the tilt.
         """
-        # Exactly the geometry LWIP hands over: the coarse crop leaves the
-        # padding, and nothing else, around the page on every side.
         padding = 200
-        frame_width, frame_height = 1800, 2400
-        page_width = frame_width - 2 * padding
-        page_height = frame_height - 2 * padding
         for angle in (1.1, 4.0, 9.0):
-            with self.subTest(angle=angle):
-                box = cv2.boxPoints(
-                    (
-                        (frame_width / 2, frame_height / 2),
-                        (page_width, page_height),
-                        angle,
-                    )
+            with self.subTest(angle=angle), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "capture.jpg"
+                output = root / "out.jpg"
+                frame_width, frame_height = {
+                    1.1: (1680, 2280),
+                    4.0: (1760, 2360),
+                    9.0: (2600, 3200),
+                }[angle]
+                frame = np.full((frame_height, frame_width, 3), 128, dtype=np.uint8)
+                points = cv2.boxPoints(
+                    ((frame_width / 2, frame_height / 2), (1200, 1800), angle)
+                ).astype(np.int32)
+                cv2.fillConvexPoly(frame, points, (245, 245, 245))
+                self.assertTrue(cv2.imwrite(str(source), frame))
+
+                result = self._deskew_crop_unsnapped(source, output, padding)
+                self.assertTrue(result["qc_ops"])
+                self._assert_qc_ops_have_no_fill(output, result["qc_ops"])
+
+                with Image.open(output) as opened:
+                    replayed = image_ops.apply_qc_ops(opened.copy(), result["qc_ops"])
+                bgr = cv2.cvtColor(np.array(replayed.convert("RGB")), cv2.COLOR_RGB2BGR)
+                contour = image_ops._largest_content_contour(bgr)
+                self.assertIsNotNone(contour)
+                x, y, width, height = cv2.boundingRect(contour)
+                self.assertGreaterEqual(x, 194, f"left margin {x} at {angle} deg")
+                self.assertGreaterEqual(y, 194, f"top margin {y} at {angle} deg")
+                self.assertGreaterEqual(
+                    bgr.shape[1] - x - width, 194, f"right margin at {angle} deg"
                 )
-                ops = image_ops._build_qc_ops(
-                    angle, frame_width, frame_height, box, padding
+                self.assertGreaterEqual(
+                    bgr.shape[0] - y - height, 194, f"bottom margin at {angle} deg"
                 )
 
-                frame = Image.new(
-                    "RGB", (frame_width, frame_height), (128, 128, 128)
-                )
-                replayed = np.asarray(
-                    image_ops.apply_qc_ops(frame, ops).convert("L")
-                )
+    def test_tilted_page_keeps_requested_photo_margin_after_qc_crop(self) -> None:
+        """A full camera frame has enough room for 200px on every side.
 
-                self.assertGreater(
-                    int(replayed.min()), 2, f"rotation fill survived at {angle} deg"
-                )
-                # ...and the page is still whole: a shrink that solved the
-                # fill by cropping the record away would pass the above.
-                self.assertGreaterEqual(replayed.shape[1], page_width)
-                self.assertGreaterEqual(replayed.shape[0], page_height)
+        The old pre-rotation crop followed by a uniform clamp returned only
+        about 80px on the sides and 14px at the top for a 2-degree capture.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "tilted.jpg"
+            output = root / "out.jpg"
+            frame = np.full((2600, 2200, 3), 128, dtype=np.uint8)
+            points = cv2.boxPoints(((1100, 1300), (1200, 1600), 2.0)).astype(np.int32)
+            cv2.fillConvexPoly(frame, points, (245, 245, 245))
+            self.assertTrue(cv2.imwrite(str(source), frame))
+
+            result = self._deskew_crop_unsnapped(source, output, 200)
+            self.assertTrue(result["qc_ops"])
+            with Image.open(output) as opened:
+                replayed = image_ops.apply_qc_ops(opened.copy(), result["qc_ops"])
+            arr = cv2.cvtColor(np.array(replayed.convert("RGB")), cv2.COLOR_RGB2BGR)
+            x, y, width, height = cv2.boundingRect(
+                image_ops._largest_content_contour(arr)
+            )
+            self.assertGreaterEqual(x, 195, f"left margin {x}")
+            self.assertGreaterEqual(y, 195, f"top margin {y}")
+            self.assertGreaterEqual(arr.shape[1] - x - width, 195)
+            self.assertGreaterEqual(arr.shape[0] - y - height, 195)
+            self._assert_qc_ops_have_no_fill(output, result["qc_ops"])
+
+    def test_side_near_photo_edge_is_pulled_in_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "near-right.jpg"
+            output = root / "out.jpg"
+            frame = np.full((3000, 2600, 3), 128, dtype=np.uint8)
+            points = cv2.boxPoints(((1850, 1500), (1200, 1800), 3.0)).astype(np.int32)
+            cv2.fillConvexPoly(frame, points, (245, 245, 245))
+            self.assertTrue(cv2.imwrite(str(source), frame))
+
+            result = self._deskew_crop_unsnapped(source, output, 200)
+            self.assertTrue(result["qc_ops"])
+            with Image.open(output) as opened:
+                replayed = image_ops.apply_qc_ops(opened.copy(), result["qc_ops"])
+            bgr = cv2.cvtColor(np.array(replayed.convert("RGB")), cv2.COLOR_RGB2BGR)
+            x, y, width, height = cv2.boundingRect(
+                image_ops._largest_content_contour(bgr)
+            )
+            self.assertLess(bgr.shape[1] - x - width, 200)
+            self.assertGreaterEqual(x, 194, f"left margin {x}")
+            self.assertGreaterEqual(y, 194, f"top margin {y}")
+            self.assertGreaterEqual(bgr.shape[0] - y - height, 194)
+            self._assert_qc_ops_have_no_fill(output, result["qc_ops"])
+
+    def test_straight_page_crop_is_unchanged(self) -> None:
+        frame = _page_image_array(angle=0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_path = root / "straight.jpg"
+            output = root / "out.jpg"
+            self.assertTrue(cv2.imwrite(str(source_path), frame))
+            result = image_ops.deskew_crop_file(
+                str(source_path), str(output), 200, 100, deskew_min_degrees=0.2
+            )
+            self.assertEqual(result["qc_ops"], [])
+            if image_ops.jpegtran_path() is None:
+                self.skipTest("jpegtran not available for lossless crop box assertion")
+
+            contour = image_ops._largest_content_contour(cv2.imread(str(source_path)))
+            self.assertIsNotNone(contour)
+            x, y, width, height = cv2.boundingRect(contour)
+            left = max(0, x - 200)
+            top = max(0, y - 200)
+            right = min(frame.shape[1], x + width + 200)
+            bottom = min(frame.shape[0], y + height + 200)
+            expected = image_ops.snap_crop_box(
+                left, top, right, bottom, frame.shape[1], frame.shape[0]
+            )
+            self.assertEqual(tuple(result["crop"]), expected)
+
+    def test_straight_box_keeps_bounding_rect_exclusive_edge(self) -> None:
+        """cv2.boundingRect's right/bottom edge is one past the last contour
+        point. A box a pixel short of that snapped to (0, 0, 400, 400) here
+        instead of the (0, 0, 416, 416) straight pages always got."""
+        contour = np.array([[[100, 100]], [[200, 100]], [[200, 200]], [[100, 200]]], dtype=np.int32)
+        box = image_ops._source_crop_box(contour, 0.0, 200, 1000, 1000)
+        self.assertEqual(box, (0, 0, 401, 401))
+        self.assertEqual(image_ops.snap_crop_box(*box, 1000, 1000), (0, 0, 416, 416))
 
     def test_qc_ops_sign_convention_with_an_asymmetric_marker(self) -> None:
         """A plain rectangle's tilt is ambiguous mod 180 degrees, so it cannot

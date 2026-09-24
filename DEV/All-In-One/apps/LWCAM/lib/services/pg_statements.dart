@@ -426,7 +426,7 @@ PgStatement folderMetadataPatchSql(
 /// Puts a folder back in the QC queue after a metadata-only rework fix.
 ///
 /// The SECOND writer of pipeline columns, alongside folderProcessingUpdateSql
-/// (which CLAUDE.md still describes as the sole one — read this with it). It has
+/// (which AGENTS.md still describes as the sole one — read this with it). It has
 /// to exist: a metadata-only correction changes no file, so the folder's input
 /// fingerprint is identical, LWIP will never reprocess it, and nothing else
 /// would ever move it off 'REWORK'. Used only from the rework submit path.
