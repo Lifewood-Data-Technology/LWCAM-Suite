@@ -11,9 +11,9 @@ wheels/
 runtime/
 .venv/
 venv/
-DEV/All-In-One/apps/installer/vendor/
-DEV/All-In-One/apps/LWCAM/scrcpy/
-DEV/All-In-One/apps/LWCAM/LWIP/tools/
+installer/vendor/
+LWCAM/scrcpy/
+LWCAM/LWIP/tools/
 
 # ---- compiled installers and archives ----------------------------------
 *.exe
@@ -27,7 +27,7 @@ DEV/All-In-One/apps/LWCAM/LWIP/tools/
 
 # ---- snapshot extracted from the compiled installer --------------------
 # Kept on disk for build verification, not source. See AGENTS.md.
-DEV/{app}/
+/{app}/
 
 # ---- image corpora and export artifacts (per-project folders) ----------
 /Control/

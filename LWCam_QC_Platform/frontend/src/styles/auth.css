@@ -1,0 +1,64 @@
+/* Login and change-password sizing.
+ *
+ * Separate from lifewood.css on purpose: these two screens are the only ones
+ * an operator meets before they know anything about the app, they are shown on
+ * a full browser window rather than in a desktop app's chrome, and they are the
+ * one place where "a bit bigger than you think" is right. Keeping them here
+ * means tuning them never risks the dense screens in lifewood.css.
+ *
+ * Flutter's card is 350 wide because it sits inside a desktop window. Alone on
+ * a 1080p browser page that reads as a dialog someone left open, so the whole
+ * card steps up proportionally rather than just the text.
+ */
+
+.auth-form {
+  width: min(420px, 100%);
+  padding: 36px 36px 32px;
+  border-radius: 18px;
+}
+
+.auth-accent {
+  width: 64px;
+  height: 6px;
+  margin-bottom: 24px;
+}
+
+.auth-logo {
+  max-width: 300px;
+  max-height: 96px;
+  margin-bottom: 30px;
+}
+
+/* Element Plus's default label is 14px at a 32px control height. Both step up
+   together - a large field under a small label looks like a mistake. */
+.auth-form .el-form-item__label {
+  font-size: 15px;
+  padding-bottom: 6px;
+}
+
+.auth-form .el-form-item {
+  margin-bottom: 22px;
+}
+
+.auth-form .el-input__wrapper {
+  padding: 4px 14px;
+}
+
+.auth-form .el-input__inner {
+  height: 40px;
+  font-size: 15px;
+}
+
+.auth-submit.el-button {
+  height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.auth-form h2 {
+  font-size: 26px;
+}
+
+.auth-form .hint {
+  font-size: 13px;
+}

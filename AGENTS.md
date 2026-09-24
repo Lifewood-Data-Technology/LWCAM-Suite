@@ -1,328 +1,447 @@
-# LWCAM — FamilySearch image-fidelity fix — handoff for station testing
+# AGENTS.md — LWCam suite workspace (`qc-platform` branch)
 
-Written 2026-09-09. This file exists so the work can continue on the test PC without
-re-deriving anything. Drop it in whatever folder you work from; Claude Code loads
-`AGENTS.md` upward from the working directory.
+Guidance for Claude Code working in this repository. Each app has its own
+`AGENTS.md` with its architecture; this file covers what spans them — how to
+build and verify, what is already broken before you touch anything, and the
+deployment traps that are not visible from the source.
 
-The repo's own developer guides are separate and still authoritative for architecture:
-`DEV\All-In-One\apps\AGENTS.md` (workspace), `apps\LWCAM\AGENTS.md`,
-`apps\LWCamAdmin\AGENTS.md`.
+**Layout on `qc-platform` (since 2026-09-23):** the apps sit at the repository
+root — `LWCAM\`, `LWCamAdmin\`, `LWCam_QC_Platform\`, `installer\`, plus
+`verification\` and `docs\`. Every other branch still nests them under
+`DEV\All-In-One\apps\`, so a path copied from another branch's docs loses that
+prefix here. Merges from `master` follow the move by rename detection. The two
+`AGENTS.md` files are the exception: this guide was `DEV\All-In-One\apps\AGENTS.md`
+and the FamilySearch handoff that `master` keeps at the root is `docs\FAMILYSEARCH-FIX.md`
+here, so a `master` change to either doc conflicts — apply it to the file it
+belongs to by hand.
 
----
+The `AGENTS.md` at the root of the `Dev` work tree — one level ABOVE the
+repository, so not tracked here — is a pointer, not a duplicate: Claude Code
+walks upward from the working directory and loads every `AGENTS.md` it passes.
+Edit THIS file for anything about the code; the pointer describes the folder
+layout and the station.
 
-## 1. Why any of this happened
+## The three apps
 
-FamilySearch rejected every folder uploaded for the Taiping All Saints Church project:
+| Path | What it is |
+| --- | --- |
+| `LWCAM` | Flutter Windows capture app. Capture, the rework recapture list, and supervision of **LWIP** (`LWCAM/LWIP`), the Python deskew/crop/thumbnail watcher. **No QC** since Phase 8 (2026-09-22): the review screens and the local engine are gone. |
+| `LWCamAdmin` | Flutter Windows SuperAdmin app. Owns Station Setup, which writes the capture station's config (`lwcam_node_config.json`) and creates/upgrades the PostgreSQL schema. No QC, upload or AI settings since 2026-09-23 — the QC server owns those. |
+| `LWCam_QC_Platform` | **QC as a standalone LAN server** — FastAPI backend plus the Vue console it serves from `frontend/dist`. Review, approve, reject, separation, client rework, export, admin settings. It talks to LWCAM only through the database. **Start with `LWCam_QC_Platform/AGENTS.md`** for anything QC. |
 
-> Evidence of image enhancement was identified in all folders uploaded. Per FamilySearch
-> standards, images should not contain any image manipulation. Please review your camera
-> settings to ensure that any compression, sharpening, or other image enhancement
-> features are turned off and recapture/reupload the affected images.
+All three share one PostgreSQL schema. Column ownership is strict and enforced by
+convention only — see the table in `LWCam_QC_Platform/AGENTS.md`.
 
-**The camera was not the cause. Our pipeline was.** Established against 99 source/output
-pairs in `Control\` (batches `M95K-…000004` and `…000005`):
+**Upload lives in the QC server**: `LWCam_QC_Platform/backend/app/services/upload.py`,
+a 60-second sweep that sends published packages to S3, verifies each by size,
+writes `Upload_Summary.db3` and moves the package to the Uploaded folder. Its
+settings are in the QC server's `config.txt` and edited from the console's
+Admin → Settings (since 2026-09-23). The console still has no screen for
+upload *status* — `GET /api/admin/exports/uploads` and
+`POST /api/admin/exports/uploads/retry` exist with nothing calling them.
 
-- Replaying the shipped LWIP over the retained camera originals reproduced **all 99
-  delivered images** — 70 bit-exact, 29 within 13 DN (`warpAffine` build nondeterminism),
-  0 mismatches. Nothing else in the pipeline had touched them.
-- Cropping a source at LWIP's own offset and re-encoding at **JPEG q90 4:4:4** reproduced
-  a delivered TIFF **bit-for-bit, max diff 0**. That was the "compression".
-- Camera settings were already correct: Xiaomi 14 Ultra, native 6144×8192, `Hdr: off`,
-  `AIScene: 0`, no filter, ISO 160, and quantization tables of **all 1s** — visually
-  lossless. LWIP threw that away on every page.
-- No tonal manipulation had occurred: the delivered tone map is identity to within
-  0.05 DN per channel. QC's Luminance Correction was never used on these batches.
+**The QC server owns all its settings** in its own `config.txt` (DB login, JWT
+secret, bind address/port, folders, upload, AI) and reads nothing from LWCam
+Admin — `LWCam_QC_Platform/AGENTS.md` has the key list. The two apps share only
+the database, and both create/upgrade its schema with the same
+`LWCam_QC_Platform/scripts/setup_qc_db.py`.
 
----
+## Gates, and the baseline they must beat
 
-## 2. What was changed
+Run these before claiming anything works. **The numbers on the right were
+measured on 2026-09-23 on this branch — several failures are pre-existing and
+chasing them wastes a session.**
 
-Twelve source files across three codebases. Full detail in `apps\LWCAM\CHANGELOG.txt`
-and `apps\LWCamAdmin\CHANGELOG.txt` (2026-09-09 entries).
-
-### LWIP — `apps\LWCAM\LWIP\backend\deskew_crop_tool\`
-| file | change |
-|---|---|
-| `image_ops.py` | q90 → **q100 4:4:4**; write via Pillow so **EXIF + ICC survive**; **GPS stripped**; illegal `Orientation=0` → 1; deskew `INTER_LINEAR` → **`INTER_LANCZOS4`**; `BORDER_REPLICATE` → `BORDER_CONSTANT` black; new `deskew_min_degrees`; skew now measured by **fitting the outline's straight sides** instead of `cv2.minAreaRect` (**superseded 2026-09-10, see §11**: LWIP no longer rotates or resamples at all — the Lanczos warp described here moved to the QC engine's `export.py`, which applies it once at TIFF export; current `image_ops.py` only measures skew and crops losslessly in coded JPEG blocks) |
-| `config.py` | `jpeg_quality` default 100; new `deskew_min_degrees` (0.5 since 2026-09-10, was 0.2; validated 0–10) |
-| `orchestrator.py` | passes `deskew_min_degrees` through to the worker |
-| `tests/test_deskew_crop_tool.py` | +4 regression tests (`OutputFidelityTests`) |
-| `config/deskew_crop_config.json`, `README.txt` | shipped defaults + docs |
-
-### QC engine — `DEV\{app}\QC\backend\app\` (also copied to `apps\LWCam_QC_Platform\`)
-| file | change |
-|---|---|
-| `routers/qc.py` | `apply_pending_ops` q95 → **q100, `subsampling=0`**, carries EXIF/ICC/DPI; new `assert_luminance_enabled()` → 503; deleted dead `apply_rotate` |
-| `services/export.py` | exported TIFF now carries capture provenance (`TIFF_PROVENANCE_TAGS`) |
-| `core/config.py`, `core/node_config.py` | `luminance_enabled` setting, default True (**flipped to default False on 2026-09-10, see §11** — "Luminance OFF by default everywhere") |
-| `tests/test_output_fidelity.py` | **new**, 10 tests |
-
-### Flutter
-| file | change |
-|---|---|
-| `LWCamAdmin\lib\services\lwip_config_writer.dart` | writes `jpeg_quality: 100` + `deskew_min_degrees: 0.5` |
-| `LWCamAdmin\lib\models\node_config.dart`, `LWCAM\lib\models\node_config.dart` | new `luminanceEnabled` bool, default true (**flipped to default false on 2026-09-10, see §11**) — **both copies must stay in step** |
-| `LWCamAdmin\lib\pages\station_setup_page.dart`, `controllers\station_setup_controller.dart` | "Allow luminance correction in QC" switch |
-| `LWCAM\lib\widgets\qc_image_toolbar.dart` | hides the Luminance button when disabled |
-| `LWCamAdmin\test\services\lwip_config_writer_test.dart` | golden config updated |
-
----
-
-## 3. Measurements (so nobody re-measures)
-
-JPEG quality, on a real cropped page:
-
-| setting | quant tables | size | max err | px identical |
-|---|---|---|---|---|
-| camera original | max 1 / 1 | — | — | — |
-| q90 *(old)* | max 24 / 20 | 2.66 MB | 21 DN | 43.5% |
-| **q100 4:4:4** | **max 1 / 1** | 10.68 MB | **3 DN** | **87.7%** |
-
-Detail retained after a 2° rotation:
-
-| method | mid-freq | high-freq | lapvar |
-|---|---|---|---|
-| `INTER_LINEAR` + q90 *(old)* | 0.812 | 0.483 | 0.643 |
-| **`INTER_LANCZOS4`** | **0.990** | **0.944** | **0.919** |
-
-Lanczos ringing on a worst-case 1px step edge: **+0.12%** — far below the camera ISP's
-own ~3% overshoot, so it cannot be mistaken for sharpening.
-
-Skew: `B4 median 0.735° p90 2.42° max 3.33°` / `B5 median 0.000° p90 0.24° max 1.21°`.
-
-Full patched re-run of batch 4 (24 pages): deskew fired 21/24, high-freq retention
-0.664 → 1.224 (same measure), quant table max 1 on every page, 17 EXIF tags on every
-page, zero GPS, mean output 11.82 MB (~4× the old size).
-
-Actual capture resolution is **~423 DPI** on A4 (page measures 3520×4924 px). The EXIF
-DPI tag still says 72, which is the camera's own claim — deliberately not overwritten
-with a fabricated number.
-
----
-
-## 4. Things I got wrong during the session — do not re-litigate
-
-Recorded because each was stated confidently before being disproved:
-
-1. **"The old deskew was introducing 2° of skew into straight pages."** False. It
-   straightened the *paper* correctly (shipped output's paper edge measures +0.32°). My
-   Hough measurement had locked onto the printed form's rules, which on that sheet sit
-   ~2° askew relative to the paper itself.
-2. **"Batch 5 was shipping visibly crooked."** False. Contour-to-bounding-box fill was
-   0.9702 before and 0.9703 after — already at the rounded-corner ceiling. The degenerate
-   `minAreaRect` is a real latent defect (it *cannot* report tilt on a rounded outline),
-   but its practical impact on that batch was small. The fix is insurance.
-3. **"Switching LWIP's output to `.tif` is safe on the Dart side."** False, and the most
-   dangerous of these. `capture_images.image_name` is written from the *capture* filename
-   (`upload_stats_db.dart:2863`) and never rewritten; QC resolves every file as
-   `folder_path / image_name` (`qc.py:280`). A renamed output 404s every page. **Output
-   stays `.jpg`.**
-4. **"70 of 99 pages can be byte-copied."** False. The crop always happens
-   (6144×8192 → ~3929×5327 even at zero rotation), so every page is re-encoded.
-5. **A Hough-over-the-whole-frame skew estimator was tried and discarded** — it locked
-   onto the marbled cover texture and did not converge (residual as large as the original
-   tilt, sometimes sign-flipped). The shipped estimator fits the contour's own sides.
-
----
-
-## 5. Build environment — what it took to compile
-
-All resolved on the build PC; expect the same on any fresh one.
-
-| requirement | how |
-|---|---|
-| Flutter **3.47.0** stable (Dart 3.13.0) | installed at `C:\dev\flutter`, on PATH |
-| Windows **Developer Mode** | `start ms-settings:developers` — Flutter refuses plugin builds without it |
-| **C++ ATL** for VS Build Tools | `vs_installer.exe modify --installPath "..." --add Microsoft.VisualStudio.Component.VC.ATL --quiet` — needed by `flutter_local_notifications_windows`; `flutter doctor`'s ✓ does **not** check it |
-| **Inno Setup 6** | `winget install --id JRSoftware.InnoSetup -e` |
-
-Two repo-copy defects hit along the way, both fixed in `DEV\All-In-One`:
-
-- `windows\flutter\CMakeLists.txt` was missing from both apps (my copy exclusion).
-  Replaced with the stock Flutter 3.47.0 template — verified project-agnostic. **Use the
-  repo's own copy for a production build.**
-- `runner.exe.manifest` had arrived renamed to `runner.exe.manifest.xml` in both apps —
-  a transfer-time mangling, content byte-identical to stock. Correctly-named copies
-  created; the `.xml` files are still there.
-
-Build commands:
-```
-cd DEV\All-In-One\apps\LWCAM      && flutter build windows --release
-cd DEV\All-In-One\apps\LWCamAdmin && flutter build windows --release
-cd DEV\All-In-One\apps\installer  && powershell -File build-installer.ps1
+```bash
+cd LWCAM        && flutter analyze && flutter test     # 5 infos, 423 pass
+cd LWCamAdmin   && flutter analyze && flutter test     # clean,   117 pass
+cd LWCam_QC_Platform/backend && C:\Python314\python.exe -m unittest discover -s tests -t .
+                                                       # 196 pass, 0 fail
+cd LWCam_QC_Platform/frontend && npm run build         # vue-tsc --noEmit && vite build
+cd LWCAM/LWIP/backend && C:\Python314\python.exe -m unittest discover -s tests
+                                                       # 64 run, 3 fail, 5 skipped
 ```
 
----
+**Interpreter:** `C:\Python314\python.exe`. The installed LW Suite and both of
+its bundled Pythons were removed from this station on 2026-09-21; `C:\Python314`
+satisfies the QC backend's `requirements.txt` and LWIP's imports. pytest is in
+neither `requirements.txt` nor the offline wheels — the suites are
+`unittest.TestCase` classes written to run without it.
 
-## 6. Deliverables
+**Known-failing before any change:**
 
-```
-DEV\All-In-One\LWSuite.exe                        150.7 MB
-DEV\All-In-One\postgresql-18.6-1-windows-x64.exe  358.4 MB
-```
+- **LWCAM `flutter analyze`: 5 `curly_braces_in_flow_control_structures` infos** in
+  `box_session_controller.dart`, `box_integrity.dart` (two), `pg_sync_sink.dart`,
+  `transfer_queue_service.dart`.
+- **QC backend: none.** Any failure is a regression. Two alarming-looking log
+  lines in a green run are tests doing their job: *"cv2 is not importable;
+  falling back to Pillow BICUBIC"* comes from a test that patches `cv2` to
+  `None` on purpose, and the *"AI review OpenRouter call failed"* lines are the
+  retry ladder being exercised against a stub.
+- **LWIP: 3 failures, identical on the tree before the 2026-09-23 move** (checked
+  in a detached worktree). Two are the negative controls in `test_long_paths.py`
+  (`test_a_long_path_is_writable_only_through_fs_path`,
+  `test_the_same_folder_fails_without_the_guard`): they expect a long path to
+  FAIL without the `\\?\` guard, and on this PC it succeeds — long paths are
+  enabled for this Python. The third,
+  `test_preview_detection_crops_at_original_resolution`, measures a width 25 px
+  off its expectation against a 16 px tolerance. The older "1 fail, 29 pass"
+  figure (an 8.3 short-path artifact) is from a smaller suite on another PC.
 
-**Both must sit in the same folder** on the target station or Setup aborts before writing
-anything. Since 2026-09-10 the installer accepts any `postgresql-18.*-windows-x64.exe`
-beside it (highest name wins), so EDB's 18.6-3 works without renaming. Verified by extracting from inside the compiled installer: `INTER_LANCZOS4`
-present and `INTER_LINEAR` gone; `BORDER_CONSTANT`, EXIF passthrough and the side-fit
-estimator present; QC `subsampling` and the luminance guard present with the old q95 gone;
-`TIFF_PROVENANCE_TAGS` present. Both Dart snapshots contain `luminanceEnabled`, checked
-against `exportZipOutput` as a control string.
+If a count changes, that is yours. **Establish the baseline before concluding a
+failure is pre-existing.** The stash stack is shared by every worktree and by
+other sessions, so prefer a detached worktree of `HEAD`
+(`git worktree add --detach <dir> HEAD`, run, `git worktree remove`) or a WIP
+commit over `git stash`.
 
----
+**The shipped runtime imports the INSTALLED backend, not your worktree.** Moot
+while nothing is installed here; it comes back with the next install. Its
+`runtime\python\python313._pth` hardcodes `..\..\backend` — that is
+`C:\Program Files\LW Suite\QC\backend` — onto `sys.path`, and an embeddable
+`._pth` ignores `PYTHONPATH` and does not put the working directory on the path
+either. So:
 
-## 7. What to test on the station
+```bash
+# LIES: silently imports the installed copy, whatever you have edited
+python.exe -c "from app.main import app; print(len(app.routes))"
 
-1. **Install**, run **LWCam Admin → Station Setup**, save. Then open
-
-   ```
-   C:\Users\<capture operator>\LWCAM_DBs\lwip\deskew_crop_config.json
-   ```
-
-   and confirm:
-   ```json
-   "crop_padding": 200,
-   "jpeg_quality": 100,
-   "deskew_min_degrees": 0.5,
-   ```
-   If `jpeg_quality` still reads `90`, the rebuilt Admin did not take. This is the single
-   clearest signal the new build is live.
-
-   Note the *other* file of the same name —
-   `C:\Program Files\LW Suite\LWCAM\LWIP\config\deskew_crop_config.json` — is the
-   standalone config for `START_DESKEW_CROP.bat` only. Station Setup never touches it.
-
-2. **Capture → LWIP → QC → export.** Open the final `.tif` and confirm it carries
-   Make / Model / DateTime and **no GPS**.
-
-3. **Luminance toggle.** Station Setup → turn "Allow luminance correction in QC" off →
-   restart the QC engine → the toolbar button disappears in LWCAM, and the endpoint
-   answers 503 if called directly.
-
-4. Watch disk in `2.Batches` — pages are now ~4× larger (≈11.8 MB vs ≈2.7 MB).
-
-Reminder from the workspace guide: **Station Setup's save stops and restarts the QC
-engine.** Overwriting a running engine's `.py` by hand leaves it serving the code it
-imported at startup, with no error anywhere.
-
----
-
-## 8. Test baselines
-
-| suite | expected |
-|---|---|
-| LWIP `python -m unittest discover -s tests` | **34 tests, 1 failure** — the pre-existing `DJCHOY~1` 8.3 short-path artifact in `test_config_resolves_relative_paths_from_project_root` |
-| LWCAM `dart analyze` / `flutter test` | 6 issues / **595 pass** |
-| LWCamAdmin `dart analyze` / `flutter test` | clean / **132 pass + 4 skipped** |
-| QC engine `python -m unittest discover -s tests -t .` | **10 pass** (new `test_output_fidelity.py`) |
-| QC platform's own pytest (385 pass / 8 fail) | **NOT RUN** — see gaps |
-
-The QC tests need a venv the shipped wheels can fill:
-```
-py -3.13 -m venv <venv>
-<venv>\Scripts\python -m pip install --no-index --find-links DEV\{app}\QC\backend\wheels -r DEV\{app}\QC\backend\requirements.txt
+# TRUE: `unittest discover -s tests -t .` inserts the target dir itself
+python.exe -m unittest discover -s tests -t .
+# any ad-hoc script needs the same, explicitly:
+python.exe -c "import sys; sys.path.insert(0, '.'); import app.main"
 ```
 
----
+Start the server with `run_server.py`, never `python -m app.main`, for the same
+reason — `LWCam_QC_Platform/AGENTS.md` has the detail. Confirm which tree you
+actually loaded (`print(module.__file__)`) before believing a result.
 
-## 9. Verification scripts
+## Line endings are mixed, per file
 
-Preserved at `DEV\verification\`. Run from the `Control\` directory (they expect
-`Source Images\...` and `Output\...` beside them).
+`.gitattributes` sets `* -text`, so git converts nothing and every file keeps
+whatever it already uses — `AGENTS.md` and `LWSuite.iss` are CRLF,
+`export.py` and `LWCam_QC_Platform/AGENTS.md` are LF. Anything that rewrites a
+whole file must preserve its style, or the commit shows every line changed.
+**Git Bash's `sed -i` silently converts a CRLF file to LF** — that is how this
+file lost its endings once. Use an editor, or a script that reads and writes
+bytes, and check `file <path>` before committing.
 
-| script | what it answers |
-|---|---|
-| `replay.py <srcdir> <outdir> <n>` | does LWIP reproduce the delivered files bit-for-bit |
-| `final.py` | full-batch: deskew count, HF retention, quant tables, EXIF, GPS, sizes |
-| `converge.py <glob> <outdir> <n>` | does deskew converge (residual after processing) |
-| `fill.py` | squareness — contour area ÷ bounding-box area |
-| `interp.py` | interpolator comparison (LINEAR / CUBIC / LANCZOS4) |
-| `tone.py` | tone-map identity check between source and output |
-| `sweep.py` | per-pair geometry + sharpness across a whole batch |
-| `esf.py`, `halo2.py` | slanted-edge / halo analysis for sharpening claims |
+## Running a dev build: bundled runtimes are NOT beside it
 
-Caution learned the hard way: `truth.py`, `geom.py` and Hough-based measures lock onto
-*printed content*, not paper edges, and disagree with edge-based measures by ~2° on at
-least one sheet. Prefer `fill.py` and `converge.py` for skew questions.
+This cost three separate debugging sessions. `flutter build windows --debug`
+produces `LWCAM/build/windows/x64/runner/Debug/lwcam.exe`, and **the things
+it shells out to live next to the INSTALLED exe, not the built one**:
 
----
+| Needs | Resolver | Fix for a dev build |
+| --- | --- | --- |
+| `adb.exe` (+ `AdbWinApi.dll`, `AdbWinUsbApi.dll`) | `gallery_page.dart:_resolveAdbPath` — exe dir, cwd, `C:\Android\platform-tools`, PATH | copy into the Debug folder from an install or the Android platform-tools |
+| `scrcpy` | `scrcpy_service.dart:resolveScrcpyExe` — walks 7 levels up looking for `scrcpy/scrcpy.exe` | put a Windows build in `LWCAM\scrcpy` (gitignored), which the walk finds |
+| LWIP runtime | `lwip_autostart_service.dart:resolveLwipRoot` — needs `runtime/python/pythonw.exe` **and** `backend/deskew_crop_tool` | run `LWCAM\LWIP\SETUP_DESKEW_CROP.bat`, or ignore |
 
-## 10. Known gaps and caveats
+The install these used to be copied from (`C:\Program Files\LW Suite`) is gone
+from this station. Without `adb` every capture symptom appears at once — no
+crop, dead shutter, no images detected — because all three are adb calls.
+`build/` is gitignored, so none of this pollutes the repo, but **`flutter clean`
+deletes it all**.
 
-- **The QC engine in this build is the shipped build's source plus three patches**, taken
-  from the extracted `LWSuite.exe` — not `LWCam_QC_Platform` at current HEAD, which was
-  never provided. Fine for testing; **rebase the three changes onto the real repo before
-  production.**
-- **The QC platform's own 385-test suite has not been run.** The 10 new targeted tests
-  cover the three changed functions only.
-- **The two rejected batches have not been reprocessed or redelivered.** The route is
-  built and understood: the revert endpoint (`qc.py`'s `revert_task` — not
-  `revert_to_client_rework` as this was first named here; currently line 2177/2178,
-  not 1685) clears `is_exported` and keeps the Group ID, and export republishes with
-  `replace=True` (`export.py`, currently around line 1024-1096, not 1715 — `qc.py`
-  and `export.py` have both grown a lot since this was written, so treat every line
-  number in this file as approximate and grep for the name instead) —
-  FamilySearch want the correction under the same Group ID. Sequence: confirm the camera
-  originals are still in `1.Images` → re-run fixed LWIP → reopen each folder as client
-  rework → push each reprocessed page through QC's **replace image** endpoint (byte-exact,
-  `qc_drafts.py:586`) → approve → export → re-upload.
-- **`save_draft` silently loses pending edits** — recorded here as pre-existing and
-  deliberately left alone. **Does not reproduce as of this writing** (checked in
-  both `apps\LWCam_QC_Platform` and the extracted `DEV\{app}\QC`): current
-  `save_draft` (`qc.py:2938` in both trees) uses the identical stage/
-  `db.commit()`/`finalize_files()` sequence as `approve_task` via
-  `commit_current_draft`. Likely fixed incidentally by the 2026-09-10 geometry
-  rework (§11) rather than deliberately — re-verify before relying on either
-  claim; don't assume this bug is gone on a tree neither of these was checked
-  against.
-- **Camera noise reduction is not addressed and cannot be.** Flat-paper grain measures
-  0.63 DN, ~2.4× below the photon shot-noise floor for that exposure, with ~3% edge
-  overshoot. HDR, AI scene and filters are already off — this is the ISP path and no
-  setting defeats it. If FamilySearch rejects again *after* this build, that is the next
-  suspect, and it needs DNG capture plus a pipeline that ingests it. Do not promise this
-  cheaply.
-- **The TIFF on/off toggle does not exist in this branch** (searched NodeConfig, Station
-  Setup, App Settings, the project model, `export.py`). `is_tif_converted`
-  (`models/capture.py:79`) is a result flag set at `export.py:1165`, not a switch. Taiping
-  needs `.tif` regardless.
+Debug builds relink the runner exe only when native code changes: after a Dart-only
+change the **exe timestamp stays old and `data/flutter_assets/kernel_blob.bin` is
+what updates**. Check that, not the exe.
 
----
+## Verifying a build actually contains a change
 
-## 11. 2026-09-10 additions (after the section above was written)
+String-searching a build is valid but easy to get wrong — three false alarms in
+one session:
 
-Full detail in both `CHANGELOG.txt` files and `apps\AGENTS.md` ("Geometry is DATA
-until export"). The short version:
+- `strings` finds nothing in `app.so`; use `grep -a` (raw bytes).
+- Interpolated Dart strings are stored as fragments — `'Page ${i} of ${n}'` never
+  appears as `Page 1 of 3`. Search a literal fragment.
+- The installer is LZMA-compressed; `grep` on `LWSuite.exe` proves nothing. Read
+  the ISCC compile log instead.
+- **Always check a control string** that certainly exists before trusting a
+  negative result.
 
-**Nothing between the camera and the TIFF re-encodes a page any more.**
+Release builds put Dart in `data/app.so`; debug builds in `kernel_blob.bin`.
 
-- LWIP crops the camera JPEG in its own coded blocks (`LWIP\tools\jpegtran.exe`,
-  libjpeg-turbo) and never rotates. On the 99 Control pages: 99 of 99 outputs are
-  pixel-identical to the camera decode inside the crop window (max diff 0, 1 px
-  edge ring excluded), quant tables all 1, 17 EXIF tags, no GPS, ICC carried.
-- The measured tilt is recorded as ops in the manifest (`files[].qc_ops`); the
-  QC engine layers LWIP baseline + committed QC ops (`qc_ops.json`) + draft, and
-  applies them ONCE at export while writing the lossless TIFF (Lanczos via
-  OpenCV). 70 of 99 Control pages export a TIFF pixel-identical to the camera
-  crop; 29 carry a deferred deskew.
-- Skew estimate is iterated on the detection frame and gated: a page whose
-  estimate will not settle is left as captured. Residual after replay: median
-  0.14 deg, p90 0.37, 2 of 99 pages between 0.5 and 0.8 deg (bound-register
-  spreads; the estimator over-reads there). Before: 9-12 of 99.
-- `deskew_min_degrees` default 0.5. Luminance OFF by default everywhere.
-- Archive Start/End Date are free text, verbatim to the CSV (migration 003).
+## Deploying
 
-**Verification scripts** (`DEV\verification\`, run from `Control\`):
+```bash
+cd LWCAM      && flutter build windows --release
+cd LWCamAdmin && flutter build windows --release
+cd installer  && powershell -File build-installer.ps1 -Target All   # or LWCam / QC
+```
 
-| script | interpreter | what it proves |
-|---|---|---|
-| `lossless_replay.py "Source Images"` | LWIP runtime python | crop identity + residual after Pillow replay |
-| `export_fidelity.py "Source Images"` | QC engine venv python (needs cv2, sqlalchemy) | real `convert_to_tiff`: no-op TIFF == camera crop, deferred residual, tags |
+**Two installers since 2026-09-23** (`installer/README.txt` has the detail):
 
-**Station checks added to section 7:** the LWIP `state.json`/manifest shows
-`lossless: true` on every page and `qc_ops` on tilted ones; approve a page with a
-rotate in QC and confirm the page .jpg's SHA-256 did not change and `qc_ops.json`
-appeared beside the manifest; the exported TIFF is straight.
+- `LWCamSetup.exe` (`LWCam.iss`) — LWCAM, LWCam Admin, LWIP, plus
+  `{app}\Database\` (setup_qc_db.py + SQL) for Station Setup. Keeps the old
+  LW Suite AppId, so an all-in-one station upgrades in place; its old `{app}\QC`
+  engine is stopped and removed. LWCam Admin is Start-menu only.
+- `QCPlatformSetup.exe` (`QCPlatform.iss`) — the QC server + console. Writes
+  `{app}\config\config.txt` (private folder; fresh CSPRNG `jwtSecret`,
+  `bindHost = 0.0.0.0`), creates/upgrades the schema, registers the "LWCam QC
+  Server" task at system start as SYSTEM, and opens the configured port in the
+  firewall (Domain + Private).
 
-**Known:** the QC preview and the exported TIFF use different resamplers (Pillow
-bicubic at 1600 px vs OpenCV Lanczos at full size) - same geometry, so the
-preview is honest about framing, not about pixels.
+Both can install PostgreSQL (shared `installer/postgres.iss`), both stop their
+running processes in `PrepareToInstall` and abort if one survives, and both
+write secrets only into files already restricted to SYSTEM + Administrators.
+**Neither has been test-installed yet.**
+
+`C:\Program Files\LW Suite\` **needs elevation** — plain `cp` fails. Either
+rebuild the installer or copy with elevation.
+
+`-ScrcpyDir` is optional. The script takes `LWCAM/scrcpy` (gitignored, like
+`LWIP/wheels/`) whenever it holds a `scrcpy.exe` — the same folder
+`LWCam.iss`'s own `#ifndef` default names; winget's package is only the
+fallback. The gitignored inputs (vendor zip, vcruntime, adb, wheels, jpegtran,
+scrcpy, the PostgreSQL exe) are listed in `installer/README.txt`; on this
+station they were copied from the `Source` worktree.
+
+Outputs land at the repository root: `LWCamSetup.exe` (~103 MB),
+`QCPlatformSetup.exe` (~99 MB) and, copied beside them,
+`postgresql-18.6-1-windows-x64.exe` (359 MB). All ignored by `*.exe`. **Ship
+each setup file with the PostgreSQL exe** — see Station facts.
+
+The installer bundles the **Release** builds and the repo's LWIP and QC backend
+trees, so backend changes ship automatically — but stale Release builds ship
+silently. Check `data/app.so` timestamps against `lib/` before compiling.
+**Building only `--debug` and then reinstalling ships the previous Release** —
+that happened once and looked exactly like the installer not picking changes up.
+
+**Setup stops running Python before copying**, in `PrepareToInstall` — before
+any file is written or deleted — and aborts if a process survives. Without it
+an upgrade left the old process alive: setup overwrites its `.py` underneath
+it, the process keeps serving the code it imported at startup, and the station
+looks freshly installed while running the previous version — no error
+anywhere. Restart Manager cannot catch it, since Python closes a `.py` after
+reading it and holds no lock, which is also why the overwrite succeeds
+silently. Processes are matched by COMMAND LINE against the install folder,
+never by name (`PythonProcessesUnder` in `postgres.iss`), so unrelated Python
+survives. LWCam drains LWIP gracefully first (stop file, 90 s) and removes an
+all-in-one `{app}\QC`; the QC installer ends its scheduled task and restarts it
+after the upgrade.
+
+## Decisions inherited from `master` (the Taiping/FamilySearch baseline)
+
+`qc-platform` branched from `master`, which was cut from the tree the South
+Africa DoD installer was built from and grew through the Taiping All Saints
+Church delivery. These decisions came with it and hold here.
+
+**Volume is free text and the folder name IS the Volume.** The `file no.`
+convention is gone: `fileNumberOfVolume`, `volumeCarryOver`,
+`finalizeVolumeForUnknown` and `CaptureFolder.fileNumber` are deleted, and
+transfer prep no longer rewrites `volume` - it used to substitute
+`(unknown file [N])` INTO it, so the exported value differed from what was
+keyed. Uniqueness survives, because the name becomes a real directory that
+`UploadController._destPathFor` joins:
+
+- compared case-INSENSITIVELY - Windows does not distinguish `Register 12` from
+  `register 12`, and both keeping the bare name merged two folders into one;
+- names taken by OTHER groups are reserved (`UploadStatsDB.reservedFolderNames`),
+  because the destination is `<root>\<YYYYMMDD>\<folderName>` - a shared day
+  folder with nothing in the path identifying the group;
+- a blank Volume is detected on the RAW value BEFORE sanitising, since
+  `sanitizeWindowsName('')` returns `_` and would otherwise name a folder `_`.
+
+**Carry-over between folders is OFF.** One call site in `gallery_page.dart`, so
+restoring it is a one-line change.
+
+**Geometry is DATA until export. Nothing between the camera and the TIFF
+re-encodes a page.** (Since 2026-09-10; the earlier design flushed edits into a
+q100 JPEG at approval, and before that LWIP itself rotated and re-encoded every
+page - FamilySearch rejected that delivery for "image enhancement".)
+
+- **LWIP measures, never rotates.** It crops the camera JPEG in its own coded
+  blocks (`jpegtran`, see `LWIP/README.txt`), so the page file in 2.Batches is
+  the camera's bytes. The measured tilt becomes an op list in the manifest:
+  `.deskew_crop_manifest.json` `files[].qc_ops` =
+  `[{"op":"deskew","degrees":D},{"op":"crop","rect":[x0,y0,x1,y1]}]`, empty
+  under `deskew_min_degrees` (0.5). The rect is normalised against the ROTATED,
+  EXPANDED frame, i.e. exactly what `replay_pending_ops` produces - LWIP
+  predicts Pillow's `expand=True` geometry rather than calling it. Thumbnails
+  are the one place LWIP applies the ops, at 512 px, because the QC rail shows
+  them.
+- **The engine layers three lists**, in order: LWIP baseline (`lwip_baseline.py`,
+  from the manifest), committed QC ops (`qc_ops_store.py`, `qc_ops.json` beside
+  the manifest, written at approval), and the reviewer's draft (`pending_ops`).
+  `effective_ops` is that concatenation; preview, thumbnail, `to_task_vo`'s
+  version stamp and export all use it. Crop rects stay normalised, so one list
+  drives the 1600 px preview and the full-size TIFF.
+- **Approval writes data, not pixels.** `commit_current_draft` folds pending
+  geometry into `qc_ops.json` through the same stage/finalize/abort as every
+  other file write. Replace sets `ignore_lwip` (a new capture, LWIP's angle no
+  longer applies); delete drops the entry; restore original leaves a
+  `{"restored": true}` marker so committed ops from an earlier round are
+  dropped and the page returns to LWIP's baseline. `qc_ops.json` lives in the
+  folder LWIP republishes, so a capture rework wipes it - correct, the pages
+  are new.
+- **Export replays once.** `convert_to_tiff(source, target, ops)` decodes the
+  camera crop, replays `effective_ops`, writes the lossless TIFF (predictor 2 —
+  see `LWCam_QC_Platform/AGENTS.md`). Rotation is Lanczos through OpenCV
+  (`opencv-python-headless`, in the wheels), sized and placed exactly as
+  Pillow's `rotate(expand=True)` so the rects align; Pillow bicubic is the
+  fallback if cv2 is missing. A page with no ops is pixel-identical to the
+  camera decode.
+- **Luminance is the only thing allowed to bake pixels**, and it is OFF by
+  default (`luminance_enabled`, `NodeConfig.luminanceEnabled`, both false since
+  2026-09-10). When a project turns it on, `flush_pending_ops` bakes the
+  effective chain into the work copy first and marks the item `baked`, so
+  approval commits that copy with `ops: []` and `ignore_lwip: true` - the
+  pixels already contain everything.
+
+Order is the contract - cropping then rotating is not the same picture - so the
+list is replayed exactly as recorded, never bucketed by kind.
+
+**Batch image operations run on threads, not processes.** Pillow releases the
+GIL for decode, resample and encode; 12 deskews went 16.9s -> 3.9s. Capped at 8
+because memory binds before cores. Processes would pay a Windows interpreter
+spawn each, which `export.py` already refuses for small batches.
+
+**Preview URLs are stamped PER IMAGE.** They carried the manifest's folder-wide
+`updated_at`, so editing page 12 changed the URL of every page already edited
+and the rail re-rendered all of them. Previews also `draft()` during JPEG decode
+(454ms -> 284ms).
+
+**Client rework replaces the delivered package under the SAME Group ID.**
+FamilySearch's requirement, not a convenience. `revert` returns a finished
+folder to PENDING with `client_rework`, clears `is_exported`, KEEPS `group_id`,
+and claims it for the reverter so they land straight in review. Four guards that
+exist to stop double publishing each carry a rework-only exception: the export's
+adopt branch (which would otherwise ship the package the client REJECTED),
+`publish_zip`/`publish_folder`, the upload sweep's UPLOADED skip (the export
+clears that ledger row), and `move_to_done`. `revert` is the only mutating QC
+endpoint that cannot `assert_lock_owner`: approve and reject both release the
+lock, so a finished folder is never claimed. It checks the one-task-per-person
+rule BEFORE changing anything, so a refusal cannot leave a folder reopened but
+unclaimed.
+
+**A row can outlive its file, and both repairs must work.** An image inserted
+during QC does not survive a capture rework: LWIP rebuilds the folder from what
+was captured, and an inserted page was never in the capture folder. That is
+intended - a recaptured folder is a fresh decision about what belongs in it -
+but it must not strand the folder. So `canOpenQcTask` needs ANY readable page
+rather than every one (opening it is the only way to fix a missing page), and
+`expected_image_path` splits path resolution from the existence check so the
+commit can delete or replace a page whose file has gone. The traversal and
+unconfigured-folder guards stay on BOTH paths; only `is_file` moved.
+
+**`qcInputRoot` is the export SCRATCH root, not the image source.** Images come
+from `capture_folders.folder_path` through `to_local`. The name misleads; it
+defaults to 2.Batches only because that is convenient on a single PC. On a split
+site it must be LOCAL, or every export writes ~10x TIFF scratch back across the
+network into the capture PC's pipeline folder.
+
+### Two-PC sites (capture PC hosts the database, QC/export PC connects)
+
+- Installer task **"This station uses a PostgreSQL server on another PC"** makes
+  `NeedsPostgreSql` false, so no server is installed, no `station-seed.json` is
+  written (it would point the client at localhost) and `PrepareToInstall` stops
+  demanding the 358 MB file.
+- Station Setup gained **"Images captured on another PC"** -
+  `captureImageHostPath` / `captureImageContainerPath`, mapped through the node
+  config and read by `paths.to_local`. This lets the capture PC keep recording
+  fast local paths while the QC PC maps that prefix onto a share, instead of
+  making the capture PC write UNC paths and pay SMB on its own writes. The
+  console's own `qcImagesRoot` (`config.txt`) is the other way to do the same.
+- `SETUP-LAN-DB.bat` (in the Taiping deploy folder, not this repository)
+  configures the hosting PC end to end (static IP on the cable, `pg_hba`,
+  firewall, restart), idempotent and self-healing. `SHOW-DB-PASSWORD.bat` prints
+  the password from both places it can live and says which one actually logs in.
+
+**The PostgreSQL password changes whenever the server is reinstalled**, and
+`postgres-password.txt` can go stale by itself: when setup reinstalls over an
+existing data directory the cluster keeps its OLD password while the file may
+record a freshly invented one. `lwcam_node_config.json`'s `pgPassword` is the
+value the station actually connects with. This cost real time twice - check it
+before debugging anything else.
+
+### Traps that cost time here
+
+- **`Set-Content -Encoding utf8` on Windows PowerShell 5.1 writes a BOM.** One
+  in `pg_hba.conf` stops PostgreSQL starting, and the station then reports only
+  "could not reach the database server", which points nowhere near the cause.
+  Write config files with `UTF8Encoding($false)`.
+- **`pg_hba` must allow the `postgres` database, not just `lwcam`.** Saving
+  Station Setup runs the provisioner, which connects to the maintenance
+  database to see whether `lwcam` exists - you cannot connect to a database in
+  order to create it. Test connection passes and the save fails.
+- **`upload_summary.normalize_rework` returns the CSV's `"TRUE"`/`"FALSE"`
+  TEXT.** `bool("FALSE")` is True, so a bool() check reads every package as a
+  rework and overwrites unconditionally. Compare to the string.
+- **Hand-listed field copies silently drop new fields.** Record Type was lost in
+  THREE separate places that enumerated columns by hand instead of copying the
+  model - `updateCaptureFolderMetadata`, the New Group flow's re-home, and the
+  export/QC title-map precedence. If you are writing a field list, ask what
+  happens when field 15 arrives.
+
+## State of play (2026-09-23)
+
+The QC platform's own state — what was exercised on the console, test folders,
+and its open list — is in `LWCam_QC_Platform/AGENTS.md`. What spans the apps:
+
+**Done.** Phase 8, the desktop cutover (2026-09-22): LWCAM has no QC and
+LWCamAdmin no longer registers a local QC engine. The console has been tested
+end to end on this station: review, approve, separation, export with predictor
+2, the auto-export sweep and its on/off switch. **Client rework was proven on
+2026-09-23** against the running server (folder 15, driven through the API
+rather than the console's buttons): revert kept Group ID `…000014`, a 90°
+rotate was committed as data, and the sweep replaced the package in
+`3.Export` in place 28 s after approval — page 1 rotated, pages 2–4
+byte-identical, the CSV's Rework column `FALSE` → `TRUE`, source JPEGs
+untouched. The pre-test package is kept at
+`C:\LWCamTest\scratch\before-client-rework-test-20260923`.
+
+**Open:**
+
+- **The installer split is built and reviewed but not test-installed**
+  (2026-09-23/24: the QC server owns its settings, the console edits upload and
+  AI, Station Setup lost its QC sections, two installers). Neither installer has
+  been run on a PC; the scheduled task at boot, the firewall rule, the private
+  config folder and an all-in-one upgrade are proven only by review and by
+  scratch tests of the permission helper.
+- **LAN access** is installer-configured (`bindHost = 0.0.0.0`, firewall rule on
+  Domain + Private networks). A dev checkout stays on loopback. A LAN bind with
+  no `corsAllowedOrigins` gets no CORS — the console is same-origin.
+- **Upload status** has no console screen (see "The three apps"). Also
+  untested: the bucket half of client rework (the same Group ID replacing the
+  package in S3 and in `4.Uploaded`); upload is off here and no bucket is set.
+- **Capture rework cannot be exercised on this station** — no camera, no LWIP
+  install.
+
+## Station facts
+
+- Config: `%USERPROFILE%\LWCAM_DBs\` — `lwcam_node_config.json` (LWCAM/LWIP's
+  PG credentials and paths; its old QC/upload/AI fields are kept only so the
+  file round-trips), `lwcam_users.json` (the snapshot LWCAM authenticates
+  against), `lwcam_stats_<deviceId>.db`, `lwip/` runtime + journal. The QC
+  server's settings are `LWCam_QC_Platform\config.txt` (gitignored; on this
+  station it carries the DB login and JWT secret copied from the node config).
+- **This station has no LW Suite install** (removed 2026-09-21). Test data lives
+  at `C:\LWCamTest` (`2.Batches`, `3.Export`, `scratch`), with an untouched copy
+  at `Desktop\LWCam Test Data Backup 2026-09-21`. The node config's upload
+  folders still point into `C:\Program Files\LW Suite`, which no longer exists.
+- On an installed station data lives **inside the install tree**:
+  `C:\Program Files\LW Suite\LWCam Capture\` (`1.Images`, `2.Batches`,
+  `3.Export`, `4.Uploaded`), plus `C:\Program Files\LW Suite\Upload Reports\Upload_Summary.db3`
+  (one row per uploaded package). **Back it up before uninstalling.**
+- PostgreSQL is a separate install and survives an LW Suite uninstall — but the
+  installer reinstalls it if absent, with a new password. Its 359 MB setup exe
+  is **not inside either installer**: it ships beside them and `[Run]` launches
+  it from `{src}`. `PrepareToInstall` aborts by name when the PC needs a server
+  and the file is not there. `build-installer.ps1` copies it next to the built
+  installers; ship it with each.
+- Never run the installed LWCAM and a dev build at once: they share the per-device
+  SQLite DB and the transfer lock.
+
+## Working habits that paid off here
+
+- **Prove a regression test fails without the fix.** Several times a test passed
+  either way until checked; twice the "fix" was in the wrong place.
+- **Baseline before blaming.** Run the same check on `HEAD` in a detached
+  worktree, then compare.
+- **A misleading comment is worse than none.** Two bugs survived because a
+  comment claimed the case was handled — `"Replacement slots are always
+  re-pulled"` was true of the branch above it and false of the one below.
+- **A switch that is only read at startup passes every unit test that starts a
+  fresh object.** Flip it on a running process — that is how the sweep-switch
+  bug was found.

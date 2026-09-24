@@ -1,0 +1,4 @@
+# The engine's own settings, written by the QC console and hand-editable.
+# Machine-specific paths - belongs on the station, never in the repo.
+# See backend/app/core/server_settings.py for the format.
+config.txt

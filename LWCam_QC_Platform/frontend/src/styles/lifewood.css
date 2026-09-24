@@ -1,0 +1,995 @@
+:root {
+  --lw-paper: #f5eedb;
+  --lw-white: #ffffff;
+  --lw-sea-salt: #f9f7f7;
+  --lw-dark: #133020;
+  --lw-green: #046241;
+  /* Reconciled 2026-09-17 against app_theme.dart / app_colors.dart (explicit
+     literals, never seed-generated — see that file's own warning). Saffron
+     and danger had drifted from the Flutter brand palette; everything else
+     already matched. */
+  --lw-saffron: #fbb347;
+  --lw-earth: #ffc370;
+  --lw-line: rgba(19, 48, 32, 0.14);
+  --lw-line-strong: rgba(19, 48, 32, 0.24);
+  --lw-muted: rgba(19, 48, 32, 0.66);
+  --lw-green-soft: rgba(4, 98, 65, 0.1);
+  --lw-saffron-soft: rgba(251, 179, 71, 0.2);
+  --lw-earth-soft: rgba(255, 195, 112, 0.24);
+  --lw-danger: #d92d2d;
+  --lw-danger-soft: rgba(217, 45, 45, 0.13);
+
+  /* --- Material scheme roles (added 2026-09-17), explicit literals copied
+     from AppTheme._lightScheme — dark-mode counterparts don't exist yet, so
+     these are light-scheme only. */
+  --lw-surface: #ffffff;
+  --lw-on-surface: var(--lw-dark);
+  --lw-on-surface-variant: #64736c;
+  --lw-surface-container-lowest: #ffffff;
+  --lw-surface-container-low: var(--lw-sea-salt);
+  --lw-surface-container: #ececec;
+  --lw-surface-container-high: #e6e7e6;
+  --lw-surface-container-highest: #e0e2e1;
+  --lw-outline: #8a9891;
+  --lw-outline-variant: #dde5e0;
+  --lw-primary-container: #d9efe3;
+  --lw-on-primary-container: #0a3b29;
+  --lw-error: var(--lw-danger);
+  --lw-error-container: #fbe2dc;
+  --lw-on-error-container: #6a1f14;
+
+  /* LifewoodColors status set (light), literal from app_colors.dart. */
+  --lw-success: #257a48;
+  --lw-on-success: #ffffff;
+  --lw-success-container: #dcf1e3;
+  --lw-on-success-container: #0c3a20;
+  --lw-warning: #b4690e;
+  --lw-on-warning: #ffffff;
+  --lw-warning-container: #fde9cc;
+  --lw-on-warning-container: #5c3a00;
+  --lw-info: #2a7f8e;
+  --lw-on-info: #ffffff;
+  --lw-info-container: #ddeef1;
+  --lw-on-info-container: #123e46;
+
+  /* selected/viewingContainer are ARGB in Dart (0x2EFBB347, 0x142A7F8E) — the
+     leading byte is alpha, so they are converted to rgba() here rather than
+     read as an opaque hex (which would be wrong: 0x2E/0xFF ≈ 0.18 alpha,
+     0x14/0xFF ≈ 0.078, not opaque #FBB347 / #2A7F8E). */
+  --lw-selected: var(--lw-saffron);
+  --lw-selected-container: rgba(251, 179, 71, 0.18);
+  --lw-viewing: #2a7f8e;
+  --lw-viewing-container: rgba(42, 127, 142, 0.078);
+
+  color: var(--lw-dark);
+  font-family:
+    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Element Plus ships a CJK font stack in its own default; override it so the
+     console has one font stack rather than two. */
+  --el-font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --el-color-primary: var(--lw-green);
+  --el-color-primary-light-3: #2f8267;
+  --el-color-primary-light-5: #72ad9a;
+  --el-color-primary-light-7: #b5d7cc;
+  --el-color-primary-light-8: #d1e7df;
+  --el-color-primary-light-9: #e9f3ef;
+  --el-color-primary-dark-2: #034b32;
+  --el-color-warning: var(--lw-saffron);
+  --el-color-danger: var(--lw-danger);
+  --el-border-radius-base: 6px;
+  --el-border-color: var(--lw-line);
+  --el-border-color-light: rgba(19, 48, 32, 0.1);
+  --el-text-color-primary: var(--lw-dark);
+  --el-text-color-regular: rgba(19, 48, 32, 0.78);
+  --el-text-color-secondary: var(--lw-muted);
+
+  /* cardTheme in app_theme.dart sets elevation: 0 and surfaceTintColor:
+     transparent on purpose — flat, hairline-bordered panels, not drop
+     shadows. Element Plus's own elevation tokens follow the same decision;
+     don't reintroduce a generic "material card shadow" on top of this. */
+  --el-box-shadow: none;
+  --el-box-shadow-light: none;
+  --el-box-shadow-lighter: none;
+  --el-box-shadow-dark: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    linear-gradient(180deg, rgba(245, 238, 219, 0.92) 0%, rgba(249, 247, 247, 0.98) 42%),
+    var(--lw-sea-salt);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+/* One centred card on the canvas, matching LWCAM's desktop login rather than
+   a web split-hero - see the comment in LoginView.vue for why. */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--lw-sea-salt);
+}
+
+.auth-form {
+  width: min(350px, 100%);
+  padding: 24px;
+  background: var(--lw-surface);
+  border-radius: 16px;
+  /* The one shadow kept in this app. Panels elsewhere are flat hairline
+     surfaces, but the Flutter login floats its card exactly like this
+     (alpha 0.08, blur 12, offset 0 4) and it is the whole page's focus. */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* 56x5, radius 3, 20 below - the brand sheet's accent rule, as Flutter draws it. */
+.auth-accent {
+  display: block;
+  width: 56px;
+  height: 5px;
+  margin: 0 auto 20px;
+  border-radius: 3px;
+  background: var(--lw-saffron);
+}
+
+.auth-logo {
+  display: block;
+  /* The mark is 2624x474 (5.5:1), so a bare height:80 asks for 442px inside a
+     302px card and blows the layout out. Flutter caps it at the parent width
+     and lets the height fall where it may - about 55px - so this does the
+     same. height is the MAXIMUM here, not the target. */
+  width: 100%;
+  max-width: 260px;
+  max-height: 80px;
+  height: auto;
+  margin: 0 auto 24px;
+  object-fit: contain;
+}
+
+.auth-submit {
+  width: 100%;
+}
+
+/* Not bumped by the +3px pass: this selector only ever matches inside
+   .auth-form, and auth.css (loaded after this file, same specificity) always
+   overrides it anyway — but it's login-screen-only, so it's left alone
+   rather than touched for no visible effect. */
+.auth-form .hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* The change-password card keeps a heading and a lead line; the login card has
+   neither, because a logo above two fields needs no caption to explain it. */
+/* Not bumped either, same reasoning: auth-only selector, already shadowed by
+   the rule below and then by auth.css's own .auth-form h2 (26px). */
+.auth-form h2 {
+  text-align: center;
+  font-size: 22px;
+}
+
+.auth-form .hint--lead {
+  margin: 4px 0 20px;
+}
+
+.auth-submit--secondary {
+  margin: 12px 0 0;
+}
+
+/* .auth-form h2 half of this rule is bumped along with .page-title h1, but it
+   never reaches the login screen: auth.css's own .auth-form h2 (26px, same
+   specificity, loaded after this file) always wins regardless of this value. */
+.auth-form h2,
+.page-title h1 {
+  margin: 0;
+  font-size: 33px;
+  letter-spacing: 0;
+}
+
+.auth-form .hint,
+.page-title p,
+.muted {
+  color: var(--lw-muted);
+}
+
+.shell {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--lw-paper) 0, var(--lw-sea-salt) 240px),
+    var(--lw-sea-salt);
+}
+
+.shell--immersive {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell--immersive .main {
+  height: 100vh;
+}
+
+.shell--immersive .content {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 24px 16px;
+  background:
+    linear-gradient(180deg, rgba(4, 98, 65, 0.4), rgba(19, 48, 32, 0) 240px),
+    var(--lw-dark);
+  color: var(--lw-white);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.brand-mini {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 28px;
+}
+
+.brand-mini img {
+  width: 150px;
+  height: auto;
+  padding: 10px 12px;
+  background: var(--lw-white);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.nav-list {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 14px;
+  color: rgba(255, 255, 255, 0.76);
+  text-decoration: none;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 17px;
+}
+
+.nav-item.router-link-active,
+.nav-item:hover {
+  color: var(--lw-dark);
+  background: var(--lw-saffron);
+  border-color: rgba(255, 195, 112, 0.65);
+}
+
+.main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 28px;
+  border-bottom: 1px solid rgba(19, 48, 32, 0.1);
+  background: rgba(245, 238, 219, 0.82);
+  backdrop-filter: blur(12px);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-action-button.el-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-color: rgba(19, 48, 32, 0.18);
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--lw-dark);
+  font-weight: 650;
+  box-shadow: 0 8px 18px rgba(19, 48, 32, 0.06);
+}
+
+.topbar-action-button.el-button:hover,
+.topbar-action-button.el-button:focus {
+  border-color: rgba(4, 98, 65, 0.32);
+  background: var(--lw-sea-salt);
+  color: var(--lw-green);
+}
+
+.topbar-action-button.el-button:focus-visible {
+  outline: 2px solid rgba(251, 179, 71, 0.72);
+  outline-offset: 2px;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px;
+}
+
+.page-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.panel {
+  background: var(--lw-white);
+  border: 1px solid var(--lw-outline-variant);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 65fr) minmax(280px, 35fr);
+  gap: 16px;
+  min-height: calc(100vh - 178px);
+}
+
+.table-panel {
+  min-height: 0;
+  max-height: calc(100vh - 178px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-panel--compact {
+  max-height: none;
+}
+
+.adaptive-table {
+  flex: 0 0 auto;
+}
+
+.bottom-pager {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 28px;
+  padding-top: 16px;
+  background: var(--lw-white);
+}
+
+.pager-status {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--lw-dark);
+  font-weight: 650;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pager-status small {
+  color: var(--lw-muted);
+  font-weight: 500;
+}
+
+.metadata-panel {
+  min-height: 0;
+  max-height: calc(100vh - 178px);
+  overflow: auto;
+}
+
+.metadata-panel h2 {
+  margin: 4px 0 8px;
+  font-size: 25px;
+  letter-spacing: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--lw-green);
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.metadata-list {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 0;
+}
+
+.metadata-list div {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(19, 48, 32, 0.08);
+}
+
+.metadata-list dt {
+  color: var(--lw-muted);
+  font-size: 15px;
+}
+
+.metadata-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.metadata-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.metadata-metrics div {
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--lw-sea-salt);
+}
+
+.metadata-metrics span {
+  display: block;
+  color: var(--lw-muted);
+  font-size: 15px;
+}
+
+.metadata-metrics strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 31px;
+}
+
+.progress-block {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  color: var(--lw-muted);
+  font-size: 16px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.panel-heading h2 {
+  margin: 0 0 12px;
+  font-size: 21px;
+}
+
+.status-chart {
+  height: 360px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.metric {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 247, 247, 0.86)),
+    var(--lw-white);
+  border: 1px solid var(--lw-outline-variant);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.metric strong {
+  font-size: 37px;
+  line-height: 1;
+}
+
+.metric.accent {
+  background: var(--lw-saffron);
+}
+
+.metric.green {
+  color: var(--lw-white);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
+    var(--lw-green);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--lw-green-soft);
+  color: var(--lw-green);
+  font-size: 16px;
+  border: 1px solid rgba(4, 98, 65, 0.12);
+}
+
+.status-pill[data-status="indexing"],
+.status-pill[data-status="annotating"],
+.status-pill[data-status="pending_review"],
+.status-pill[data-status="importing"],
+.status-pill[data-status="pending_claim"],
+.status-pill[data-status="pending_annotation"],
+.status-pill[data-status="in_progress"],
+.status-pill[data-status="pending_index_qc"] {
+  background: var(--lw-saffron-soft);
+  border-color: rgba(251, 179, 71, 0.36);
+  color: #6d4810;
+}
+
+.status-pill[data-status="review_completed"],
+.status-pill[data-status="qc_passed"] {
+  background: var(--lw-green-soft);
+  border-color: rgba(4, 98, 65, 0.24);
+  color: var(--lw-green);
+}
+
+.status-pill[data-status="rework"],
+.status-pill[data-status="qc_rejected"],
+.status-pill[data-status="closed"] {
+  background: var(--lw-danger-soft);
+  border-color: rgba(217, 45, 45, 0.24);
+  color: var(--lw-danger);
+}
+
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.task-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 247, 247, 0.92)),
+    var(--lw-white);
+  border: 1px solid var(--lw-outline-variant);
+  border-radius: 8px;
+  padding: 18px;
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.task-card:hover {
+  border-color: var(--lw-saffron);
+  transform: translateY(-1px);
+}
+
+.task-card h3 {
+  margin: 0 0 8px;
+  font-size: 21px;
+}
+
+.annotate-layout,
+.qc-layout {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr) 360px;
+  gap: 16px;
+  min-height: 0;
+}
+
+.workspace-page {
+  height: 100vh;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--lw-paper) 0, var(--lw-sea-salt) 220px),
+    var(--lw-sea-salt);
+}
+
+.workspace-header {
+  flex-shrink: 0;
+  min-height: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: rgba(245, 238, 219, 0.88);
+  border-bottom: 1px solid rgba(19, 48, 32, 0.08);
+}
+
+.workspace-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.workspace-title h1 {
+  margin: 0;
+  font-size: 25px;
+  letter-spacing: 0;
+}
+
+.workspace-title p {
+  margin: 3px 0 0;
+  color: var(--lw-muted);
+}
+
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+}
+
+.image-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 0;
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+}
+
+.image-row {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--lw-line);
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.72);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.image-row:hover {
+  border-color: rgba(251, 179, 71, 0.7);
+  background: rgba(255, 195, 112, 0.14);
+}
+
+.image-row.active {
+  border-color: var(--lw-saffron);
+  background: var(--lw-saffron-soft);
+}
+
+.preview-stage {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(245, 238, 219, 0.56), rgba(255, 255, 255, 0.92)),
+    #ffffff;
+  border: 1px solid rgba(19, 48, 32, 0.06);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.preview-stage img {
+  max-width: 100%;
+  max-height: calc(100vh - 138px);
+  object-fit: contain;
+}
+
+.preview-image--clickable {
+  cursor: zoom-in;
+  transition: opacity 0.16s ease;
+}
+
+.preview-image--clickable:hover {
+  opacity: 0.92;
+}
+
+.annotation-review {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(4, 98, 65, 0.16);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(245, 238, 219, 0.82), rgba(249, 247, 247, 0.88)),
+    var(--lw-sea-salt);
+}
+
+.annotation-review h3 {
+  margin: 0 0 12px;
+  font-size: 19px;
+}
+
+.annotation-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.annotation-field {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--lw-line);
+}
+
+.annotation-field:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.annotation-label {
+  color: var(--lw-muted);
+  font-size: 16px;
+}
+
+.annotation-label em {
+  margin-left: 3px;
+  color: var(--lw-danger);
+  font-style: normal;
+}
+
+.annotation-field strong {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.annotation-field small {
+  color: var(--lw-danger);
+  font-size: 15px;
+}
+
+.annotation-field--missing-required {
+  margin: 0 -8px;
+  padding: 8px;
+  border-bottom: 0;
+  border-radius: 6px;
+  background: var(--lw-danger-soft);
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--lw-green);
+  --el-button-border-color: var(--lw-green);
+  --el-button-hover-bg-color: #0a7550;
+  --el-button-hover-border-color: #0a7550;
+  --el-button-active-bg-color: #034b32;
+  --el-button-active-border-color: #034b32;
+}
+
+.el-button--warning {
+  --el-button-bg-color: var(--lw-saffron);
+  --el-button-border-color: var(--lw-saffron);
+  --el-button-text-color: var(--lw-dark);
+  --el-button-hover-bg-color: var(--lw-earth);
+  --el-button-hover-border-color: var(--lw-earth);
+  --el-button-hover-text-color: var(--lw-dark);
+}
+
+.el-button--danger {
+  --el-button-bg-color: var(--lw-danger);
+  --el-button-border-color: var(--lw-danger);
+  --el-button-hover-bg-color: #c94d3a;
+  --el-button-hover-border-color: #c94d3a;
+}
+
+.el-table {
+  --el-table-header-bg-color: var(--lw-paper);
+  --el-table-header-text-color: var(--lw-dark);
+  --el-table-row-hover-bg-color: var(--lw-sea-salt);
+  --el-table-border-color: var(--lw-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 700;
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--lw-line) inset;
+}
+
+.el-input__wrapper:hover,
+.el-textarea__inner:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--lw-line-strong) inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--lw-green) inset;
+}
+
+.el-tabs__item {
+  color: var(--lw-muted);
+  font-weight: 600;
+}
+
+.el-tabs__item.is-active {
+  color: var(--lw-green);
+}
+
+.el-tabs__active-bar {
+  background-color: var(--lw-saffron);
+}
+
+.el-pagination {
+  --el-pagination-hover-color: var(--lw-green);
+}
+
+.el-pager li.is-active {
+  background: var(--lw-green);
+  color: var(--lw-white);
+}
+
+.el-dialog {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.el-dialog__header {
+  margin: 0;
+  padding: 18px 20px;
+  background: var(--lw-paper);
+  border-bottom: 1px solid var(--lw-line);
+}
+
+.el-dialog__body {
+  background: var(--lw-white);
+}
+
+.el-dialog__footer {
+  background: var(--lw-sea-salt);
+  border-top: 1px solid var(--lw-line);
+}
+
+.el-alert {
+  border-radius: 8px;
+}
+
+.el-switch.is-checked .el-switch__core {
+  background-color: var(--lw-green);
+  border-color: var(--lw-green);
+}
+
+@media (max-width: 1100px) {
+  .shell,
+  .annotate-layout,
+  .qc-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .workbench-grid {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: auto;
+  }
+
+  .table-panel,
+  .metadata-panel {
+    max-height: none;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+  }
+
+  .nav-list {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .content,
+  .topbar {
+    padding: 20px;
+  }
+
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* Element Plus ships a ~160px illustration with el-empty. In a page-sized
+   region - the review viewer, the completed preview - that renders as a giant
+   cartoon box floating on the dark stage, which reads as something having gone
+   wrong rather than as "nothing selected yet". The message is the point; the
+   picture is decoration that grows with its container. */
+.el-empty {
+  padding: 24px 0;
+}
+
+.el-empty .el-empty__image {
+  width: 72px;
+}
+
+/* On the viewer's dark frame the stock illustration is a white blob. Drop it
+   entirely there and keep only the sentence. */
+.qc-preview-stage .el-empty .el-empty__image,
+.completed-main-preview .el-empty .el-empty__image {
+  display: none;
+}
+
+.qc-preview-stage .el-empty .el-empty__description,
+.completed-main-preview .el-empty .el-empty__description {
+  color: var(--lw-on-surface-variant);
+}
+
+/* Give the shell's scroll region a little more air now that every control is
+   a size larger; 28px around 48px-tall inputs reads tighter than 28px around
+   32px-tall ones did. */
+.content {
+  padding: 32px 36px;
+}
+
+/* Full-bleed for the QC workspaces - they fill their own area and draw their
+   own edges, so the shell's gutter only put a frame of a different colour
+   around them. */
+.content--flush {
+  padding: 0;
+}
+
+/* Element Plus sizes its own text from this one variable. At its 14px default
+   every control's LABEL sat a step below the app text around it - most visible
+   where a button stands next to a status pill. Raised once here rather than
+   overridden per component, so buttons, inputs, tags and table cells move
+   together and stay matched to each other. */
+:root {
+  --el-font-size-base: 16px;
+}

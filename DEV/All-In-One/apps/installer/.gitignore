@@ -1,7 +1,0 @@
-# Inno Setup compile output. LWSuite.iss sets OutputDir to the All-In-One folder
-# root, which is outside this repository, so a normal build lands nowhere git can
-# see. These two entries are guards against a build that overrides OutputDir back
-# to this folder - LWSuite.exe is ~158 MB and never belongs in git.
-LWSuite.exe
-Output/
-vendor/postgresql/

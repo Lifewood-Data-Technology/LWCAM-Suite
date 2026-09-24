@@ -1,0 +1,9 @@
+# Inno Setup compile output. LWCam.iss and QCPlatform.iss set OutputDir to the
+# repository root, where the root .gitignore's *.exe keeps LWCamSetup.exe and
+# QCPlatformSetup.exe out of git. These entries guard a build that overrides
+# OutputDir back to this folder - the installers are ~100 MB each.
+LWCamSetup.exe
+QCPlatformSetup.exe
+LWSuite.exe
+Output/
+vendor/postgresql/
