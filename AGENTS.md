@@ -1,13 +1,17 @@
-# AGENTS.md — LWCam suite workspace (`qc-platform` branch)
+# AGENTS.md — LWCam suite workspace (`lwip-standalone` branch)
 
 Guidance for Claude Code working in this repository. Each app has its own
 `AGENTS.md` with its architecture; this file covers what spans them — how to
 build and verify, what is already broken before you touch anything, and the
 deployment traps that are not visible from the source.
 
-**Layout on `qc-platform` (since 2026-09-23):** the apps sit at the repository
-root — `LWCAM\`, `LWCamAdmin\`, `LWCam_QC_Platform\`, `installer\`, plus
-`verification\` and `docs\`. Every other branch still nests them under
+This branch split off `qc-platform` at `67d90e7` (2026-09-25) to give LWIP its
+own installer and its own machine; it inherits everything below up to that
+commit, plus the four-installer split described under Deploying.
+
+**Layout on `qc-platform` (since 2026-09-23), carried over here:** the apps sit at the repository
+root — `LWCAM\`, `LWCamAdmin\`, `LWIP\`, `LWCam_QC_Platform\`, `LWCam_Upload\`,
+`installer\`, plus `verification\` and `docs\`. Every other branch still nests them under
 `DEV\All-In-One\apps\`, so a path copied from another branch's docs loses that
 prefix here. Merges from `master` follow the move by rename detection. The two
 `AGENTS.md` files are the exception: this guide was `DEV\All-In-One\apps\AGENTS.md`
@@ -21,46 +25,57 @@ walks upward from the working directory and loads every `AGENTS.md` it passes.
 Edit THIS file for anything about the code; the pointer describes the folder
 layout and the station.
 
-## The three apps
+## The five modules
 
 | Path | What it is |
 | --- | --- |
-| `LWCAM` | Flutter Windows capture app. Capture, the rework recapture list, and supervision of **LWIP** (`LWCAM/LWIP`), the Python deskew/crop/thumbnail watcher. **No QC** since Phase 8 (2026-09-22): the review screens and the local engine are gone. |
-| `LWCamAdmin` | Flutter Windows SuperAdmin app. Owns Station Setup, which writes the capture station's config (`lwcam_node_config.json`) and creates/upgrades the PostgreSQL schema. No QC, upload or AI settings since 2026-09-23 — the QC server owns those. |
+| `LWCAM` | Flutter Windows capture app. Capture and the rework recapture list. **No QC** since Phase 8 (2026-09-22): the review screens and the local engine are gone. **No LWIP** since 2026-09-25: LWIP is its own installer and boot-time SYSTEM service on its own PC, reports to PostgreSQL itself (`cloud_report.py`), and LWCAM neither starts/stops it nor reads its `state.json` any more — `ProcessingBootstrap`, `ProcessingReportService` and `LwipService` are deleted. |
+| `LWCamAdmin` | Flutter Windows SuperAdmin app. Owns Station Setup, which writes the capture station's config (`lwcam_node_config.json`) and (since 2026-09-25) only TESTS the database connection — creating/upgrading the schema is `LWCamDatabaseSetup`'s job, and Station Setup no longer configures or starts LWIP either. It keeps only the two "LWIP folders (as this PC sees them)" fields, which LWCAM's rework still needs to map `folder_path` back to the original images. No QC, upload or AI settings since 2026-09-23 — the QC server owns those. |
+| `LWIP` | Deskew/crop/thumbnail engine, its own product at the repository root since 2026-09-25 (no longer nested under `LWCAM`). Runs as its own boot-time SYSTEM service on its own machine and reports each finished folder straight to PostgreSQL itself (`backend/deskew_crop_tool/cloud_report.py`). **Start with `LWIP/README.txt`.** |
 | `LWCam_QC_Platform` | **QC as a standalone LAN server** — FastAPI backend plus the Vue console it serves from `frontend/dist`. Review, approve, reject, separation, client rework, export, admin settings. It talks to LWCAM only through the database. **Start with `LWCam_QC_Platform/AGENTS.md`** for anything QC. |
+| `LWCam_Upload` | The S3 upload phase, moved out of the QC server into its own app: a SYSTEM boot task that watches QC's output folder, uploads with size-verified logic, keeps its own ledger, and serves its own console (status, paths/S3 settings, live log). |
 
-All three share one PostgreSQL schema. Column ownership is strict and enforced by
+Plus `installer\`, which builds the installers for all of the above.
+
+All five share one PostgreSQL schema. Column ownership is strict and enforced by
 convention only — see the table in `LWCam_QC_Platform/AGENTS.md`.
 
-**Upload lives in the QC server**: `LWCam_QC_Platform/backend/app/services/upload.py`,
-a 60-second sweep that sends published packages to S3, verifies each by size,
-writes `Upload_Summary.db3` and moves the package to the Uploaded folder. Its
-settings are in the QC server's `config.txt` and edited from the console's
-Admin → Settings (since 2026-09-23). The console still has no screen for
-upload *status* — `GET /api/admin/exports/uploads` and
-`POST /api/admin/exports/uploads/retry` exist with nothing calling them.
+**Upload is its own service since 2026-09-25**: `LWCam_Upload/` (LWCamUploadSetup,
+the "LWCam Upload" boot task) watches QC's output folder, sends each published
+package to S3 verified by size, writes `Upload_Summary.db3` and moves the
+package to the Uploaded folder. Its settings are its own
+`config\upload_config.json`, edited from its console on port 8091, which also
+shows status, failures and a live log. QC no longer uploads and has no upload
+settings (until 2026-09-25 this was `LWCam_QC_Platform/backend/app/services/upload.py`).
 
 **The QC server owns all its settings** in its own `config.txt` (DB login, JWT
-secret, bind address/port, folders, upload, AI) and reads nothing from LWCam
+secret, bind address/port, folders, AI) and reads nothing from LWCam
 Admin — `LWCam_QC_Platform/AGENTS.md` has the key list. The two apps share only
-the database, and both create/upgrade its schema with the same
-`LWCam_QC_Platform/scripts/setup_qc_db.py`.
+the database, whose schema only `LWCamDatabaseSetup` now creates and upgrades,
+running the same `LWCam_QC_Platform/scripts/setup_qc_db.py` (`--server-config`)
+— neither QCPlatformSetup nor LWCam Admin provisions it any more.
 
 ## Gates, and the baseline they must beat
 
 Run these before claiming anything works. **The numbers on the right were
-measured on 2026-09-23 on this branch — several failures are pre-existing and
+measured on 2026-09-25 on this branch — several failures are pre-existing and
 chasing them wastes a session.**
 
 ```bash
-cd LWCAM        && flutter analyze && flutter test     # 5 infos, 423 pass
-cd LWCamAdmin   && flutter analyze && flutter test     # clean,   117 pass
+cd LWCAM        && flutter analyze && flutter test     # 5 infos, 407 pass
+cd LWCamAdmin   && flutter analyze && flutter test     # clean,   93 pass
 cd LWCam_QC_Platform/backend && C:\Python314\python.exe -m unittest discover -s tests -t .
-                                                       # 196 pass, 0 fail
+                                                       # 194 total: 190 pass, 4 skipped, 0 fail (upload-standalone)
 cd LWCam_QC_Platform/frontend && npm run build         # vue-tsc --noEmit && vite build
-cd LWCAM/LWIP/backend && C:\Python314\python.exe -m unittest discover -s tests
-                                                       # 64 run, 3 fail, 5 skipped
+cd LWIP/backend        && C:\Python314\python.exe -m unittest discover -s tests
+                                                       # 105 run, 2 fail, 1 skipped
+cd LWCam_Upload/backend && C:\Python314\python.exe -m unittest discover -s tests
+                                                       # 51 pass (no real S3 or DB)
 ```
+
+(The QC backend count is the same whether collected by `unittest` or by
+`pytest` — the 4 skips are `test_setup_qc_db.py` tests that need a reachable
+local PostgreSQL.)
 
 **Interpreter:** `C:\Python314\python.exe`. The installed LW Suite and both of
 its bundled Pythons were removed from this station on 2026-09-21; `C:\Python314`
@@ -78,15 +93,12 @@ neither `requirements.txt` nor the offline wheels — the suites are
   falling back to Pillow BICUBIC"* comes from a test that patches `cv2` to
   `None` on purpose, and the *"AI review OpenRouter call failed"* lines are the
   retry ladder being exercised against a stub.
-- **LWIP: 3 failures, identical on the tree before the 2026-09-23 move** (checked
-  in a detached worktree). Two are the negative controls in `test_long_paths.py`
+- **LWIP: 2 failures**, the negative controls in `test_long_paths.py`
   (`test_a_long_path_is_writable_only_through_fs_path`,
   `test_the_same_folder_fails_without_the_guard`): they expect a long path to
   FAIL without the `\\?\` guard, and on this PC it succeeds — long paths are
-  enabled for this Python. The third,
-  `test_preview_detection_crops_at_original_resolution`, measures a width 25 px
-  off its expectation against a 16 px tolerance. The older "1 fail, 29 pass"
-  figure (an 8.3 short-path artifact) is from a smaller suite on another PC.
+  enabled for this Python. The 1 skip (`test_non_windows_is_untouched`) is
+  POSIX-only and expected on Windows.
 
 If a count changes, that is yours. **Establish the baseline before concluding a
 failure is pre-existing.** The stash stack is shared by every worktree and by
@@ -135,7 +147,11 @@ it shells out to live next to the INSTALLED exe, not the built one**:
 | --- | --- | --- |
 | `adb.exe` (+ `AdbWinApi.dll`, `AdbWinUsbApi.dll`) | `gallery_page.dart:_resolveAdbPath` — exe dir, cwd, `C:\Android\platform-tools`, PATH | copy into the Debug folder from an install or the Android platform-tools |
 | `scrcpy` | `scrcpy_service.dart:resolveScrcpyExe` — walks 7 levels up looking for `scrcpy/scrcpy.exe` | put a Windows build in `LWCAM\scrcpy` (gitignored), which the walk finds |
-| LWIP runtime | `lwip_autostart_service.dart:resolveLwipRoot` — needs `runtime/python/pythonw.exe` **and** `backend/deskew_crop_tool` | run `LWCAM\LWIP\SETUP_DESKEW_CROP.bat`, or ignore |
+
+LWIP is no longer one of these: since 2026-09-25 LWCAM neither launches nor
+supervises it (`resolveLwipRoot` and the services that called it are deleted),
+so a LWCAM dev build needs no LWIP runtime beside it at all — LWIP runs, if at
+all, as its own installed service on its own PC.
 
 The install these used to be copied from (`C:\Program Files\LW Suite`) is gone
 from this station. Without `adb` every capture symptom appears at once — no
@@ -167,25 +183,60 @@ Release builds put Dart in `data/app.so`; debug builds in `kernel_blob.bin`.
 ```bash
 cd LWCAM      && flutter build windows --release
 cd LWCamAdmin && flutter build windows --release
-cd installer  && powershell -File build-installer.ps1 -Target All   # or LWCam / QC
+cd installer  && powershell -File build-installer.ps1 -Target All   # or Database / QC / LWIP / LWCam
 ```
 
-**Two installers since 2026-09-23** (`installer/README.txt` has the detail):
+**Five installers on `upload-standalone` (2026-09-25):** the four below plus
+`LWCamUploadSetup.exe` (`Upload.iss`) — the S3 upload phase moved OUT of the QC
+server into `LWCam_Upload\` (`b09b179`, `0806ae3`, `7efc6ee`): the "LWCam
+Upload" SYSTEM boot task watches QC's output folder, uploads with QC's old
+size-verified logic, keeps its own ledger with a per-package fingerprint so a
+client-rework republish is uploaded again, and serves a console on 8091
+(status, paths/S3 settings, live tagged log; same sign-in and DB-down local
+fallback as the LWIP console). QC no longer has upload settings; an old
+config.txt's upload* keys are ignored and dropped on the next Settings save,
+so an upgraded site must enter its S3 details in LWCamUploadSetup. Tested on
+this PC with real boto3 against a fake bucket (403 -> FAILED + back-off,
+Retry, no secrets logged); a real bucket upload is unproven here.
 
-- `LWCamSetup.exe` (`LWCam.iss`) — LWCAM, LWCam Admin, LWIP, plus
-  `{app}\Database\` (setup_qc_db.py + SQL) for Station Setup. Keeps the old
-  LW Suite AppId, so an all-in-one station upgrades in place; its old `{app}\QC`
-  engine is stopped and removed. LWCam Admin is Start-menu only.
+**Four installers since 2026-09-25** (`installer/README.txt` has the detail).
+Site install order: `LWCamDatabaseSetup` first (once, on the database PC),
+then `QCPlatformSetup` and `LWIPSetup` (once each, on their own PCs, in either
+order), then `LWCamSetup` on every capture PC — each of the other three needs
+the database login `LWCamDatabaseSetup`'s finish page shows, and `LWCamSetup`/
+`QCPlatformSetup` also need LWIP's output folder from `LWIPSetup`'s finish page.
+
+- `LWCamDatabaseSetup.exe` (`Database.iss`) — the only installer that can
+  install PostgreSQL (or use an existing server); creates/upgrades the schema
+  with `setup_qc_db.py`, and optionally opens a local server to the LAN
+  (`--open-lan` + firewall rule "LWCam Database"). Writes the login to a
+  private `config\database.txt`, shown on the finish page.
 - `QCPlatformSetup.exe` (`QCPlatform.iss`) — the QC server + console. Writes
   `{app}\config\config.txt` (private folder; fresh CSPRNG `jwtSecret`,
-  `bindHost = 0.0.0.0`), creates/upgrades the schema, registers the "LWCam QC
-  Server" task at system start as SYSTEM, and opens the configured port in the
-  firewall (Domain + Private).
+  `bindHost = 0.0.0.0`) on a fresh install, asking for a database that must
+  already exist — it no longer installs PostgreSQL or runs `setup_qc_db.py`.
+  Registers the "LWCam QC Server" task at system start as SYSTEM, and opens the
+  configured port in the firewall (Domain + Private).
+- `LWIPSetup.exe` (`LWIP.iss`) — LWIP as its own offline Python runtime, run by
+  the "LWCam LWIP" scheduled task (SYSTEM, at boot). Writes a private
+  `config\deskew_crop_config.json` (input/output folders, plus the database
+  login LWIP now reports to directly via `cloud_report.py`). No firewall rule —
+  LWIP listens on no port.
+- `LWCamSetup.exe` (`LWCam.iss`) — LWCAM + LWCam Admin only, no LWIP and no
+  PostgreSQL flow. Keeps the old LW Suite AppId, so an all-in-one station
+  upgrades in place: an old `{app}\LWCAM\LWIP`, an old all-in-one `{app}\QC`
+  engine, and `{app}\Database` are all stopped and removed, and the old
+  per-user LWIP logon Run key is deleted. LWCam Admin is Start-menu only.
 
-Both can install PostgreSQL (shared `installer/postgres.iss`), both stop their
-running processes in `PrepareToInstall` and abort if one survives, and both
-write secrets only into files already restricted to SYSTEM + Administrators.
-**Neither has been test-installed yet.**
+Only `LWCamDatabaseSetup` ships the PostgreSQL exe (`installer/postgres.iss`,
+now included only by `Database.iss`); the other three no longer touch it.
+`PythonProcessesUnder` and `RestrictToAdmins` moved into `installer\common.iss`
+(`7756ff5`), included directly by `LWIP.iss`/`QCPlatform.iss`/`LWCam.iss` and,
+for `Database.iss`, through `postgres.iss`. Every installer that runs a
+background process still stops it in `PrepareToInstall` and aborts if it
+survives, and secrets are still written only into files already restricted to
+SYSTEM + Administrators. **None of the four has been built into a `.exe` or
+test-installed yet** (2026-09-25) — see "State of play" below.
 
 `C:\Program Files\LW Suite\` **needs elevation** — plain `cp` fails. Either
 rebuild the installer or copy with elevation.
@@ -197,10 +248,13 @@ fallback. The gitignored inputs (vendor zip, vcruntime, adb, wheels, jpegtran,
 scrcpy, the PostgreSQL exe) are listed in `installer/README.txt`; on this
 station they were copied from the `Source` worktree.
 
-Outputs land at the repository root: `LWCamSetup.exe` (~103 MB),
-`QCPlatformSetup.exe` (~99 MB) and, copied beside them,
-`postgresql-18.6-1-windows-x64.exe` (359 MB). All ignored by `*.exe`. **Ship
-each setup file with the PostgreSQL exe** — see Station facts.
+Outputs land at the repository root: `LWCamDatabaseSetup.exe`,
+`QCPlatformSetup.exe`, `LWIPSetup.exe` and `LWCamSetup.exe`, all ignored by
+`*.exe`. Only `LWCamDatabaseSetup.exe` needs the PostgreSQL exe beside it —
+`build-installer.ps1` copies the newest staged
+`postgresql-18.*-windows-x64.exe` next to it for that target; the other three
+ship without it. **Ship `LWCamDatabaseSetup.exe` together with the PostgreSQL
+exe** — see Station facts.
 
 The installer bundles the **Release** builds and the repo's LWIP and QC backend
 trees, so backend changes ship automatically — but stale Release builds ship
@@ -216,10 +270,11 @@ looks freshly installed while running the previous version — no error
 anywhere. Restart Manager cannot catch it, since Python closes a `.py` after
 reading it and holds no lock, which is also why the overwrite succeeds
 silently. Processes are matched by COMMAND LINE against the install folder,
-never by name (`PythonProcessesUnder` in `postgres.iss`), so unrelated Python
-survives. LWCam drains LWIP gracefully first (stop file, 90 s) and removes an
-all-in-one `{app}\QC`; the QC installer ends its scheduled task and restarts it
-after the upgrade.
+never by name (`PythonProcessesUnder`, now in `installer\common.iss`), so
+unrelated Python survives. `LWCamSetup` drains an all-in-one station's old
+LWIP gracefully first (stop file, 90 s) before removing `{app}\LWCAM\LWIP` and
+an all-in-one `{app}\QC`; `QCPlatformSetup` and `LWIPSetup` each end their own
+scheduled task and restart it after the upgrade.
 
 ## Decisions inherited from `master` (the Taiping/FamilySearch baseline)
 
@@ -261,6 +316,16 @@ page - FamilySearch rejected that delivery for "image enhancement".)
   predicts Pillow's `expand=True` geometry rather than calling it. Thumbnails
   are the one place LWIP applies the ops, at 512 px, because the QC rail shows
   them.
+- **A tilted page keeps `crop_padding` of REAL background in the delivered
+  TIFF** (since 2026-09-24, master `94ff454` + `0258dda`). The lossless trim is
+  the pre-image of the FINAL straightened crop (page + padding) plus
+  `RESAMPLE_REACH` (8 px, the export's Lanczos4 reach), and
+  `_clamp_to_rotated_frame` pulls in only the side that runs off the photo,
+  keeping 8 px clear. Before, the trim was the unrotated page + padding, the
+  rotation's corner wedges landed in the padding and a uniform shrink cost all
+  four sides: 80-125 px margins, and a page cut on one capture. Straight pages
+  are unchanged (the exact `cv2.boundingRect` box). The tilted trim is
+  slightly larger on disk. Only new captures are affected.
 - **The engine layers three lists**, in order: LWIP baseline (`lwip_baseline.py`,
   from the manifest), committed QC ops (`qc_ops_store.py`, `qc_ops.json` beside
   the manifest, written at approval), and the reviewer's draft (`pending_ops`).
@@ -325,24 +390,30 @@ rather than every one (opening it is the only way to fix a missing page), and
 commit can delete or replace a page whose file has gone. The traversal and
 unconfigured-folder guards stay on BOTH paths; only `is_file` moved.
 
-**`qcInputRoot` is the export SCRATCH root, not the image source.** Images come
-from `capture_folders.folder_path` through `to_local`. The name misleads; it
-defaults to 2.Batches only because that is convenient on a single PC. On a split
-site it must be LOCAL, or every export writes ~10x TIFF scratch back across the
-network into the capture PC's pipeline folder.
+**`exportWorkRoot` is the export SCRATCH root, not the image source** (it was
+called `qcInputRoot` until 2026-09-24, which everyone misread; `qcInputRoot` now
+means LWIP's output, the old `qcImagesRoot` — `LWCam_QC_Platform/AGENTS.md` has
+the rename and how old files are read). Images come from
+`capture_folders.folder_path` through `to_local`. On a split site the work root
+must be LOCAL, or every export writes ~10x TIFF scratch back across the network.
 
 ### Two-PC sites (capture PC hosts the database, QC/export PC connects)
 
-- Installer task **"This station uses a PostgreSQL server on another PC"** makes
-  `NeedsPostgreSql` false, so no server is installed, no `station-seed.json` is
-  written (it would point the client at localhost) and `PrepareToInstall` stops
-  demanding the 358 MB file.
+- The **"use an existing server"** task now lives only in `LWCamDatabaseSetup`
+  (`postgres.iss`'s `remotedb` task, included only by `Database.iss`): "Use an
+  existing PostgreSQL server (on this PC or another) instead of installing
+  one." Ticking it makes `NeedsPostgreSql` false there, so no server is
+  installed and `PrepareToInstall` stops demanding the PostgreSQL exe.
+  `LWCamSetup` no longer has this task or the PostgreSQL flow at all — it never
+  writes `station-seed.json` any more (removed with LWCam.iss's old
+  provisioning code; only its `[UninstallDelete]` entry, cleaning up an older
+  install's copy, remains).
 - Station Setup gained **"Images captured on another PC"** -
   `captureImageHostPath` / `captureImageContainerPath`, mapped through the node
   config and read by `paths.to_local`. This lets the capture PC keep recording
   fast local paths while the QC PC maps that prefix onto a share, instead of
   making the capture PC write UNC paths and pay SMB on its own writes. The
-  console's own `qcImagesRoot` (`config.txt`) is the other way to do the same.
+  console's own `qcInputRoot` (`config.txt`) is the other way to do the same.
 - `SETUP-LAN-DB.bat` (in the Taiping deploy folder, not this repository)
   configures the hosting PC end to end (static IP on the cable, `pg_hba`,
   firewall, restart), idempotent and self-healing. `SHOW-DB-PASSWORD.bat` prints
@@ -361,10 +432,15 @@ before debugging anything else.
   in `pg_hba.conf` stops PostgreSQL starting, and the station then reports only
   "could not reach the database server", which points nowhere near the cause.
   Write config files with `UTF8Encoding($false)`.
-- **`pg_hba` must allow the `postgres` database, not just `lwcam`.** Saving
-  Station Setup runs the provisioner, which connects to the maintenance
-  database to see whether `lwcam` exists - you cannot connect to a database in
-  order to create it. Test connection passes and the save fails.
+- **`pg_hba` must allow the `postgres` database, not just `lwcam`.** The
+  provisioner connects to the maintenance database first, to see whether
+  `lwcam` exists — you cannot connect to a database in order to create it. This
+  is now `LWCamDatabaseSetup`'s concern, not Station Setup's: its `--open-lan`
+  ("Allow other PCs on this network to connect") writes
+  `host all all samenet scram-sha-256` to `pg_hba.conf`, and the `all` covers
+  every database including `postgres`, so this trap should no longer bite —
+  but a server opened to the LAN by hand, or an older `pg_hba.conf` line
+  scoped to `lwcam` only, still can.
 - **`upload_summary.normalize_rework` returns the CSV's `"TRUE"`/`"FALSE"`
   TEXT.** `bool("FALSE")` is True, so a bool() check reads every package as a
   rework and overwrites unconditionally. Compare to the string.
@@ -374,7 +450,7 @@ before debugging anything else.
   export/QC title-map precedence. If you are writing a field list, ask what
   happens when field 15 arrives.
 
-## State of play (2026-09-23)
+## State of play (2026-09-25)
 
 The QC platform's own state — what was exercised on the console, test folders,
 and its open list — is in `LWCam_QC_Platform/AGENTS.md`. What spans the apps:
@@ -393,6 +469,34 @@ untouched. The pre-test package is kept at
 
 **Open:**
 
+- **2026-09-25: LWIP split into its own installer + service.** Six commits
+  `7756ff5..447eeed` give the suite four installers instead of two
+  (`LWCamDatabaseSetup`, `QCPlatformSetup`, `LWIPSetup`, `LWCamSetup`; see
+  Deploying above and `installer/README.txt`), move LWIP's settings and DB
+  login into its own `deskew_crop_config.json`, have LWIP report each finished
+  folder to PostgreSQL itself (`cloud_report.py`), and delete LWCAM's
+  `ProcessingBootstrap`/`ProcessingReportService`/`LwipService` and LWCam
+  Admin's LWIP autostart/config-writer services. Gates: LWCAM analyze 5 infos /
+  407 pass, LWCamAdmin analyze clean / 93 pass, QC backend 203 (199 pass, 4
+  skip), LWIP 77 run / 2 fail / 1 skip. **All four `.exe` files built
+  2026-09-25 12:01** (`build-installer.ps1 -Target All`: Database 18 MB, LWIP
+  78 MB, QC 104 MB, LWCam 32 MB — LWCam was ~103 MB with LWIP inside). **Not
+  yet test-installed** — next step is test-installing `LWCamDatabaseSetup` +
+  `LWIPSetup` on this PC (ask the user first). A worktree made by copying
+  another's folder carries that folder's `build\windows` CMake cache and
+  `windows\flutter\ephemeral\.plugin_symlinks` — both break
+  `flutter build windows` until deleted (they are regenerated).
+- **LWIP console** (2026-09-25, `a2b1867` + `7429574`): the service runs
+  `deskew_crop_tool.service`, a supervisor that serves a web page on
+  `ui_port` (8090) and runs the worker as a child — status, queue, log tail,
+  settings (validated by `load_config`, password write-only), save = restart.
+  Sign-in: active Admin/SuperAdmin DB accounts (QC's bcrypt check and rate
+  limit). DB unreachable ⇒ a browser ON the LWIP PC (Host `localhost` too) may
+  edit without signing in; other PCs read-only. LWIP suite now 105 run / 2
+  fail / 1 skip. Run end to end on this PC against scratch folders and the
+  local DB (processing, clean stop, local fallback, save-and-restart,
+  rebinding guard); `LWIPSetup.exe` rebuilt (74.7 MB). Real sign-in with an
+  admin account and the installed task are not yet exercised.
 - **The installer split is built and reviewed but not test-installed**
   (2026-09-23/24: the QC server owns its settings, the console edits upload and
   AI, Station Setup lost its QC sections, two installers). Neither installer has
@@ -402,7 +506,7 @@ untouched. The pre-test package is kept at
 - **LAN access** is installer-configured (`bindHost = 0.0.0.0`, firewall rule on
   Domain + Private networks). A dev checkout stays on loopback. A LAN bind with
   no `corsAllowedOrigins` gets no CORS — the console is same-origin.
-- **Upload status** has no console screen (see "The three apps"). Also
+- **Upload status** has no console screen (see "The five modules"). Also
   untested: the bucket half of client rework (the same Group ID replacing the
   package in S3 and in `4.Uploaded`); upload is off here and no bucket is set.
 - **Capture rework cannot be exercised on this station** — no camera, no LWIP
@@ -410,12 +514,17 @@ untouched. The pre-test package is kept at
 
 ## Station facts
 
-- Config: `%USERPROFILE%\LWCAM_DBs\` — `lwcam_node_config.json` (LWCAM/LWIP's
-  PG credentials and paths; its old QC/upload/AI fields are kept only so the
-  file round-trips), `lwcam_users.json` (the snapshot LWCAM authenticates
-  against), `lwcam_stats_<deviceId>.db`, `lwip/` runtime + journal. The QC
-  server's settings are `LWCam_QC_Platform\config.txt` (gitignored; on this
-  station it carries the DB login and JWT secret copied from the node config).
+- Config: `%USERPROFILE%\LWCAM_DBs\` — `lwcam_node_config.json` (LWCAM's PG
+  credentials and paths; its old QC/upload/AI/LWIP-provisioning fields are kept
+  only so the file round-trips), `lwcam_users.json` (the snapshot LWCAM
+  authenticates against), `lwcam_stats_<deviceId>.db`. The `lwip/` runtime +
+  journal here is now only what an **old all-in-one** station wrote — a
+  standalone `LWIPSetup` install keeps its own `config\deskew_crop_config.json`,
+  `runtime\state.json` and `logs\` under `{app}` instead
+  (`installer/README.txt` explains copying `state.json` across when a new
+  install takes over folders an old one already processed). The QC server's
+  settings are `LWCam_QC_Platform\config.txt` (gitignored; on this station it
+  carries the DB login and JWT secret copied from the node config).
 - **This station has no LW Suite install** (removed 2026-09-21). Test data lives
   at `C:\LWCamTest` (`2.Batches`, `3.Export`, `scratch`), with an untouched copy
   at `Desktop\LWCam Test Data Backup 2026-09-21`. The node config's upload

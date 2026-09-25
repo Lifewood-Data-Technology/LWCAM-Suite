@@ -13,7 +13,7 @@ runtime/
 venv/
 installer/vendor/
 LWCAM/scrcpy/
-LWCAM/LWIP/tools/
+LWIP/tools/
 
 # ---- compiled installers and archives ----------------------------------
 *.exe

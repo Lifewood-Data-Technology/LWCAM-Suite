@@ -1,4 +1,4 @@
-"""The Admin settings endpoint persists console-owned upload and AI settings."""
+"""The Admin settings endpoint persists console-owned AI settings."""
 
 from __future__ import annotations
 
@@ -13,9 +13,8 @@ from pydantic import SecretStr
 from app.core.config import Settings, settings
 from app.core.errors import BusinessError
 from app.core.server_settings import load_server_settings_overrides, write_server_settings
-from app.routers.admin import get_path_settings, update_server_settings
-from app.schemas.admin import UpdateServerSettingsRequest
-from app.services.upload import UploadError, upload_runtime_config
+from app.routers.admin import check_directory, get_path_settings, update_server_settings, validate_path_settings
+from app.schemas.admin import UpdatePathSettingsRequest, UpdateServerSettingsRequest
 
 
 class EmptyDb:
@@ -41,13 +40,6 @@ class AdminServerSettingsTests(unittest.TestCase):
             "export_tiff_output",
             "luminance_enabled",
             "export_auto_enabled",
-            "upload_enabled",
-            "upload_s3_path",
-            "upload_s3_region",
-            "upload_s3_access_key",
-            "upload_s3_secret_key",
-            "upload_done_dir",
-            "upload_summary_dir",
             "ai_review_enabled",
             "ai_preanalysis_enabled",
             "openrouter_api_key",
@@ -59,9 +51,7 @@ class AdminServerSettingsTests(unittest.TestCase):
 
         self.export_temp = self.root / "export-temp"
         self.export_output = self.root / "export-output"
-        self.done = self.root / "uploaded"
-        self.summary = self.root / "upload-summary"
-        for directory in (self.export_temp, self.export_output, self.done, self.summary):
+        for directory in (self.export_temp, self.export_output):
             directory.mkdir()
 
         settings.qc_images_root = ""
@@ -71,13 +61,6 @@ class AdminServerSettingsTests(unittest.TestCase):
         settings.export_tiff_output = True
         settings.luminance_enabled = False
         settings.export_auto_enabled = True
-        settings.upload_enabled = False
-        settings.upload_s3_path = ""
-        settings.upload_s3_region = ""
-        settings.upload_s3_access_key = ""
-        settings.upload_s3_secret_key = None
-        settings.upload_done_dir = ""
-        settings.upload_summary_dir = ""
         settings.ai_review_enabled = False
         settings.ai_preanalysis_enabled = False
         settings.openrouter_api_key = None
@@ -109,26 +92,6 @@ class AdminServerSettingsTests(unittest.TestCase):
     def _update(self, **fields):
         return update_server_settings(self._request(**fields), None, EmptyDb())
 
-    def _seed_upload(self, *, secret: str | None = "existing-s3-secret", done: Path | None = None) -> None:
-        settings.upload_enabled = True
-        settings.upload_s3_path = "s3://qc-test-bucket/packages"
-        settings.upload_s3_region = "us-east-1"
-        settings.upload_s3_access_key = "access-id"
-        settings.upload_s3_secret_key = SecretStr(secret) if secret is not None else None
-        settings.upload_done_dir = str(done or self.done)
-        settings.upload_summary_dir = str(self.summary)
-        values = {
-            "upload_enabled": True,
-            "upload_s3_path": settings.upload_s3_path,
-            "upload_s3_region": settings.upload_s3_region,
-            "upload_s3_access_key": settings.upload_s3_access_key,
-            "upload_done_dir": settings.upload_done_dir,
-            "upload_summary_dir": settings.upload_summary_dir,
-        }
-        if settings.upload_s3_secret_key:
-            values["upload_s3_secret_key"] = settings.upload_s3_secret_key
-        write_server_settings(values)
-
     def test_writer_rejects_control_characters_without_overwriting_config(self) -> None:
         existing = b"preserve this config\r\n"
         self.config_path.write_bytes(existing)
@@ -153,17 +116,6 @@ class AdminServerSettingsTests(unittest.TestCase):
         self.assertNotIn("private-key-marker", caught.exception.message)
         self.assertNotIn("openrouter_api_key", caught.exception.message)
 
-    def test_upload_path_control_characters_are_a_bad_request_without_echo(self) -> None:
-        submitted = "s3://bucket/path-marker\ncontinued"
-
-        with self.assertRaises(BusinessError) as caught:
-            self._update(uploadS3Path=submitted)
-
-        self.assertEqual(caught.exception.http_status, 400)
-        self.assertIn("uploadS3Path", caught.exception.message)
-        self.assertNotIn("path-marker", caught.exception.message)
-        self.assertNotIn("upload_s3_path", caught.exception.message)
-
     def test_unicode_line_separators_are_refused_but_ordinary_non_ascii_is_kept(self) -> None:
         for separator in ("\u2028", "\u2029", "\x85"):
             with self.assertRaises(BusinessError, msg=repr(separator)):
@@ -171,34 +123,6 @@ class AdminServerSettingsTests(unittest.TestCase):
         # An accented or CJK name is ordinary text, not a line break.
         self._update(openrouterExtractModel="modèle-中文")
         self.assertEqual(load_server_settings_overrides()["openrouter_extract_model"], "modèle-中文")
-
-    def test_summary_root_inside_export_root_is_rejected_by_upload_runtime(self) -> None:
-        self._seed_upload()
-        nested = self.export_output / "summary"
-        nested.mkdir()
-        settings.upload_summary_dir = str(nested)
-
-        with self.assertRaises(UploadError) as caught:
-            upload_runtime_config(settings, export_output_dir=self.export_output)
-
-        self.assertEqual(
-            str(caught.exception),
-            "The summary folder must be outside the QC output folder",
-        )
-
-    def test_summary_root_inside_export_root_is_rejected_by_settings_endpoint(self) -> None:
-        self._seed_upload()
-        nested = self.export_output / "summary"
-        nested.mkdir()
-
-        with self.assertRaises(BusinessError) as caught:
-            self._update(uploadEnabled=True, uploadSummaryRoot=str(nested))
-
-        self.assertEqual(caught.exception.http_status, 400)
-        self.assertEqual(
-            caught.exception.message,
-            "uploadSummaryRoot must be outside the export output folder",
-        )
 
     def test_blank_model_name_clears_and_omitted_fields_stay_untouched(self) -> None:
         settings.openrouter_extract_model = "existing-extract-model"
@@ -225,19 +149,6 @@ class AdminServerSettingsTests(unittest.TestCase):
             "existing-compare-model",
         )
 
-    def test_blank_upload_secret_keeps_existing_secret(self) -> None:
-        self._seed_upload()
-        self._update(uploadEnabled=True, uploadS3SecretKey="")
-
-        self.assertEqual(
-            settings.upload_s3_secret_key.get_secret_value(),
-            "existing-s3-secret",
-        )
-        self.assertEqual(
-            load_server_settings_overrides()["upload_s3_secret_key"],
-            "existing-s3-secret",
-        )
-
     def test_new_openrouter_key_is_saved_and_applied_live(self) -> None:
         response = self._update(aiReviewEnabled=True, openrouterApiKey="new-key-12345")
 
@@ -250,46 +161,87 @@ class AdminServerSettingsTests(unittest.TestCase):
         self.assertNotIn("new-key-12345", response.model_dump_json())
 
     def test_get_settings_never_exposes_secret_values(self) -> None:
-        self._seed_upload()
         settings.ai_review_enabled = True
         settings.openrouter_api_key = SecretStr("private-openrouter-secret")
         response = get_path_settings(None)
         serialized = response.model_dump_json()
 
-        self.assertTrue(response.data.upload.secretKeyConfigured)
         self.assertTrue(response.data.ai.keyConfigured)
-        self.assertNotIn("existing-s3-secret", serialized)
         self.assertNotIn("private-openrouter-secret", serialized)
-        self.assertNotIn("upload_s3_secret_key", serialized)
         self.assertNotIn("openrouter_api_key", serialized)
 
-    def test_invalid_s3_path_is_rejected(self) -> None:
-        self._seed_upload()
-
-        with self.assertRaises(BusinessError):
-            self._update(uploadEnabled=True, uploadS3Path="https://example.com/bucket")
-
-    def test_upload_done_root_inside_export_root_is_rejected(self) -> None:
-        nested = self.export_output / "uploaded"
-        nested.mkdir()
-        self._seed_upload(done=nested)
-
-        with self.assertRaises(BusinessError):
-            self._update(uploadEnabled=True)
-
-    def test_enabled_upload_or_ai_without_a_key_is_rejected(self) -> None:
-        self._seed_upload(secret=None)
-        with self.assertRaises(BusinessError):
-            self._update(uploadEnabled=True)
-
-        settings.upload_enabled = False
+    def test_enabled_ai_without_a_key_is_rejected(self) -> None:
         settings.ai_review_enabled = False
         settings.openrouter_api_key = None
         with self.assertRaises(BusinessError):
             self._update(aiReviewEnabled=True)
 
-    def test_older_request_shape_leaves_upload_and_ai_values_unchanged(self) -> None:
-        self._seed_upload()
+    def test_input_root_must_exist_and_is_never_created(self) -> None:
+        missing = self.root / "no-such-share"
+        with self.assertRaises(BusinessError):
+            self._update(qcImagesRoot=str(missing))
+        self.assertFalse(missing.exists())
+
+    def test_work_folder_must_be_separate_from_input_and_output(self) -> None:
+        images = self.root / "batches"
+        images.mkdir()
+        for work in (self.export_output, self.export_output / "work", images, images / "work"):
+            with self.subTest(work=work):
+                with self.assertRaises(BusinessError) as caught:
+                    self._update(qcImagesRoot=str(images), exportTempDir=str(work))
+                self.assertIn(
+                    "exportTempDirSeparate", [c["key"] for c in caught.exception.data["checks"]]
+                )
+        self._update(qcImagesRoot=str(images))
+        self.assertEqual(settings.qc_images_root, str(images))
+
+    def test_a_drive_letter_the_server_cannot_see_is_explained(self) -> None:
+        free = next(
+            (f"{letter}:" for letter in "ZYXWVUTSRQPONMLKJ" if not os.path.isdir(f"{letter}:\\")),
+            None,
+        )
+        if free is None:
+            self.skipTest("no unused drive letter")
+        check = check_directory("exportOutputDir", f"{free}\\Export", require_writable=True)
+        self.assertFalse(check.writable)
+        self.assertIn("\\\\server\\share", check.message)
+
+    def test_every_path_can_be_a_network_path(self) -> None:
+        """\\\\localhost\\C$ reaches this PC's own disk through SMB, as a share would."""
+        drive, rest = os.path.splitdrive(str(self.root))
+        if len(drive) != 2 or not os.path.isdir(f"\\\\localhost\\{drive[0]}$\\"):
+            self.skipTest("administrative share not reachable")
+        unc = lambda path: f"\\\\localhost\\{drive[0]}${os.path.splitdrive(str(path))[1]}"
+        images = self.root / "batches"
+        images.mkdir()
+        self._update(
+            qcImagesRoot=unc(images),
+            exportTempDir=unc(self.export_temp),
+            exportOutputDir=unc(self.export_output),
+        )
+        saved = load_server_settings_overrides()
+        self.assertEqual(saved["qc_images_root"], unc(images))
+        self.assertEqual(saved["export_temp_dir"], unc(self.export_temp))
+        self.assertEqual(saved["export_output_dir"], unc(self.export_output))
+
+    def test_folder_probe_counts_only_folders_waiting_for_qc(self) -> None:
+        """Finished folders' batches get archived; counting them kept the 0-of-N warning up."""
+        seen = []
+
+        class RecordingDb:
+            def scalars(self, statement, *_args, **_kwargs):
+                seen.append(str(statement.compile(compile_kwargs={"literal_binds": True})))
+                return SimpleNamespace(all=lambda: [])
+
+        validation = validate_path_settings(
+            RecordingDb(),
+            UpdatePathSettingsRequest(exportTempDir=str(self.export_temp), exportOutputDir=str(self.export_output)),
+        )
+        self.assertIn("upper(capture_folders.qc_status) = 'PENDING'", seen[0])
+        # The retired prefix pair is not reported unless someone sends it.
+        self.assertNotIn("captureImageLocalRoot", [check.key for check in validation.checks])
+
+    def test_older_request_shape_leaves_ai_values_unchanged(self) -> None:
         settings.ai_review_enabled = True
         settings.ai_preanalysis_enabled = True
         settings.openrouter_api_key = SecretStr("existing-ai-secret")
@@ -303,13 +255,12 @@ class AdminServerSettingsTests(unittest.TestCase):
         before = {
             key: value
             for key, value in load_server_settings_overrides().items()
-            if key.startswith("upload_") or key.startswith("ai_") or key == "openrouter_api_key"
+            if key.startswith("ai_") or key == "openrouter_api_key"
         }
 
         self._update()
 
         after = load_server_settings_overrides()
-        self.assertTrue(settings.upload_enabled)
         self.assertTrue(settings.ai_review_enabled)
         self.assertTrue(settings.ai_preanalysis_enabled)
         self.assertEqual(settings.openrouter_api_key.get_secret_value(), "existing-ai-secret")

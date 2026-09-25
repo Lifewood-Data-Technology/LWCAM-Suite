@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload Console</title>
+<style>
+  :root { color-scheme: light; --bg:#f4f5f7; --card-bg:#fff; --border:#d8dce1; --text:#1c2530; --muted:#5b6675; --accent:#2563eb; --accent-text:#fff; --green:#1e8e3e; --amber:#b45309; --red:#c0392b; --focus:#2563eb; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.4; }
+  body { padding: 16px; }
+  a { color: var(--accent); }
+  h1 { font-size: 1.4rem; margin: 0; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px 0; }
+  h3 { font-size: 0.95rem; margin: 16px 0 8px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .hidden { display: none !important; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header.topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .userbox { display: flex; align-items: center; gap: 12px; font-size: 0.95rem; color: var(--muted); }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:hover { filter: brightness(0.97); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .banner { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; background: #fff4e5; border: 1px solid #f2c184; color: #6b4400; }
+  .field-row { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
+  .field-row label { font-weight: 600; font-size: 0.92rem; }
+  .field-row input[type=text], .field-row input[type=number], .field-row input[type=password] { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; }
+  .field-row.wide { max-width: none; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; max-width: 420px; margin-bottom: 12px; }
+  .checkbox-row label { font-weight: 600; font-size: 0.92rem; }
+  .hint { color: var(--muted); font-size: 0.85rem; }
+  .pill { display: inline-block; padding: 3px 12px; border-radius: 999px; color: #fff; font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pill.green { background: var(--green); }
+  .pill.amber { background: var(--amber); }
+  .pill.red { background: var(--red); }
+  .pill.grey { background: #6b7280; }
+  .status-line { margin: 10px 0; }
+  .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+  .stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .stat .num { font-size: 1.4rem; font-weight: 700; }
+  .stat .lbl { color: var(--muted); font-size: 0.85rem; }
+  .config-error { color: var(--red); font-weight: 700; margin-top: 10px; }
+  .status-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .action-msg { font-size: 0.9rem; }
+  .action-msg.error-text { color: var(--red); font-weight: 600; }
+  .action-msg.save-msg { color: var(--green); font-weight: 600; }
+  .failed-list { margin: 10px 0 0 0; padding: 0; list-style: none; }
+  .failed-list li { padding: 8px 0; border-top: 1px solid var(--border); font-size: 0.92rem; }
+  .failed-list li:first-child { border-top: none; }
+  .failed-list .fname { font-weight: 700; }
+  .failed-list .ferr { color: var(--red); }
+  .error-text { color: var(--red); font-weight: 600; margin-top: 8px; }
+  .settings-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .save-msg { color: var(--green); font-weight: 600; }
+  .login-card { max-width: 360px; margin: 60px auto; }
+  details.db-settings { margin: 4px 0 16px 0; max-width: 420px; }
+  details.db-settings summary { font-weight: 600; cursor: pointer; padding: 6px 0; }
+  .log-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .log-toolbar .spacer { flex: 1 1 auto; }
+  .log-box { position: relative; background: #000; color: #d8e0ea; font-family: Consolas, "Courier New", monospace; font-size: 0.85rem; padding: 10px; border-radius: 6px; height: 360px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  .log-line { display: block; }
+  .log-line.tag-error { color: #ff6b6b; }
+  .log-line.tag-warn { color: #e0a940; }
+  .log-line.tag-done { color: #6bcf7f; }
+  .log-line.tag-rework { color: #59c9e8; }
+  .jump-btn { position: sticky; bottom: 8px; float: right; }
+  @media (max-width: 600px) { body { padding: 12px; } .login-card { margin: 24px auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="login-card" class="card login-card hidden">
+    <h1 style="margin-bottom:16px;">Upload Console</h1>
+    <form id="login-form" novalidate>
+      <div class="field-row">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" name="username" autocomplete="username" required>
+      </div>
+      <div class="field-row">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+      </div>
+      <div id="login-error" class="error-text hidden" role="alert"></div>
+      <button type="submit" class="primary" id="login-submit">Sign in</button>
+    </form>
+  </div>
+
+  <div id="main-view" class="hidden">
+    <header class="topbar">
+      <h1>Upload Console</h1>
+      <div id="userbox" class="userbox hidden">
+        <span id="userbox-name"></span>
+        <button id="signout-btn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div id="banner" class="banner hidden" role="status"></div>
+
+    <section class="card">
+      <h2>Status</h2>
+      <div class="status-line">
+        Upload: <span id="enabled-pill" class="pill grey">unknown</span>
+      </div>
+      <div id="problem-box" class="config-error hidden"></div>
+      <div class="status-line" id="bucket-line"></div>
+      <div class="status-line" id="current-line"></div>
+      <div class="status-grid">
+        <div class="stat"><div class="num" id="stat-pending">-</div><div class="lbl">Pending</div></div>
+        <div class="stat"><div class="num" id="stat-failed">-</div><div class="lbl">Failed</div></div>
+        <div class="stat"><div class="num" id="stat-uploaded">-</div><div class="lbl">Uploaded</div></div>
+      </div>
+      <div class="status-line hint" id="scan-times"></div>
+      <div id="failures-box" class="hidden">
+        <div class="hint" style="margin-top:10px;">Failed packages (need attention):</div>
+        <ul id="failures-list" class="failed-list"></ul>
+      </div>
+      <div id="status-actions" class="status-actions hidden">
+        <button type="button" id="scan-btn" class="primary">Upload now</button>
+        <button type="button" id="retry-btn" class="hidden">Retry failed</button>
+        <span id="action-msg" class="action-msg hidden"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Console</h2>
+      <div class="log-toolbar">
+        <span class="spacer"></span>
+        <button type="button" id="pause-btn">Pause scrolling</button>
+        <button type="button" id="clear-btn">Clear view</button>
+      </div>
+      <div id="log-box" class="log-box" tabindex="0" aria-label="Upload activity log">
+        <button type="button" id="jump-btn" class="primary jump-btn hidden">Jump to latest</button>
+      </div>
+    </section>
+
+    <section id="settings-card" class="card hidden">
+      <h2>Settings</h2>
+      <form id="settings-form" novalidate>
+        <h3>Paths</h3>
+        <div class="field-row wide">
+          <label for="f-watch_root">Watched folder — QC's export output</label>
+          <input type="text" id="f-watch_root" name="watch_root">
+        </div>
+        <div class="field-row wide">
+          <label for="f-done_root">Uploaded folder — blank = leave in place</label>
+          <input type="text" id="f-done_root" name="done_root">
+        </div>
+        <div class="field-row wide">
+          <label for="f-summary_root">Upload Reports folder — blank = no summary</label>
+          <input type="text" id="f-summary_root" name="summary_root">
+        </div>
+
+        <h3>Upload</h3>
+        <div class="checkbox-row">
+          <input type="checkbox" id="f-enabled" name="enabled">
+          <label for="f-enabled">Enabled</label>
+        </div>
+        <div class="field-row">
+          <label for="f-s3_path">S3 path (s3://bucket/prefix)</label>
+          <input type="text" id="f-s3_path" name="s3_path">
+        </div>
+        <div class="field-row">
+          <label for="f-s3_region">S3 region</label>
+          <input type="text" id="f-s3_region" name="s3_region">
+        </div>
+        <div class="field-row">
+          <label for="f-s3_access_key">S3 access key</label>
+          <input type="text" id="f-s3_access_key" name="s3_access_key">
+        </div>
+        <div class="field-row">
+          <label for="f-s3_secret_key">S3 secret key</label>
+          <input type="password" id="f-s3_secret_key" name="s3_secret_key" autocomplete="new-password" placeholder="leave blank to keep the current key">
+          <span id="s3-secret-hint" class="hint hidden">A secret key is set.</span>
+        </div>
+        <div class="field-row">
+          <label for="f-interval_seconds">Scan interval (seconds)</label>
+          <input type="number" id="f-interval_seconds" name="interval_seconds" step="1" min="5">
+        </div>
+
+        <details class="db-settings">
+          <summary>Database (sign-in)</summary>
+          <div class="field-row">
+            <label for="f-db_host">Database host</label>
+            <input type="text" id="f-db_host" name="db_host">
+          </div>
+          <div class="field-row">
+            <label for="f-db_port">Database port</label>
+            <input type="number" id="f-db_port" name="db_port" step="1" min="1" max="65535">
+          </div>
+          <div class="field-row">
+            <label for="f-db_name">Database name</label>
+            <input type="text" id="f-db_name" name="db_name">
+          </div>
+          <div class="field-row">
+            <label for="f-db_user">Database user</label>
+            <input type="text" id="f-db_user" name="db_user">
+          </div>
+          <div class="field-row">
+            <label for="f-db_password">Database password</label>
+            <input type="password" id="f-db_password" name="db_password" autocomplete="new-password" placeholder="leave blank to keep the current password">
+            <span id="db-password-hint" class="hint hidden">A password is set.</span>
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="f-db_use_ssl" name="db_use_ssl">
+            <label for="f-db_use_ssl">Use SSL for the database connection</label>
+          </div>
+        </details>
+
+        <div id="settings-error" class="error-text hidden" role="alert"></div>
+        <div id="settings-save-msg" class="save-msg hidden" role="status"></div>
+        <div class="settings-actions">
+          <button type="button" id="save-btn" class="primary">Save</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var STATUS_INTERVAL_MS = 5000;
+  var LOG_INTERVAL_MS = 2000;
+  var MAX_LOG_LINES = 2000;
+  var SCROLL_BOTTOM_SLACK = 6;
+
+  var state = { access: "none", lastSeq: 0, followTail: true, statusTimer: null, logTimer: null };
+
+  function $(id) { return document.getElementById(id); }
+  var el = {
+    loginCard: $("login-card"), loginForm: $("login-form"), loginError: $("login-error"), loginSubmit: $("login-submit"),
+    mainView: $("main-view"), userbox: $("userbox"), userboxName: $("userbox-name"), signoutBtn: $("signout-btn"),
+    banner: $("banner"),
+    enabledPill: $("enabled-pill"), problemBox: $("problem-box"),
+    bucketLine: $("bucket-line"), currentLine: $("current-line"),
+    statPending: $("stat-pending"), statFailed: $("stat-failed"), statUploaded: $("stat-uploaded"),
+    scanTimes: $("scan-times"),
+    failuresBox: $("failures-box"), failuresList: $("failures-list"),
+    statusActions: $("status-actions"), scanBtn: $("scan-btn"), retryBtn: $("retry-btn"), actionMsg: $("action-msg"),
+    pauseBtn: $("pause-btn"), clearBtn: $("clear-btn"), jumpBtn: $("jump-btn"), logBox: $("log-box"),
+    settingsCard: $("settings-card"), settingsForm: $("settings-form"), settingsError: $("settings-error"), settingsSaveMsg: $("settings-save-msg"),
+    saveBtn: $("save-btn"),
+    s3SecretHint: $("s3-secret-hint"), dbPasswordHint: $("db-password-hint")
+  };
+
+  function setText(elem, text) { elem.textContent = text == null ? "" : String(text); }
+
+  function fmtTime(iso) {
+    if (!iso) { return ""; }
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleString();
+  }
+
+  // Every POST carries the CSRF header and same-origin cookies; a 401 on any call bounces to the login form.
+  function api(path, opts) {
+    opts = opts || {};
+    var fetchOpts = { method: opts.method || "GET", credentials: "same-origin", headers: {} };
+    if (opts.body !== undefined) {
+      fetchOpts.headers["Content-Type"] = "application/json";
+      fetchOpts.headers["X-Requested-With"] = "lwip";
+      fetchOpts.body = JSON.stringify(opts.body);
+    }
+    return fetch(path, fetchOpts).then(function (resp) {
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        if (resp.status === 401 && path !== "/api/login") { showLogin(null); }
+        return { ok: resp.ok, status: resp.status, data: data };
+      });
+    });
+  }
+
+  function showLogin(errorMessage) {
+    stopPolling();
+    el.mainView.classList.add("hidden");
+    el.loginCard.classList.remove("hidden");
+    if (errorMessage) {
+      el.loginError.textContent = errorMessage;
+      el.loginError.classList.remove("hidden");
+    } else {
+      el.loginError.classList.add("hidden");
+    }
+  }
+
+  function loginErrorMessage(status, data) {
+    var base = (data && data.error) ? data.error : "Sign-in failed.";
+    if (status === 503) { base += " Database unreachable — open this page on the Upload PC itself to fix the connection."; }
+    return base;
+  }
+
+  el.loginForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    el.loginSubmit.disabled = true;
+    var username = $("login-username").value;
+    var password = $("login-password").value;
+    api("/api/login", { method: "POST", body: { username: username, password: password } }).then(function (res) {
+      el.loginSubmit.disabled = false;
+      if (res.ok) { el.loginError.classList.add("hidden"); loadSession(); }
+      else { showLogin(loginErrorMessage(res.status, res.data)); }
+    }).catch(function () {
+      el.loginSubmit.disabled = false;
+      showLogin("Could not reach the Upload console. Check the network and try again.");
+    });
+  });
+
+  el.signoutBtn.addEventListener("click", function () {
+    api("/api/logout", { method: "POST", body: {} }).then(loadSession);
+  });
+
+  function loadSession() {
+    api("/api/session").then(function (res) {
+      if (!res.ok) { showLogin("Could not reach the Upload console."); return; }
+      applySession(res.data);
+    });
+  }
+
+  function applySession(session) {
+    state.access = session.access;
+    if (session.access === "none") { showLogin(null); return; }
+
+    el.loginCard.classList.add("hidden");
+    el.mainView.classList.remove("hidden");
+
+    if (session.signed_in) { el.userbox.classList.remove("hidden"); setText(el.userboxName, session.user || ""); }
+    else { el.userbox.classList.add("hidden"); }
+
+    el.banner.classList.add("hidden");
+    if (session.access === "view") {
+      setText(el.banner, "Database unreachable — read-only. Open this page on the Upload PC to change settings.");
+      el.banner.classList.remove("hidden");
+    } else if (session.access === "full" && session.local_fallback) {
+      setText(el.banner, "Database unreachable — changes allowed because you are on the Upload PC.");
+      el.banner.classList.remove("hidden");
+    }
+
+    if (session.access === "full") {
+      el.settingsCard.classList.remove("hidden");
+      el.statusActions.classList.remove("hidden");
+      loadSettings();
+    } else {
+      el.settingsCard.classList.add("hidden");
+      el.statusActions.classList.add("hidden");
+    }
+
+    startPolling();
+  }
+
+  function renderStatus(s) {
+    el.enabledPill.className = "pill " + (s.enabled ? "green" : "amber");
+    setText(el.enabledPill, s.enabled ? "enabled" : "paused");
+
+    el.problemBox.classList.toggle("hidden", !s.problem);
+    if (s.problem) { setText(el.problemBox, s.problem); }
+
+    var bucketText;
+    if (s.bucket) {
+      bucketText = "Bucket: s3://" + s.bucket + (s.prefix ? "/" + s.prefix : "");
+    } else {
+      bucketText = "Bucket: (not configured)";
+    }
+    setText(el.bucketLine, bucketText);
+
+    var cur = s.current;
+    setText(el.currentLine, cur ? ("Uploading: " + cur.package + " (since " + fmtTime(cur.startedAt) + ")") : "Uploading: idle");
+
+    var pending = s.pending || [];
+    var failures = s.failures || [];
+    setText(el.statPending, pending.length);
+    setText(el.statFailed, failures.length);
+    setText(el.statUploaded, s.uploadedCount != null ? s.uploadedCount : "-");
+
+    setText(el.scanTimes, "Last scan: " + (s.lastScanAt ? fmtTime(s.lastScanAt) : "-") + "  ·  Next scan: " + (s.nextScanAt ? fmtTime(s.nextScanAt) : "-"));
+
+    el.failuresList.innerHTML = "";
+    failures.forEach(function (f) {
+      var li = document.createElement("li");
+      var name = document.createElement("div");
+      name.className = "fname";
+      name.textContent = f.package;
+      var err = document.createElement("div");
+      err.className = "ferr";
+      err.textContent = f.error || "";
+      var meta = document.createElement("div");
+      meta.className = "hint";
+      meta.textContent = "Attempt " + (f.attempts != null ? f.attempts : "-") + (f.nextAttemptAt ? " · next try " + fmtTime(f.nextAttemptAt) : "");
+      li.appendChild(name);
+      li.appendChild(err);
+      li.appendChild(meta);
+      el.failuresList.appendChild(li);
+    });
+    el.failuresBox.classList.toggle("hidden", failures.length === 0);
+    el.retryBtn.classList.toggle("hidden", failures.length === 0);
+  }
+
+  function pollStatus() {
+    api("/api/status").then(function (res) { if (res.ok) { renderStatus(res.data); } });
+  }
+
+  function setActionMsg(text, isError) {
+    el.actionMsg.classList.remove("hidden", "error-text", "save-msg");
+    el.actionMsg.classList.add(isError ? "error-text" : "save-msg");
+    setText(el.actionMsg, text);
+  }
+
+  el.scanBtn.addEventListener("click", function () {
+    el.scanBtn.disabled = true;
+    api("/api/scan", { method: "POST", body: {} }).then(function (res) {
+      el.scanBtn.disabled = false;
+      if (res.ok) { setActionMsg("Upload requested.", false); }
+      else { setActionMsg((res.data && res.data.error) || "Could not start the upload.", true); }
+    }).catch(function () {
+      el.scanBtn.disabled = false;
+      setActionMsg("Could not reach the Upload console.", true);
+    });
+  });
+
+  el.retryBtn.addEventListener("click", function () {
+    el.retryBtn.disabled = true;
+    api("/api/retry", { method: "POST", body: {} }).then(function (res) {
+      el.retryBtn.disabled = false;
+      if (res.ok) { setActionMsg("Retrying failed packages.", false); }
+      else { setActionMsg((res.data && res.data.error) || "Could not retry.", true); }
+    }).catch(function () {
+      el.retryBtn.disabled = false;
+      setActionMsg("Could not reach the Upload console.", true);
+    });
+  });
+
+  var TAG_CLASS = {
+    ERROR: "tag-error",
+    WARN: "tag-warn", RETRY: "tag-warn", VERIFY: "tag-warn",
+    DONE: "tag-done",
+    REWORK: "tag-rework"
+  };
+
+  function tagClassFor(text) {
+    var m = /\[(\w+)\]/.exec(text);
+    var tag = m ? m[1] : "";
+    return TAG_CLASS[tag] || "";
+  }
+
+  function isAtBottom() {
+    return (el.logBox.scrollTop + el.logBox.clientHeight) >= (el.logBox.scrollHeight - SCROLL_BOTTOM_SLACK);
+  }
+
+  function scrollToBottom() {
+    el.logBox.scrollTop = el.logBox.scrollHeight;
+  }
+
+  function updateJumpButton() {
+    el.jumpBtn.classList.toggle("hidden", state.followTail);
+  }
+
+  el.logBox.addEventListener("scroll", function () {
+    if (isAtBottom()) {
+      if (!state.followTail) {
+        state.followTail = true;
+        setText(el.pauseBtn, "Pause scrolling");
+        updateJumpButton();
+      }
+    } else if (state.followTail) {
+      state.followTail = false;
+      setText(el.pauseBtn, "Resume scrolling");
+      updateJumpButton();
+    }
+  });
+
+  el.pauseBtn.addEventListener("click", function () {
+    state.followTail = !state.followTail;
+    setText(el.pauseBtn, state.followTail ? "Pause scrolling" : "Resume scrolling");
+    if (state.followTail) { scrollToBottom(); }
+    updateJumpButton();
+  });
+
+  el.jumpBtn.addEventListener("click", function () {
+    state.followTail = true;
+    setText(el.pauseBtn, "Pause scrolling");
+    scrollToBottom();
+    updateJumpButton();
+  });
+
+  el.clearBtn.addEventListener("click", function () {
+    var lines = el.logBox.querySelectorAll(".log-line");
+    lines.forEach(function (line) { line.remove(); });
+  });
+
+  function appendLogLines(lines) {
+    if (!lines.length) { return; }
+    var frag = document.createDocumentFragment();
+    lines.forEach(function (line) {
+      var div = document.createElement("div");
+      var cls = tagClassFor(line.text);
+      div.className = cls ? ("log-line " + cls) : "log-line";
+      div.textContent = line.text;
+      frag.appendChild(div);
+    });
+    el.logBox.insertBefore(frag, el.jumpBtn);
+
+    var existing = el.logBox.querySelectorAll(".log-line");
+    var overflow = existing.length - MAX_LOG_LINES;
+    for (var i = 0; i < overflow; i++) { existing[i].remove(); }
+
+    if (state.followTail) { scrollToBottom(); }
+    updateJumpButton();
+  }
+
+  function pollLog() {
+    api("/api/log?after=" + state.lastSeq).then(function (res) {
+      if (!res.ok) { return; }
+      appendLogLines(res.data.lines || []);
+      if (res.data.last != null) { state.lastSeq = res.data.last; }
+    });
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollStatus();
+    pollLog();
+    state.statusTimer = window.setInterval(pollStatus, STATUS_INTERVAL_MS);
+    state.logTimer = window.setInterval(pollLog, LOG_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (state.statusTimer) { window.clearInterval(state.statusTimer); state.statusTimer = null; }
+    if (state.logTimer) { window.clearInterval(state.logTimer); state.logTimer = null; }
+  }
+
+  function loadSettings() {
+    api("/api/settings").then(function (res) {
+      if (!res.ok) { return; }
+      var d = res.data;
+      $("f-watch_root").value = d.watch_root || "";
+      $("f-done_root").value = d.done_root || "";
+      $("f-summary_root").value = d.summary_root || "";
+      $("f-enabled").checked = !!d.enabled;
+      $("f-s3_path").value = d.s3_path || "";
+      $("f-s3_region").value = d.s3_region || "";
+      $("f-s3_access_key").value = d.s3_access_key || "";
+      $("f-s3_secret_key").value = "";
+      el.s3SecretHint.classList.toggle("hidden", !d.s3_secret_key_set);
+      $("f-interval_seconds").value = d.interval_seconds != null ? d.interval_seconds : "";
+      $("f-db_host").value = d.db_host || "";
+      $("f-db_port").value = d.db_port != null ? d.db_port : "";
+      $("f-db_name").value = d.db_name || "";
+      $("f-db_user").value = d.db_user || "";
+      $("f-db_password").value = "";
+      el.dbPasswordHint.classList.toggle("hidden", !d.db_password_set);
+      $("f-db_use_ssl").checked = !!d.db_use_ssl;
+    });
+  }
+
+  function collectSettings() {
+    var body = {
+      watch_root: $("f-watch_root").value,
+      done_root: $("f-done_root").value,
+      summary_root: $("f-summary_root").value,
+      enabled: $("f-enabled").checked,
+      s3_path: $("f-s3_path").value,
+      s3_region: $("f-s3_region").value,
+      s3_access_key: $("f-s3_access_key").value,
+      interval_seconds: Number($("f-interval_seconds").value),
+      db_host: $("f-db_host").value,
+      db_port: Number($("f-db_port").value),
+      db_name: $("f-db_name").value,
+      db_user: $("f-db_user").value,
+      db_use_ssl: $("f-db_use_ssl").checked
+    };
+    var s3Secret = $("f-s3_secret_key").value;
+    if (s3Secret) { body.s3_secret_key = s3Secret; }
+    var dbPassword = $("f-db_password").value;
+    if (dbPassword) { body.db_password = dbPassword; }
+    return body;
+  }
+
+  function submitSettings() {
+    el.settingsError.classList.add("hidden");
+    el.settingsSaveMsg.classList.add("hidden");
+    el.saveBtn.disabled = true;
+    api("/api/settings", { method: "POST", body: collectSettings() }).then(function (res) {
+      el.saveBtn.disabled = false;
+      if (res.ok) {
+        setText(el.settingsSaveMsg, "Saved — applies on the next scan");
+        el.settingsSaveMsg.classList.remove("hidden");
+        loadSettings();
+      } else {
+        setText(el.settingsError, (res.data && res.data.error) || "Could not save settings.");
+        el.settingsError.classList.remove("hidden");
+      }
+    }).catch(function () {
+      el.saveBtn.disabled = false;
+      setText(el.settingsError, "Could not reach the Upload console.");
+      el.settingsError.classList.remove("hidden");
+    });
+  }
+
+  el.saveBtn.addEventListener("click", submitSettings);
+
+  loadSession();
+})();
+</script>
+</body>
+</html>

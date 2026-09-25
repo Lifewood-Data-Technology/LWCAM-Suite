@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LWIP Console</title>
+<style>
+  :root { color-scheme: light; --bg:#f4f5f7; --card-bg:#fff; --border:#d8dce1; --text:#1c2530; --muted:#5b6675; --accent:#2563eb; --accent-text:#fff; --green:#1e8e3e; --amber:#b45309; --red:#c0392b; --focus:#2563eb; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.4; }
+  body { padding: 16px; }
+  a { color: var(--accent); }
+  h1 { font-size: 1.4rem; margin: 0; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px 0; }
+  .hidden { display: none !important; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header.topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .userbox { display: flex; align-items: center; gap: 12px; font-size: 0.95rem; color: var(--muted); }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:hover { filter: brightness(0.97); }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .banner { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; background: #fff4e5; border: 1px solid #f2c184; color: #6b4400; }
+  .field-row { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
+  .field-row label { font-weight: 600; font-size: 0.92rem; }
+  .field-row input[type=text], .field-row input[type=number], .field-row input[type=password] { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; }
+  .field-row.wide { max-width: none; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; max-width: 420px; margin-bottom: 12px; }
+  .checkbox-row label { font-weight: 600; font-size: 0.92rem; }
+  .hint { color: var(--muted); font-size: 0.85rem; }
+  .pill { display: inline-block; padding: 3px 12px; border-radius: 999px; color: #fff; font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pill.green { background: var(--green); }
+  .pill.amber { background: var(--amber); }
+  .pill.red { background: var(--red); }
+  .pill.grey { background: #6b7280; }
+  .status-line { margin: 10px 0; }
+  .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+  .stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .stat .num { font-size: 1.4rem; font-weight: 700; }
+  .stat .lbl { color: var(--muted); font-size: 0.85rem; }
+  pre { background: #11161d; color: #e6e6e6; padding: 10px; border-radius: 6px; overflow: auto; font-family: Consolas, "Courier New", monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
+  .config-error { color: var(--red); font-weight: 700; margin-top: 10px; }
+  .log-box { background: #11161d; color: #d8e0ea; font-family: Consolas, "Courier New", monospace; font-size: 0.85rem; padding: 10px; border-radius: 6px; height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  .log-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .failed-list { margin: 6px 0 0 0; padding-left: 20px; }
+  .error-text { color: var(--red); font-weight: 600; margin-top: 8px; }
+  .confirm-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .settings-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .save-msg { color: var(--green); font-weight: 600; }
+  .login-card { max-width: 360px; margin: 60px auto; }
+  @media (max-width: 600px) { body { padding: 12px; } .login-card { margin: 24px auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="login-card" class="card login-card hidden">
+    <h1 style="margin-bottom:16px;">LWIP Console</h1>
+    <form id="login-form" novalidate>
+      <div class="field-row">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" name="username" autocomplete="username" required>
+      </div>
+      <div class="field-row">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+      </div>
+      <div id="login-error" class="error-text hidden" role="alert"></div>
+      <button type="submit" class="primary" id="login-submit">Sign in</button>
+    </form>
+  </div>
+
+  <div id="main-view" class="hidden">
+    <header class="topbar">
+      <h1>LWIP Console</h1>
+      <div id="userbox" class="userbox hidden">
+        <span id="userbox-name"></span>
+        <button id="signout-btn" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div id="banner" class="banner hidden" role="status"></div>
+
+    <section class="card">
+      <h2>Status</h2>
+      <div class="status-line">
+        Service: <span id="service-pill" class="pill grey">unknown</span>
+        <span id="service-since" class="hint"></span>
+      </div>
+      <div id="config-error-box" class="config-error hidden"></div>
+      <div id="last-error-box" class="hidden">
+        <div class="hint">Last error from LWIP:</div>
+        <pre id="last-error-text"></pre>
+      </div>
+      <div class="status-line">
+        Database: <strong id="db-reachable">unknown</strong>
+        <span class="hint" id="db-last-report"></span>
+      </div>
+      <div class="status-grid">
+        <div class="stat"><div class="num" id="stat-waiting">-</div><div class="lbl">Waiting</div></div>
+        <div class="stat"><div class="num" id="stat-processing">-</div><div class="lbl">Processing</div></div>
+        <div class="stat"><div class="num" id="stat-done">-</div><div class="lbl">Done today</div></div>
+        <div class="stat"><div class="num" id="stat-failed">-</div><div class="lbl">Failed</div></div>
+      </div>
+      <div id="failed-box" class="hidden">
+        <div class="hint" style="margin-top:10px;">Failed folders (need attention):</div>
+        <ul id="failed-list" class="failed-list"></ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Activity log</h2>
+      <div class="log-toolbar">
+        <button type="button" id="log-toggle">Show 200 lines</button>
+      </div>
+      <div id="log-box" class="log-box" tabindex="0" aria-label="LWIP activity log"></div>
+    </section>
+
+    <section id="settings-card" class="card hidden">
+      <h2>Settings</h2>
+      <form id="settings-form" novalidate>
+        <div class="field-row wide">
+          <label for="f-input_root">Input folder (LWIP watches this for batches)</label>
+          <input type="text" id="f-input_root" name="input_root">
+        </div>
+        <div class="field-row wide">
+          <label for="f-output_root">Output folder (processed images go here)</label>
+          <input type="text" id="f-output_root" name="output_root">
+        </div>
+        <div class="field-row">
+          <label for="f-crop_padding">Crop padding (pixels)</label>
+          <input type="number" id="f-crop_padding" name="crop_padding" step="1" min="0">
+        </div>
+        <div class="field-row">
+          <label for="f-workers">Worker processes (0 = auto)</label>
+          <input type="number" id="f-workers" name="workers" step="1" min="0">
+        </div>
+        <div class="field-row">
+          <label for="f-db_host">Database host</label>
+          <input type="text" id="f-db_host" name="db_host">
+        </div>
+        <div class="field-row">
+          <label for="f-db_port">Database port</label>
+          <input type="number" id="f-db_port" name="db_port" step="1" min="1" max="65535">
+        </div>
+        <div class="field-row">
+          <label for="f-db_name">Database name</label>
+          <input type="text" id="f-db_name" name="db_name">
+        </div>
+        <div class="field-row">
+          <label for="f-db_user">Database user</label>
+          <input type="text" id="f-db_user" name="db_user">
+        </div>
+        <div class="field-row">
+          <label for="f-db_password">Database password</label>
+          <input type="password" id="f-db_password" name="db_password" autocomplete="new-password" placeholder="leave blank to keep the current password">
+          <span id="db-password-hint" class="hint hidden">A password is set.</span>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="f-db_use_ssl" name="db_use_ssl">
+          <label for="f-db_use_ssl">Use SSL for the database connection</label>
+        </div>
+        <div id="settings-error" class="error-text hidden" role="alert"></div>
+        <div id="settings-save-msg" class="save-msg hidden" role="status"></div>
+        <div class="settings-actions">
+          <button type="button" id="save-btn" class="primary">Save and restart LWIP</button>
+          <button type="button" id="restart-btn">Restart LWIP</button>
+        </div>
+        <div id="save-confirm-row" class="confirm-row hidden">
+          <span>Save changes and restart LWIP now?</span>
+          <button type="button" id="save-confirm-yes" class="primary">Yes</button>
+          <button type="button" id="save-confirm-cancel">Cancel</button>
+        </div>
+        <div id="restart-confirm-row" class="confirm-row hidden">
+          <span>Restart LWIP now? Any batch in progress will resume after the restart.</span>
+          <button type="button" id="restart-confirm-yes" class="primary">Yes</button>
+          <button type="button" id="restart-confirm-cancel">Cancel</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var STATUS_INTERVAL_MS = 5000;
+  var LOG_INTERVAL_MS = 10000;
+  var state = { access: "none", logLines: 50, statusTimer: null, logTimer: null };
+
+  function $(id) { return document.getElementById(id); }
+  var el = {
+    loginCard: $("login-card"), loginForm: $("login-form"), loginError: $("login-error"), loginSubmit: $("login-submit"),
+    mainView: $("main-view"), userbox: $("userbox"), userboxName: $("userbox-name"), signoutBtn: $("signout-btn"),
+    banner: $("banner"), servicePill: $("service-pill"), serviceSince: $("service-since"),
+    configErrorBox: $("config-error-box"), lastErrorBox: $("last-error-box"), lastErrorText: $("last-error-text"),
+    dbReachable: $("db-reachable"), dbLastReport: $("db-last-report"),
+    statWaiting: $("stat-waiting"), statProcessing: $("stat-processing"), statDone: $("stat-done"), statFailed: $("stat-failed"),
+    failedBox: $("failed-box"), failedList: $("failed-list"),
+    logToggle: $("log-toggle"), logBox: $("log-box"),
+    settingsCard: $("settings-card"), settingsForm: $("settings-form"), settingsError: $("settings-error"), settingsSaveMsg: $("settings-save-msg"),
+    saveBtn: $("save-btn"), restartBtn: $("restart-btn"),
+    saveConfirmRow: $("save-confirm-row"), saveConfirmYes: $("save-confirm-yes"), saveConfirmCancel: $("save-confirm-cancel"),
+    restartConfirmRow: $("restart-confirm-row"), restartConfirmYes: $("restart-confirm-yes"), restartConfirmCancel: $("restart-confirm-cancel"),
+    dbPasswordHint: $("db-password-hint")
+  };
+
+  function setText(elem, text) { elem.textContent = text == null ? "" : String(text); }
+
+  function fmtTime(iso) {
+    if (!iso) { return ""; }
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleString();
+  }
+
+  // Every POST carries the CSRF header and same-origin cookies; a 401 on any call bounces to the login form.
+  function api(path, opts) {
+    opts = opts || {};
+    var fetchOpts = { method: opts.method || "GET", credentials: "same-origin", headers: {} };
+    if (opts.body !== undefined) {
+      fetchOpts.headers["Content-Type"] = "application/json";
+      fetchOpts.headers["X-Requested-With"] = "lwip";
+      fetchOpts.body = JSON.stringify(opts.body);
+    }
+    return fetch(path, fetchOpts).then(function (resp) {
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        if (resp.status === 401 && path !== "/api/login") { showLogin(null); }
+        return { ok: resp.ok, status: resp.status, data: data };
+      });
+    });
+  }
+
+  function showLogin(errorMessage) {
+    stopPolling();
+    el.mainView.classList.add("hidden");
+    el.loginCard.classList.remove("hidden");
+    if (errorMessage) {
+      el.loginError.textContent = errorMessage;
+      el.loginError.classList.remove("hidden");
+    } else {
+      el.loginError.classList.add("hidden");
+    }
+  }
+
+  function loginErrorMessage(status, data) {
+    var base = (data && data.error) ? data.error : "Sign-in failed.";
+    if (status === 503) { base += " Database unreachable — open this page on the LWIP PC itself to fix the connection."; }
+    return base;
+  }
+
+  el.loginForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    el.loginSubmit.disabled = true;
+    var username = $("login-username").value;
+    var password = $("login-password").value;
+    api("/api/login", { method: "POST", body: { username: username, password: password } }).then(function (res) {
+      el.loginSubmit.disabled = false;
+      if (res.ok) { el.loginError.classList.add("hidden"); loadSession(); }
+      else { showLogin(loginErrorMessage(res.status, res.data)); }
+    }).catch(function () {
+      el.loginSubmit.disabled = false;
+      showLogin("Could not reach the LWIP console. Check the network and try again.");
+    });
+  });
+
+  el.signoutBtn.addEventListener("click", function () {
+    api("/api/logout", { method: "POST", body: {} }).then(loadSession);
+  });
+
+  function loadSession() {
+    api("/api/session").then(function (res) {
+      if (!res.ok) { showLogin("Could not reach the LWIP console."); return; }
+      applySession(res.data);
+    });
+  }
+
+  function applySession(session) {
+    state.access = session.access;
+    if (session.access === "none") { showLogin(null); return; }
+
+    el.loginCard.classList.add("hidden");
+    el.mainView.classList.remove("hidden");
+
+    if (session.signed_in) { el.userbox.classList.remove("hidden"); setText(el.userboxName, session.user || ""); }
+    else { el.userbox.classList.add("hidden"); }
+
+    el.banner.classList.add("hidden");
+    if (session.access === "view") {
+      setText(el.banner, "Database unreachable — read-only. Open this page on the LWIP PC to change settings.");
+      el.banner.classList.remove("hidden");
+    } else if (session.access === "full" && session.local_fallback) {
+      setText(el.banner, "Database unreachable — changes allowed because you are on the LWIP PC.");
+      el.banner.classList.remove("hidden");
+    }
+
+    if (session.access === "full") { el.settingsCard.classList.remove("hidden"); loadSettings(); }
+    else { el.settingsCard.classList.add("hidden"); }
+
+    startPolling();
+  }
+
+  var STATE_COLORS = { running: "green", starting: "amber", restarting: "amber", crashed: "red", stopped: "red" };
+
+  function renderStatus(s) {
+    var svc = s.service || {};
+    el.servicePill.className = "pill " + (STATE_COLORS[svc.state] || "grey");
+    setText(el.servicePill, svc.state || "unknown");
+    setText(el.serviceSince, svc.since ? ("since " + fmtTime(svc.since)) : "");
+
+    el.configErrorBox.classList.toggle("hidden", !s.config_error);
+    if (s.config_error) { setText(el.configErrorBox, "Configuration problem: " + s.config_error); }
+
+    el.lastErrorBox.classList.toggle("hidden", !svc.last_error);
+    if (svc.last_error) { setText(el.lastErrorText, svc.last_error); }
+
+    var db = s.database || {};
+    setText(el.dbReachable, db.reachable ? "reachable" : "unreachable");
+    setText(el.dbLastReport, db.last_report_at ? ("last report " + fmtTime(db.last_report_at)) : "no report yet");
+
+    var q = s.queue || {};
+    setText(el.statWaiting, q.waiting != null ? q.waiting : "-");
+    setText(el.statProcessing, q.processing != null ? q.processing : "-");
+    setText(el.statDone, q.done_today != null ? q.done_today : "-");
+    var failed = q.failed || [];
+    setText(el.statFailed, failed.length);
+    el.failedList.innerHTML = "";
+    failed.forEach(function (f) {
+      var li = document.createElement("li");
+      li.textContent = f.folder;
+      el.failedList.appendChild(li);
+    });
+    el.failedBox.classList.toggle("hidden", failed.length === 0);
+  }
+
+  function pollStatus() {
+    api("/api/status").then(function (res) { if (res.ok) { renderStatus(res.data); } });
+  }
+
+  function renderLog(lines) {
+    el.logBox.textContent = lines.join("\n");
+    el.logBox.scrollTop = el.logBox.scrollHeight;
+  }
+
+  function pollLog() {
+    api("/api/log?lines=" + state.logLines).then(function (res) { if (res.ok) { renderLog(res.data.lines || []); } });
+  }
+
+  el.logToggle.addEventListener("click", function () {
+    if (state.logLines === 50) { state.logLines = 200; el.logToggle.textContent = "Show 50 lines"; }
+    else { state.logLines = 50; el.logToggle.textContent = "Show 200 lines"; }
+    pollLog();
+  });
+
+  function startPolling() {
+    stopPolling();
+    pollStatus();
+    pollLog();
+    state.statusTimer = window.setInterval(pollStatus, STATUS_INTERVAL_MS);
+    state.logTimer = window.setInterval(pollLog, LOG_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (state.statusTimer) { window.clearInterval(state.statusTimer); state.statusTimer = null; }
+    if (state.logTimer) { window.clearInterval(state.logTimer); state.logTimer = null; }
+  }
+
+  function loadSettings() {
+    api("/api/settings").then(function (res) {
+      if (!res.ok) { return; }
+      var d = res.data;
+      $("f-input_root").value = d.input_root || "";
+      $("f-output_root").value = d.output_root || "";
+      $("f-crop_padding").value = d.crop_padding != null ? d.crop_padding : "";
+      $("f-workers").value = d.workers != null ? d.workers : "";
+      $("f-db_host").value = d.db_host || "";
+      $("f-db_port").value = d.db_port != null ? d.db_port : "";
+      $("f-db_name").value = d.db_name || "";
+      $("f-db_user").value = d.db_user || "";
+      $("f-db_use_ssl").checked = !!d.db_use_ssl;
+      $("f-db_password").value = "";
+      el.dbPasswordHint.classList.toggle("hidden", !d.db_password_set);
+    });
+  }
+
+  function collectSettings() {
+    var body = {
+      input_root: $("f-input_root").value,
+      output_root: $("f-output_root").value,
+      crop_padding: Number($("f-crop_padding").value),
+      workers: Number($("f-workers").value),
+      db_host: $("f-db_host").value,
+      db_port: Number($("f-db_port").value),
+      db_name: $("f-db_name").value,
+      db_user: $("f-db_user").value,
+      db_use_ssl: $("f-db_use_ssl").checked
+    };
+    var pw = $("f-db_password").value;
+    if (pw) { body.db_password = pw; }
+    return body;
+  }
+
+  function hideConfirmRows() {
+    el.saveConfirmRow.classList.add("hidden");
+    el.restartConfirmRow.classList.add("hidden");
+  }
+
+  function submitSettings() {
+    el.settingsError.classList.add("hidden");
+    el.settingsSaveMsg.classList.add("hidden");
+    el.saveBtn.disabled = true;
+    api("/api/settings", { method: "POST", body: collectSettings() }).then(function (res) {
+      el.saveBtn.disabled = false;
+      if (res.ok) { setText(el.settingsSaveMsg, "Saved — LWIP is restarting"); el.settingsSaveMsg.classList.remove("hidden"); }
+      else { setText(el.settingsError, (res.data && res.data.error) || "Could not save settings."); el.settingsError.classList.remove("hidden"); }
+    }).catch(function () {
+      el.saveBtn.disabled = false;
+      setText(el.settingsError, "Could not reach the LWIP console.");
+      el.settingsError.classList.remove("hidden");
+    });
+  }
+
+  function submitRestart() {
+    el.settingsError.classList.add("hidden");
+    el.settingsSaveMsg.classList.add("hidden");
+    el.restartBtn.disabled = true;
+    api("/api/restart", { method: "POST", body: {} }).then(function (res) {
+      el.restartBtn.disabled = false;
+      if (res.ok) { setText(el.settingsSaveMsg, "LWIP is restarting"); el.settingsSaveMsg.classList.remove("hidden"); }
+      else { setText(el.settingsError, (res.data && res.data.error) || "Could not restart LWIP."); el.settingsError.classList.remove("hidden"); }
+    }).catch(function () {
+      el.restartBtn.disabled = false;
+      setText(el.settingsError, "Could not reach the LWIP console.");
+      el.settingsError.classList.remove("hidden");
+    });
+  }
+
+  el.saveBtn.addEventListener("click", function () { hideConfirmRows(); el.saveConfirmRow.classList.remove("hidden"); });
+  el.saveConfirmCancel.addEventListener("click", hideConfirmRows);
+  el.saveConfirmYes.addEventListener("click", function () { hideConfirmRows(); submitSettings(); });
+
+  el.restartBtn.addEventListener("click", function () { hideConfirmRows(); el.restartConfirmRow.classList.remove("hidden"); });
+  el.restartConfirmCancel.addEventListener("click", hideConfirmRows);
+  el.restartConfirmYes.addEventListener("click", function () { hideConfirmRows(); submitRestart(); });
+
+  loadSession();
+})();
+</script>
+</body>
+</html>

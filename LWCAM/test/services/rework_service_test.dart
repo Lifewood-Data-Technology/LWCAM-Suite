@@ -33,7 +33,7 @@ void main() {
       );
     });
 
-    test('falls back to destinationPath as the input root, like LwipService', () {
+    test('falls back to destinationPath as the input root', () {
       final file = ReworkService.inputFileFor(
         _config(destination: r'D:\Life\Test\1.Images', output: r'D:\Life\Test\2.Batches'),
         folderPath: folderPath,
@@ -44,7 +44,7 @@ void main() {
     });
 
     test('derives the default output root when none is configured', () {
-      // LwipService defaults output to '<input>_processed'.
+      // The default output root is '<input>_processed'.
       final file = ReworkService.inputFileFor(
         _config(input: r'D:\cap'),
         folderPath: r'D:\cap_processed\20260730\F1',

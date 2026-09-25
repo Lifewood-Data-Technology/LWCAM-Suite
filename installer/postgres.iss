@@ -1,12 +1,15 @@
-; Shared PostgreSQL setup for LWCam.iss and QCPlatform.iss.
-; Keep the detector and password handling here so both products make the same
-; install/remote/reuse decision and show the same recovery guidance.
+; Shared PostgreSQL setup, used by the LWCam Database installer (Database.iss).
+; LWIP.iss, LWCam.iss and QCPlatform.iss no longer install PostgreSQL themselves
+; (Database.iss owns that job now); kept generic so any of them could include
+; it again later without changes here.
+
+#include "common.iss"
 
 #define PgSetupMask "postgresql-18.*-windows-x64.exe"
 #define PgMajor "18"
 
 [Tasks]
-Name: "remotedb"; Description: "This station uses a PostgreSQL server on another PC (do not install one here)"; Flags: unchecked
+Name: "remotedb"; Description: "Use an existing PostgreSQL server (on this PC or another) instead of installing one"; Flags: unchecked
 
 [Run]
 ; dontlogparameters: the superuser password is on this command line, and Inno
@@ -133,96 +136,6 @@ begin
       RaiseException('Could not generate a PostgreSQL password. Install PostgreSQL manually and re-run this installer.');
   end;
   Result := PgPassword;
-end;
-
-// Counts, and optionally ends, python processes whose command line contains
-// Dir - by command line, never by process name, so a station's unrelated Python
-// survives. Returns how many are still running afterwards, so a caller can
-// refuse to replace files under a process that did not stop: Python closes a
-// .py after reading it, so nothing locks the files and an overwrite "works"
-// while the old code keeps serving. No braces in the PowerShell: "{" opens an
-// Inno constant.
-function PythonProcessesUnder(const Dir: String; Terminate: Boolean): Integer;
-var
-  Command: String;
-  ResultCode: Integer;
-begin
-  Result := 0;
-  if (Dir = '') or not DirExists(Dir) then
-    Exit;
-  Command :=
-    '-NoProfile -ExecutionPolicy Bypass -Command "' +
-    // Stop on any error: a failed CIM query must not read as "0 running".
-    // PowerShell then exits 1, which the callers treat as still running.
-    '$ErrorActionPreference = ''Stop''; ' +
-    '$f = ''Name LIKE ''''python%.exe''''''; ' +
-    '$p = @(Get-CimInstance Win32_Process -Filter $f | Where-Object CommandLine -like ''*' + Dir + '*''); ';
-  if Terminate then
-    Command := Command +
-      '$p | Invoke-CimMethod -MethodName Terminate | Out-Null; ' +
-      'Start-Sleep -Milliseconds ([Math]::Min($p.Count, 1) * 1500); ' +
-      '$p = @(Get-CimInstance Win32_Process -Filter $f | Where-Object CommandLine -like ''*' + Dir + '*''); ';
-  Command := Command + 'exit $p.Count"';
-  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Command, '',
-          SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    Result := ResultCode
-  else
-    Result := -1;  // could not even ask: treat as "may still be running"
-end;
-
-// Replaces Path's permission list with EXACTLY two entries - SYSTEM and
-// Administrators, full control (inherited by children when Path is a folder)
-// - makes Administrators the owner, then reads both back and returns True
-// only if exactly those two entries and that owner remain. icacls cannot do
-// this: /grant:r only replaces the grants it names, so a grant a technician
-// once gave a named user would survive. The owner matters too: an owner can
-// always rewrite the permissions, so a file some user created would not stay
-// private. The owner is set with `icacls /setowner` first - the standard tool,
-// which uses the take-ownership right an elevated admin has - and the
-// PowerShell step then replaces the DACL and verifies owner and DACL together.
-// SIDs, not names: any Windows language.
-function RestrictToAdmins(const Path: String; IsFolder: Boolean): Boolean;
-var
-  Command, Kind, Flags, Quoted: String;
-  ResultCode: Integer;
-begin
-  Quoted := Path;
-  StringChangeEx(Quoted, '''', '''''', True);  // ' -> '' inside a PowerShell '...' string
-  if IsFolder then begin
-    Kind := 'DirectorySecurity';
-    Flags := '''ContainerInherit, ObjectInherit''';
-  end else begin
-    Kind := 'FileSecurity';
-    Flags := '''None''';
-  end;
-  Command :=
-    '-NoProfile -ExecutionPolicy Bypass -Command "' +
-    '$ErrorActionPreference = ''Stop''; $p = ''' + Quoted + '''; ' +
-    '$a = New-Object System.Security.AccessControl.' + Kind + '; ' +
-    '$a.SetAccessRuleProtection($true, $false); ' +
-    '$r = [System.Security.AccessControl.FileSystemRights]::FullControl; ' +
-    '$i = [System.Security.AccessControl.InheritanceFlags]' + Flags + '; ' +
-    '$n = [System.Security.AccessControl.PropagationFlags]::None; ' +
-    '$t = [System.Security.AccessControl.AccessControlType]::Allow; ' +
-    '$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(' +
-      '[System.Security.Principal.SecurityIdentifier]''S-1-5-18'', $r, $i, $n, $t))); ' +
-    '$a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(' +
-      '[System.Security.Principal.SecurityIdentifier]''S-1-5-32-544'', $r, $i, $n, $t))); ' +
-    'Set-Acl -LiteralPath $p -AclObject $a; ' +
-    '$back = Get-Acl -LiteralPath $p; ' +
-    '$rules = @($back.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])); ' +
-    '$got = @($rules | ForEach-Object IdentityReference | ForEach-Object Value | Sort-Object -Unique); ' +
-    '$owner = $back.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; ' +
-    'exit [int](($rules.Count -ne 2) -or (($got -join '','') -ne ''S-1-5-18,S-1-5-32-544'') ' +
-      '-or ($owner -ne ''S-1-5-32-544''))"';
-  Result :=
-    Exec(ExpandConstant('{sys}\icacls.exe'), '"' + Path + '" /setowner *S-1-5-32-544 /C', '',
-      SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) and
-    Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Command, '',
-      SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
-  if not Result then
-    Log('Could not restrict ' + Path + ' to SYSTEM and Administrators (exit ' +
-      IntToStr(ResultCode) + ').');
 end;
 
 // Common post-install guidance; product-specific details are supplied by the

@@ -32,13 +32,6 @@ const form = reactive<UpdateServerSettingsRequest>({
   exportTiffOutput: true,
   luminanceEnabled: false,
   exportAutoEnabled: true,
-  uploadEnabled: false,
-  uploadS3Path: '',
-  uploadS3Region: '',
-  uploadS3AccessKey: '',
-  uploadS3SecretKey: '',
-  uploadDoneRoot: '',
-  uploadSummaryRoot: '',
   aiReviewEnabled: false,
   aiPreanalysisEnabled: false,
   openrouterApiKey: '',
@@ -58,13 +51,6 @@ async function load() {
     form.exportZipOutput = data.data.exportZipOutput
     form.luminanceEnabled = data.data.luminanceEnabled
     form.exportAutoEnabled = data.data.exportAutoEnabled
-    form.uploadEnabled = data.data.upload.enabled
-    form.uploadS3Path = data.data.upload.s3Path
-    form.uploadS3Region = data.data.upload.region
-    form.uploadS3AccessKey = data.data.upload.accessKey
-    form.uploadS3SecretKey = ''
-    form.uploadDoneRoot = data.data.upload.doneRoot
-    form.uploadSummaryRoot = data.data.upload.summaryRoot
     form.aiReviewEnabled = data.data.ai.enabled
     form.aiPreanalysisEnabled = data.data.ai.preanalysisEnabled
     form.openrouterApiKey = ''
@@ -145,56 +131,7 @@ function beforeChangeAutoExport() {
   return form.exportAutoEnabled ? confirmAutoExportOff() : Promise.resolve(true)
 }
 
-async function confirmUploadOff() {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.settings.uploadOffWarning'),
-      t('admin.settings.uploadOffWarningTitle'),
-      {
-        type: 'warning',
-        confirmButtonText: t('admin.settings.uploadOffWarningConfirm'),
-        cancelButtonText: t('common.cancel'),
-      },
-    )
-    return true
-  } catch {
-    return false
-  }
-}
-
-function beforeChangeUpload() {
-  return form.uploadEnabled ? confirmUploadOff() : Promise.resolve(true)
-}
-
-function validateUploadAndAi() {
-  if (form.uploadEnabled) {
-    const path = form.uploadS3Path.trim()
-    const bucket = path.toLowerCase().startsWith('s3://') ? path.slice(5).split('/')[0] : ''
-    if (!bucket) {
-      ElMessage.error(t('admin.settings.uploadS3PathInvalid'))
-      return false
-    }
-    if (!form.uploadS3Region.trim()) {
-      ElMessage.error(t('admin.settings.uploadRegionRequired'))
-      return false
-    }
-    if (!form.uploadS3AccessKey.trim()) {
-      ElMessage.error(t('admin.settings.uploadAccessKeyRequired'))
-      return false
-    }
-    if (!settings.value?.upload.secretKeyConfigured && !form.uploadS3SecretKey.trim()) {
-      ElMessage.error(t('admin.settings.uploadSecretKeyRequired'))
-      return false
-    }
-    if (!form.uploadDoneRoot.trim()) {
-      ElMessage.error(t('admin.settings.uploadDoneRootRequired'))
-      return false
-    }
-    if (!form.uploadSummaryRoot.trim()) {
-      ElMessage.error(t('admin.settings.uploadSummaryRootRequired'))
-      return false
-    }
-  }
+function validateAi() {
   if (form.aiReviewEnabled && !settings.value?.ai.keyConfigured && !form.openrouterApiKey.trim()) {
     ElMessage.error(t('admin.settings.aiApiKeyRequired'))
     return false
@@ -203,7 +140,7 @@ function validateUploadAndAi() {
 }
 
 async function save() {
-  if (!validateUploadAndAi()) return
+  if (!validateAi()) return
   const result = await runValidation()
   if (!result) return
   if (!result.ok) {
@@ -232,13 +169,6 @@ async function save() {
     form.exportZipOutput = data.data.exportZipOutput
     form.luminanceEnabled = data.data.luminanceEnabled
     form.exportAutoEnabled = data.data.exportAutoEnabled
-    form.uploadEnabled = data.data.upload.enabled
-    form.uploadS3Path = data.data.upload.s3Path
-    form.uploadS3Region = data.data.upload.region
-    form.uploadS3AccessKey = data.data.upload.accessKey
-    form.uploadS3SecretKey = ''
-    form.uploadDoneRoot = data.data.upload.doneRoot
-    form.uploadSummaryRoot = data.data.upload.summaryRoot
     form.aiReviewEnabled = data.data.ai.enabled
     form.aiPreanalysisEnabled = data.data.ai.preanalysisEnabled
     form.openrouterApiKey = ''
@@ -268,6 +198,7 @@ onMounted(load)
     <section class="panel" v-loading="loading">
       <div class="panel-heading"><h2>{{ t('admin.settings.editableSection') }}</h2></div>
       <div class="settings-form">
+        <p class="muted settings-note">{{ t('admin.settings.pathsNetworkNote') }}</p>
         <div class="settings-field">
           <label>{{ t('admin.settings.qcImagesRoot') }}</label>
           <el-input v-model="form.qcImagesRoot" clearable :placeholder="t('admin.settings.qcImagesRootPlaceholder')" />
@@ -276,10 +207,12 @@ onMounted(load)
         <div class="settings-field">
           <label>{{ t('admin.settings.exportTempDir') }}</label>
           <el-input v-model="form.exportTempDir" clearable />
+          <p class="muted settings-note">{{ t('admin.settings.exportTempDirHelp') }}</p>
         </div>
         <div class="settings-field">
           <label>{{ t('admin.settings.exportOutputDir') }}</label>
           <el-input v-model="form.exportOutputDir" clearable />
+          <p class="muted settings-note">{{ t('admin.settings.exportOutputDirHelp') }}</p>
         </div>
 
         <div class="actions">
@@ -296,8 +229,10 @@ onMounted(load)
           <ul class="check-list">
             <li v-for="check in validation.checks" :key="check.key">
               <strong>{{ checkLabel(check.key) }}</strong>
-              <span>{{ check.exists ? t('admin.settings.exists') : t('admin.settings.notExists') }}</span>
-              <span v-if="check.path">{{ check.writable ? t('admin.settings.writable') : t('admin.settings.notWritable') }}</span>
+              <template v-if="check.key !== 'exportTempDirSeparate'">
+                <span>{{ check.exists ? t('admin.settings.exists') : t('admin.settings.notExists') }}</span>
+                <span v-if="check.path">{{ check.writable ? t('admin.settings.writable') : t('admin.settings.notWritable') }}</span>
+              </template>
               <span v-if="check.message" class="check-message">{{ check.message }}</span>
             </li>
           </ul>
@@ -333,52 +268,10 @@ onMounted(load)
           <label>{{ t('admin.settings.exportAutoEnabled') }}</label>
           <el-switch v-model="form.exportAutoEnabled" :before-change="beforeChangeAutoExport" />
         </div>
-        <p class="muted">{{ t('admin.settings.exportAutoEnabledHelp') }}</p>
 
         <div class="actions">
           <el-button type="primary" :loading="saving" @click="save">{{ t('admin.settings.save') }}</el-button>
         </div>
-        <p class="muted settings-note">{{ t('admin.settings.noRestartNeeded') }}</p>
-      </div>
-    </section>
-
-    <section class="panel" style="margin-top: 16px" v-loading="loading">
-      <div class="panel-heading"><h2>{{ t('admin.settings.uploadSection') }}</h2></div>
-      <div class="settings-form">
-        <div class="settings-field settings-field--switch">
-          <label>{{ t('admin.settings.uploadEnabled') }}</label>
-          <el-switch v-model="form.uploadEnabled" :before-change="beforeChangeUpload" />
-        </div>
-        <div class="settings-field">
-          <label>{{ t('admin.settings.uploadS3Path') }}</label>
-          <el-input v-model="form.uploadS3Path" />
-        </div>
-        <div class="settings-field">
-          <label>{{ t('admin.settings.uploadS3Region') }}</label>
-          <el-input v-model="form.uploadS3Region" />
-        </div>
-        <div class="settings-field">
-          <label>{{ t('admin.settings.uploadS3AccessKey') }}</label>
-          <el-input v-model="form.uploadS3AccessKey" />
-        </div>
-        <div class="settings-field">
-          <label>{{ t('admin.settings.uploadS3SecretKey') }}</label>
-          <el-input
-            v-model="form.uploadS3SecretKey"
-            type="password"
-            show-password
-            :placeholder="t('admin.settings.savedSecretPlaceholder')"
-          />
-        </div>
-        <div class="settings-field">
-          <label>{{ t('admin.settings.uploadDoneRoot') }}</label>
-          <el-input v-model="form.uploadDoneRoot" />
-        </div>
-        <div class="settings-field">
-          <label>{{ t('admin.settings.uploadSummaryRoot') }}</label>
-          <el-input v-model="form.uploadSummaryRoot" />
-        </div>
-        <p class="muted settings-note">{{ t('admin.settings.configuredBy', { target: settings?.configuredBy || '' }) }}</p>
       </div>
     </section>
 

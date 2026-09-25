@@ -1,9 +1,0 @@
-numpy==2.5.1
-opencv-python==4.13.0.92
-Pillow==11.3.0
-# LWIP reports finished folders to PostgreSQL itself, so a batch reaches QC
-# even when LWCAM is closed (see deskew_crop_tool/cloud_report.py). Pinned to
-# the same major the QC backend uses. Its wheels are staged in wheels/ -
-# SETUP_DESKEW_CROP.bat installs with --no-index, so an unstaged dependency
-# breaks setup on every air-gapped station.
-psycopg[binary]==3.3.4

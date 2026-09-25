@@ -9,6 +9,44 @@
   alone (its sibling LWRework has its own CHANGELOG.txt from the same point).
 
 --------------------------------------------------------------------------------
+ 2026-09-25 - LWIP RUNS STANDALONE; LWCAM STOPS SUPERVISING/REPORTING IT
+--------------------------------------------------------------------------------
+
+- LWIP moves to its own machine as a boot-time SYSTEM service and reports each
+  finished folder straight to PostgreSQL itself. LWCAM no longer supervises it,
+  no longer tails its local `state.json`, and no longer enqueues the
+  `capture_folder_processing` outbox row. Deleted: `processing_bootstrap.dart`,
+  `processing_report_service.dart`, `lwip_service.dart`, their call sites in
+  `main.dart`/`auth_controller.dart`/`capture_box_list_page.dart`, and
+  `UploadStatsDB.recordFolderProcessing`/`isProcessingReported`/
+  `recordProcessingSkip`/`migratePendingProcessingOutbox`. The "processing-only
+  PC" concept (a `'PROCESSING'` pseudo device id for a PC running LWCAM only to
+  report LWIP's work) goes with it.
+- `NodeConfig.processingEnabled`/`processingWorkers`/`processingCropPadding`/
+  `processingCloudReport` are round-trip only now — LWIP's own config file
+  decides them. `processingInputRoot`/`processingOutputRoot` are unchanged:
+  `rework_service.dart` still uses them to find the LWIP-input file a QC
+  recapture must overwrite, and `processing_marker_service.dart` still writes
+  `lwcam_capture_marker.json` into every transferred folder, which LWIP still
+  waits for.
+- The `processing_ledger` table, the `capture_folder_processing` sync entity,
+  and the sink's `folderProcessingUpdateSql` case stay, but only to drain and
+  apply a row a station had already queued before this change — nothing in
+  LWCAM enqueues a new one.
+
+--------------------------------------------------------------------------------
+ 2026-09-24 - LWIP: PRESERVE TILTED-PAGE BACKGROUND THROUGH QC DESKEW
+--------------------------------------------------------------------------------
+
+- `deskew_crop_file` now maps the final padded, straightened crop back into
+  camera coordinates before cropping the JPEG. This retains the real photo
+  background needed around a tilted page after QC rotates it.
+- The rotated-frame guard trims only the side or sides that run into the camera
+  frame boundary. A shortage at one edge no longer shrinks all four margins.
+- Added regression coverage for a 2-degree page with enough capture background
+  to retain 200px on every side after replaying the QC ops.
+
+--------------------------------------------------------------------------------
  2026-09-10 - LUMINANCE CORRECTION OFF BY DEFAULT
 --------------------------------------------------------------------------------
 

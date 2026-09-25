@@ -19,9 +19,11 @@ Chinese version of this file: README_CN.txt
 
   LWCamAdmin\           Flutter/Windows. Administration app.
   LWCAM\                Flutter/Windows. Capture app.
-    LWCAM\LWIP\         Python. Deskew/crop/thumbnail watcher supervised by LWCAM.
     LWCAM\LWCam Workflow & SQL update\
                         Capture-side database schema SQL + ERD.
+  LWIP\                 Python. Deskew/crop/thumbnail watcher. Its own
+                        top-level product since 2026-09-25 (formerly nested
+                        inside LWCAM).
   LWCam_QC_Platform\    Vue 3 + FastAPI. QC review web platform.
     LWCam_QC_Platform\database\
                         Unified schema SQL + idempotent migrations.
@@ -46,7 +48,7 @@ documents, and no others:
 Plus, where they exist:
 
   CHANGELOG.txt   Dated, reason-annotated change history (both Flutter apps).
-  LWCAM\LWIP\README.txt / README_CN.txt
+  LWIP\README.txt / README_CN.txt
                   Full behavioural spec of the image watcher — stability
                   gates, atomic publication, checksum audits, recovery. LWIP
                   has no AGENTS.md, so this file is its whole documentation.
@@ -224,7 +226,7 @@ broken.
 
 
 --------------------------------------------------------------------------------
- 4. PROJECT: LWCAM  (and LWCAM\LWIP)
+ 4. PROJECT: LWCAM
 --------------------------------------------------------------------------------
 
 Flutter Windows desktop app. Package `lwcam`, window title
@@ -305,10 +307,10 @@ This is the only unit-tested code inherited unchanged from the pre-fork app.
 Installer: windows/runner/resources/LWCAM.iss. It hand-lists the plugin DLLs
 AND the scrcpy-win64 folder. Same warning as above: keep it in sync.
 
---- LWCAM\LWIP -----------------------------------------------------------------
+--- LWIP -----------------------------------------------------------------------
 
-Standalone Python watcher, shipped inside the LWCAM folder because LWCAM
-resolves it relative to its own exe at runtime.
+Standalone Python watcher. Its own top-level product since 2026-09-25
+(formerly nested inside the LWCAM folder).
 
     LWIP\backend\deskew_crop_tool\    the tool (config, image_ops, orchestrator)
     LWIP\backend\tests\               unittest suite
@@ -321,7 +323,7 @@ The two .bat files expect a private Python and an offline wheel cache that are
 NOT in this handover (see section 7). To run it from a normal developer
 environment instead:
 
-    cd LWCAM\LWIP
+    cd LWIP
     python -m venv venv
     runtime\python\python.exe -m pip install -r requirements.txt
     runtime\python\python.exe -m unittest discover -s backend/tests -v
@@ -686,9 +688,11 @@ Layout notes:
   * There is no root .gitignore. Each project has its own and they are scoped
     correctly — Flutter's `/build/` patterns are anchored to the directory
     holding the .gitignore, so they do not leak across projects.
-  * LWCAM\LWIP is a nested project with its own .gitignore, tracked as ordinary
-    directories. It is not a submodule and should not become one; LWCAM
-    resolves it by relative path at runtime.
+  * LWIP is its own top-level project with its own .gitignore, tracked as
+    ordinary directories. It is not a submodule and should not become one.
+    Formerly nested inside LWCAM (which resolved it by relative path at
+    runtime); it moved to the repository root as its own product on
+    2026-09-25.
   * No LICENSE file. Absence of a license means all rights reserved, which is
     the intent for proprietary client work.
 

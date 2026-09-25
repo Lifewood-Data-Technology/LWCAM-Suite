@@ -178,20 +178,6 @@ class Settings(BaseSettings):
     # are not admins), so the server exports approved folders itself.
     export_auto_enabled: bool = True
     export_auto_interval_seconds: int = Field(default=30, ge=5)
-    # Upload phase: published packages go to an S3 bucket. Set in config.txt
-    # (upload* keys); the sweep runs only where upload_enabled is on - the PC
-    # holding the export output folder.
-    upload_enabled: bool = False
-    upload_s3_path: str = ""  # s3://bucket/optional/prefix
-    upload_s3_region: str = ""
-    upload_s3_access_key: str = ""
-    upload_s3_secret_key: SecretStr | None = None
-    # Where a package goes once it is in the bucket. Blank = leave it in
-    # the output folder. Must not be the output folder or inside it.
-    upload_done_dir: str = ""
-    # Folder holding Upload_Summary.db3, one SQLite row per uploaded package.
-    upload_summary_dir: str = ""
-    upload_interval_seconds: int = Field(default=60, ge=5)
 
     # Where QC finds captured folders when it is not the machine that captured
     # them. Empty - the default, and correct on a single-PC station - means use

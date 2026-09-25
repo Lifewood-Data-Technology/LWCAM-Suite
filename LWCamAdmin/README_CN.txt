@@ -9,8 +9,9 @@ LWCam Admin 是 Flutter Windows 桌面应用，集中了 LWCAM 套件的全部 S
 设备改绑、共享应用设置，以及每台机器的工作站配置。
 
 它是共享 PostgreSQL 库中 `users`、`projects`、`app_settings` 的唯一写入方，也是
-lwcam_node_config.json 的唯一编辑入口——LWCAM、LWIP、QC 后端都读这个文件。任何新
-机器都请先运行本应用。
+lwcam_node_config.json 的唯一编辑入口——LWCAM 读这个文件。LWIP 现在有自己的安装
+包（LWIPSetup）和自己的配置；数据库现在由 LWCamDatabaseSetup 创建/升级，本应用
+只负责连接它。任何新采集机都请先运行本应用。
 
 包名 `lwcam_admin`。仅支持 Windows。没有采集流程，不用 ADB，不用 sqflite，不连手机。
 
@@ -64,9 +65,12 @@ LWCAM，永远登录不了这里。
                唯一写入方。LWCAM 只做拉取。
 
   工作站配置   lwcam_node_config.json，默认位于 %USERPROFILE%\LWCAM_DBs。
-               Station Setup 是整个套件中唯一的编辑入口：本应用的 PostgreSQL
-               连接、LWCAM 的采集 outbox 同步开关、图像目标根目录、LWIP 图像处理
-               开关及其目录覆盖项。整个套件没有任何需要手工编辑的配置文件。
+               Station Setup 是唯一的编辑入口：本应用的 PostgreSQL 连接、LWCAM
+               的采集 outbox 同步开关、图像目标根目录，以及供 rework 查找原始
+               图像用的两个 LWIP 目录字段（必须与 LWIP 自己那台机器上配置的目录
+               一致）。LWIP 自己的开关/worker 数/裁切留白/云端上报字段仍保留在
+               文件里，只是为了让旧文件能正常读取——这些现在由 LWIP 自己的安装
+               包管理。
 
 新机器的引导流程是刻意这样设计的：在新采集机上运行一次便携版 LWCam Admin，填好
 Station Setup，LWCAM 下次启动时就会读到同一个文件。

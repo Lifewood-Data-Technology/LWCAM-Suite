@@ -18,10 +18,16 @@ that capture and QC are the same PC. It therefore owns its own settings file
 | In | Out |
 | --- | --- |
 | Review, approve, reject, separation, client rework | Capture, LWIP — those stay with LWCam |
-| **Upload** to S3 (a sweep in this server; settings in the console) | |
-| Export to TIFF/JPEG package, the Exports screen | |
-| Admin: dashboards, QC paths, zip/TIFF toggles, upload and AI settings | |
+| Export to TIFF/JPEG package, the Exports screen | Upload to S3 — moved to the standalone LWCam Upload service |
+| Admin: dashboards, QC paths, zip/TIFF toggles, AI settings | |
 | **SuperAdmin only**: user management, project creation | A QC admin must never reach these |
+
+**Upload moved out** (2026-09-25) to `LWCam_Upload\`, a standalone service
+shipped as its own installer (`LWCamUploadSetup.exe`). It watches this
+server's `qcOutputRoot` on its own schedule and has its own settings and
+console — this server no longer sweeps, retries or reports upload status; a
+republished (client-rework) package is picked up because LWCam Upload
+fingerprints each package's files, not because this server clears anything.
 
 PostgreSQL (local, central or cloud). **No Docker** — it runs on the shipped
 embeddable Python like the rest of the suite.
@@ -97,21 +103,47 @@ anything not in it is a code default. The file's own header documents every key.
 
 Server keys, read once at start (restart after changing): `dbHost`, `dbPort`,
 `dbName`, `dbUser`, `dbPassword`, `dbUseSsl`, `jwtSecret`, `jwtExpireMinutes`,
-`bindHost` (`0.0.0.0` = LAN), `port`. Upload (`uploadEnabled`, `uploadS3Path`,
-`uploadS3Region`, `uploadS3AccessKey`, `uploadS3SecretKey`, `uploadDoneRoot`,
-`uploadSummaryRoot`) and AI (`aiReviewEnabled`, `aiPreanalysisEnabled`,
-`openrouterApiKey`, `openrouterExtractModel`, `openrouterCompareModel`) are
-edited live from Admin → Settings; secrets are write-only there (never
-returned; blank keeps the saved one). Also `exportWorkerCount` and
-`exportTempRetentionHours`. `captureImageHostPath`/`ContainerPath` are retired
-in favour of `qcImagesRoot`. A value containing a line break or control
-character is refused — it would otherwise plant a key of the sender's choosing.
+`bindHost` (`0.0.0.0` = LAN), `port`. AI (`aiReviewEnabled`,
+`aiPreanalysisEnabled`, `openrouterApiKey`, `openrouterExtractModel`,
+`openrouterCompareModel`) is edited live from Admin → Settings; secrets are
+write-only there (never returned; blank keeps the saved one). Also
+`exportWorkerCount` and `exportTempRetentionHours`. `captureImageHostPath`/
+`ContainerPath` are retired in favour of `qcInputRoot`. A value containing a
+line break or control character is refused — it would otherwise plant a key
+of the sender's choosing.
+
+**Upload's keys are gone from this file** (2026-09-25): `uploadEnabled`,
+`uploadS3Path`, `uploadS3Region`, `uploadS3AccessKey`, `uploadS3SecretKey`,
+`uploadDoneRoot` and `uploadSummaryRoot` moved to the standalone LWCam Upload
+service's own `upload_config.json`. `SETTINGS_BY_KEY` no longer maps them, so
+they are unrecognised lines like any other stale key — a `config.txt` that
+still has them keeps loading, and the next console save drops them (the
+writer only ever emits keys it knows about).
+
+**The folder keys were renamed on 2026-09-24**, because "QC input root" meant
+the export scratch folder and everyone read it as the image source. Now
+`qcInputRoot` = LWIP's output (was `qcImagesRoot`) and `exportWorkRoot` = the
+export scratch (was `qcInputRoot`). Internal names (`qc_images_root`,
+`export_temp_dir`) and the API fields (`qcImagesRoot`, `exportTempDir`) did not
+change. A file carrying a `qcImagesRoot` line is the old layout and is read with
+the old meanings (`LEGACY_SETTINGS_BY_KEY`) — every writer of that layout wrote
+that line, blank or not — and the next console save rewrites it with the new keys.
 
 | Key | Meaning |
 | --- | --- |
-| `qcImagesRoot` | Where QC looks for captured folders. **Empty on a single PC** — the engine then uses the path LWCAM recorded in the DB. Set it on a split site (e.g. `\\nas\LWCamCapture`) and each folder's own date and name are kept, only the prefix is replaced (`paths.relocate_under`, anchored on the `YYYYMMDD` segment so `thumbs` nests correctly). |
-| `qcInputRoot` | Export **scratch** root, not an image source. On a split site it must be LOCAL, or every export writes ~10× TIFF scratch across the network. |
+| `qcInputRoot` | LWIP's output (2.Batches) — where QC finds captured folders. **Empty on a single PC** — the engine then uses the path LWCAM recorded in the DB. Set it on a split site (e.g. `\\capture-pc\2.Batches`) and each folder's own date and name are kept, only the prefix is replaced (`paths.relocate_under`, anchored on the `YYYYMMDD` segment so `thumbs` nests correctly). Validated **writable**, not just readable: approval writes `qc_ops.json` into each capture folder. Never created by validation — a typo in a share name is reported. |
+| `exportWorkRoot` | Export **scratch** (`<root>\.lwcam-export\…`, cleared after `exportTempRetentionHours`). Must not be, contain, or sit inside `qcInputRoot` or `qcOutputRoot` (validation check `exportTempDirSeparate`). On a split site keep it LOCAL, or every export writes ~10× TIFF scratch across the network. |
 | `qcOutputRoot` | Where the finished package is published. |
+
+**Every folder key accepts a UNC path** (`\\server\share\…`); `fs_path` turns it
+into `\\?\UNC\…` at the system-call boundary. Proven on 2026-09-24 by running the
+whole suite with `TMP` on `\\localhost\C$\…` (202 pass), plus
+`test_every_path_can_be_a_network_path`. **A mapped drive letter does not work**:
+the installed server runs as SYSTEM, which never sees a user's mapped drives, so
+validation refuses a drive letter the server cannot see and says to use the UNC
+path. SYSTEM reaches a share as the PC's computer account (`DOMAIN\PC$`), so the
+share must grant that account — on a workgroup with no domain it gets no access,
+and the fix is running the task as a named account (not built).
 | `exportZipOutput` | true = a `.zip`, false = a folder. |
 | `exportTiffOutput` | true = lossless TIFF. false re-encodes edited pages as q100 4:4:4 JPEG and byte-copies untouched ones. |
 | `luminanceEnabled` | Allows luminance correction in review — the one tool that bakes pixels. Off by default. |
@@ -128,7 +160,7 @@ cd backend
 C:\Python314\python.exe -m unittest discover -s tests -t .
 ```
 
-**196 tests, 0 failures** on this branch (master's copy of the same suite is
+**202 tests, 0 failures** on this branch (master's copy of the same suite is
 110 — this branch adds the separation, settings, cache, rate-limit,
 attribution, user-role-filter, auto-export-toggle, disabled-template-field,
 sweep-switch, admin-settings and setup_qc_db suites). Any failure is a
@@ -228,9 +260,16 @@ station: every fresh install lacked `qc_reviewed_by` and
 `separated_from_folder_id` and 500'd on every QC tab. It now applies every
 `database/migrations/*.sql` in name order, on fresh and existing databases
 (each migration is idempotent; the unified pg_dump still loads only into an
-empty database), and verifies those columns and the `qc` role. Both installers
-ship and run this one script: the QC installer with `--server-config`, LWCam
-Admin's Station Setup with `--config <node json>`.
+empty database), and verifies those columns and the `qc` role.
+
+**Schema upgrades are `LWCamDatabaseSetup`'s job now** (2026-09-25, the
+`lwip-standalone` branch): it is the only installer that runs this script
+(`--server-config`), and neither `QCPlatformSetup` nor LWCam Admin's Station
+Setup provisions or upgrades the database any more — Station Setup's Save only
+tests the connection. A QC release that adds a migration therefore needs a
+newer `LWCamDatabaseSetup` run on the database PC before the new columns exist,
+not a QC server reinstall. `--config <node json>` still works for anything
+else that ever needs it, but nothing installs that caller.
 
 ## Test data without a camera
 
@@ -366,10 +405,12 @@ half of the contract the console mirrors.
   its QC fields stayed because the engine still read them. **That stopped on
   2026-09-23:** the server owns every setting in its own `config.txt`
   (`node_config.py` is deleted), and Station Setup lost its QC, captured-on-
-  another-PC, AI and Upload sections. It keeps only database provisioning,
-  which no longer depends on QC being installed: it runs the LWCam install's
-  own copy of `setup_qc_db.py` with the LWIP runtime's Python. The node-config
-  model keeps the old fields so an older file still round-trips.
+  another-PC, AI and Upload sections. It kept only database provisioning at
+  that point, running the LWCam install's own copy of `setup_qc_db.py` with the
+  LWIP runtime's Python. **That in turn stopped on 2026-09-25** (`lwip-standalone`):
+  provisioning moved to its own installer (`LWCamDatabaseSetup`), and Station
+  Setup's Save now only tests the connection. The node-config model keeps the
+  old fields so an older file still round-trips.
 
   Both tripwires held: `win32_job.dart` survives on `scrcpy_service.dart`, and
   `scope_bar_height_test.dart` kept working with `scopeBarControlHeight` moved

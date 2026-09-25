@@ -1,10 +1,10 @@
 """Durable JSON state files for the background workers.
 
-Three files share this shape: the export's `active.json` (one run) and
-`failures.json` (keyed by folder), and the upload's `uploads.json` (keyed by
-package). They used to be written and read by three copies of the same code.
-The on-disk format is unchanged - a station upgraded onto this module reads the
-files it already has.
+The export's `active.json` (one run) and `failures.json` (keyed by folder)
+share this shape. Upload used to keep its own `uploads.json` here too, before
+it moved out to the standalone LWCam Upload service (which keeps its ledger
+in its own `state_file`, not through this module). The on-disk format is
+unchanged - a station upgraded onto this module reads the files it already has.
 """
 
 from __future__ import annotations

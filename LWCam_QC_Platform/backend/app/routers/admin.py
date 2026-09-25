@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -33,19 +34,12 @@ from app.schemas.admin import (
     StatsOverviewVO,
     UpdatePathSettingsRequest,
     UpdateServerSettingsRequest,
-    UploadSettingVO,
     UpdateUserRequest,
     UserAdminVO,
 )
 from app.services.ai_preanalysis import ai_preanalysis_scheduler
 from app.services.ai_review import api_key_configured
-from app.services.export import ExportError, directory_write_error
-from app.services.upload import (
-    UploadError,
-    _same_or_inside,
-    parse_s3_path,
-    upload_runtime_config,
-)
+from app.services.export import directory_write_error
 from app.services.qc_drafts import discard_draft
 from app.services.serializers import to_user_admin_vo
 
@@ -560,18 +554,6 @@ def path_settings_vo() -> PathSettingsVO:
         exportTiffOutput=settings.export_tiff_output,
         exportZipOutput=settings.export_zip_output,
         exportAutoEnabled=settings.export_auto_enabled,
-        upload=UploadSettingVO(
-            enabled=settings.upload_enabled,
-            s3Path=settings.upload_s3_path,
-            region=settings.upload_s3_region,
-            accessKey=settings.upload_s3_access_key,
-            secretKeyConfigured=bool(
-                settings.upload_s3_secret_key
-                and settings.upload_s3_secret_key.get_secret_value().strip()
-            ),
-            doneRoot=settings.upload_done_dir,
-            summaryRoot=settings.upload_summary_dir,
-        ),
         ai=AiSettingVO(
             enabled=settings.ai_review_enabled,
             preanalysisEnabled=settings.ai_preanalysis_enabled,
@@ -589,22 +571,43 @@ def path_settings_vo() -> PathSettingsVO:
     )
 
 
-def check_directory(key: str, raw_value: str, *, require_writable: bool) -> PathCheckVO:
+def unavailable_drive_message(value: str) -> str | None:
+    """Why a drive letter this server cannot see is refused, or None.
+
+    Almost always a mapped network drive: it belongs to one user's logon
+    session, and the installed server runs as a Windows service, which never
+    sees it. A UNC path (\\\\server\\share) has no drive letter and passes.
+    """
+    drive = os.path.splitdrive(value)[0]
+    if len(drive) != 2 or os.path.isdir(drive + "\\"):
+        return None
+    return (
+        f"Drive {drive} is not available to the QC server. It runs as a Windows service, "
+        "which cannot see drive letters mapped by a logged-in user - enter the network "
+        "path instead (\\\\server\\share\\...)."
+    )
+
+
+def check_directory(
+    key: str, raw_value: str, *, require_writable: bool, must_exist: bool = False
+) -> PathCheckVO:
     value = (raw_value or "").strip()
     if not value:
         return PathCheckVO(key=key, path="", exists=False, writable=False, message="Not set.")
     directory = Path(value).expanduser()
-    if not require_writable:
-        # The image root is only ever read, so demanding write access would reject a
-        # perfectly good read-only share.
-        exists = fs_path(directory).is_dir()
+    drive_message = unavailable_drive_message(value)
+    if drive_message:
+        return PathCheckVO(key=key, path=str(directory), exists=False, writable=False, message=drive_message)
+    exists = fs_path(directory).is_dir()
+    if not exists and (must_exist or not require_writable):
+        # Never created here: a typo in a share name must be reported, not
+        # made into a new empty folder QC then finds nothing in.
         return PathCheckVO(
-            key=key,
-            path=str(directory),
-            exists=exists,
-            writable=False,
-            message=None if exists else "This folder does not exist.",
+            key=key, path=str(directory), exists=False, writable=False,
+            message="This folder does not exist.",
         )
+    if not require_writable:
+        return PathCheckVO(key=key, path=str(directory), exists=True, writable=False, message=None)
     error = directory_write_error(directory)
     return PathCheckVO(
         key=key,
@@ -618,13 +621,18 @@ def check_directory(key: str, raw_value: str, *, require_writable: bool) -> Path
 def count_resolved_folders(
     db: Session, stored_prefix: str, local_root: str, images_root: str = ""
 ) -> tuple[int, int]:
-    """How many capture_folders rows a candidate mapping resolves to a real directory.
+    """How many folders waiting for QC a candidate mapping resolves to a real directory.
 
     This is the check that tells an admin whether a remap is actually correct,
-    rather than merely well-formed.
+    rather than merely well-formed. Only PENDING folders count - the ones a
+    reviewer will open next, a reverted client rework included. Finished
+    folders are left out: their batches are routinely archived after delivery,
+    and counting them kept a "resolves 0 of N" warning up for good on a
+    station whose every open folder resolved.
     """
     stored_paths = db.scalars(
         select(CaptureFolder.folder_path).where(
+            func.upper(CaptureFolder.qc_status) == "PENDING",
             CaptureFolder.is_deleted.is_not(True),
             CaptureFolder.folder_path.is_not(None),
             CaptureFolder.folder_path != "",
@@ -647,12 +655,26 @@ def count_resolved_folders(
     return resolved, len(stored_paths)
 
 
+def _same_or_inside(candidate: Path, root: Path) -> bool:
+    # resolve() follows junctions and expands 8.3 short names, so an aliased
+    # folder is still caught.
+    try:
+        a, b = candidate.resolve(), root.resolve()
+    except OSError:
+        return False
+    return a == b or a.is_relative_to(b)
+
+
 def validate_path_settings(db: Session, request: UpdatePathSettingsRequest) -> PathValidationVO:
     checks = [
-        check_directory("captureImageLocalRoot", request.captureImageLocalRoot, require_writable=False),
         check_directory("exportTempDir", request.exportTempDir, require_writable=True),
         check_directory("exportOutputDir", request.exportOutputDir, require_writable=True),
     ]
+    # The retired host/container pair has no field in the console any more, so
+    # it is reported only when a caller actually sends it - listing it as
+    # "Not set" under a green "every path is fine" read as a failure.
+    if request.captureImageLocalRoot.strip():
+        checks.insert(0, check_directory("captureImageLocalRoot", request.captureImageLocalRoot, require_writable=False))
     # An unset path is not a failure — it just falls back to the configured value.
     ok_so_far = all(
         check.exists and (check.writable or check.key == "captureImageLocalRoot")
@@ -672,8 +694,25 @@ def validate_path_settings(db: Session, request: UpdatePathSettingsRequest) -> P
         ))
     images_root = (request.qcImagesRoot or "").strip()
     if images_root:
-        checks.append(check_directory("qcImagesRoot", images_root, require_writable=False))
-        ok_so_far = ok_so_far and checks[-1].exists
+        # Writable, not just readable: approval writes qc_ops.json into each
+        # capture folder, so a read-only share passes review and fails there.
+        checks.append(check_directory("qcImagesRoot", images_root, require_writable=True, must_exist=True))
+        ok_so_far = ok_so_far and checks[-1].exists and checks[-1].writable
+    work_root = request.exportTempDir.strip()
+    for other in (request.exportOutputDir.strip(), images_root):
+        if work_root and other and (
+            _same_or_inside(Path(work_root), Path(other)) or _same_or_inside(Path(other), Path(work_root))
+        ):
+            ok_so_far = False
+            checks.append(PathCheckVO(
+                key="exportTempDirSeparate",
+                path=work_root,
+                exists=True,
+                writable=False,
+                message="The temporary work folder must be a separate folder: not the QC input or "
+                        "output root, not inside either, and not containing either.",
+            ))
+            break
     resolved, total = count_resolved_folders(db, stored_prefix, local_root, images_root)
     return PathValidationVO(
         ok=ok_so_far,
@@ -707,8 +746,8 @@ def update_server_settings(
 ) -> ApiResponse[PathSettingsVO]:
     """Persist console-owned settings and apply them live.
 
-    Export paths reuse validate_path_settings; omitted upload and AI fields
-    stay untouched so older consoles can still save the other settings.
+    Export paths reuse validate_path_settings; omitted AI fields stay
+    untouched so older consoles can still save the other settings.
     """
     export_temp_dir = request.exportTempDir.strip()
     export_output_dir = request.exportOutputDir.strip()
@@ -751,20 +790,13 @@ def update_server_settings(
         "export_auto_enabled": request.exportAutoEnabled,
     }
     optional_fields = {
-        "uploadEnabled": "upload_enabled",
-        "uploadS3Path": "upload_s3_path",
-        "uploadS3Region": "upload_s3_region",
-        "uploadS3AccessKey": "upload_s3_access_key",
-        "uploadS3SecretKey": "upload_s3_secret_key",
-        "uploadDoneRoot": "upload_done_dir",
-        "uploadSummaryRoot": "upload_summary_dir",
         "aiReviewEnabled": "ai_review_enabled",
         "aiPreanalysisEnabled": "ai_preanalysis_enabled",
         "openrouterApiKey": "openrouter_api_key",
         "openrouterExtractModel": "openrouter_extract_model",
         "openrouterCompareModel": "openrouter_compare_model",
     }
-    secret_fields = {"upload_s3_secret_key", "openrouter_api_key"}
+    secret_fields = {"openrouter_api_key"}
     for request_field, setting_field in optional_fields.items():
         value = getattr(request, request_field)
         # Omitted = keep: an older console that has never heard of a field
@@ -802,41 +834,6 @@ def update_server_settings(
 
     # Keep background sweeps on the saved values until validation succeeds.
     candidate = settings.model_copy(update=values)
-    if candidate.upload_enabled:
-        try:
-            parse_s3_path(candidate.upload_s3_path)
-        except UploadError as error:
-            raise BusinessError(ApiCodes.BAD_REQUEST, str(error)) from error
-        if not candidate.upload_s3_region.strip():
-            raise BusinessError(ApiCodes.BAD_REQUEST, "The S3 region is required.")
-        for key, raw_path in (
-            ("uploadDoneRoot", candidate.upload_done_dir),
-            ("uploadSummaryRoot", candidate.upload_summary_dir),
-        ):
-            directory = Path(raw_path).expanduser()
-            if key == "uploadSummaryRoot" and _same_or_inside(
-                directory, Path(export_output_dir).expanduser()
-            ):
-                raise BusinessError(
-                    ApiCodes.BAD_REQUEST,
-                    "uploadSummaryRoot must be outside the export output folder",
-                )
-            if not raw_path.strip() or not fs_path(directory).is_dir():
-                raise BusinessError(
-                    ApiCodes.BAD_REQUEST,
-                    f"{key} must be an existing writable directory.",
-                )
-            check = check_directory(key, raw_path, require_writable=True)
-            if not check.writable:
-                raise BusinessError(
-                    ApiCodes.BAD_REQUEST,
-                    f"{key} must be writable: {check.message or 'permission denied'}",
-                )
-        try:
-            upload_runtime_config(candidate, export_output_dir=export_output_dir)
-        except (UploadError, ExportError) as error:
-            raise BusinessError(ApiCodes.BAD_REQUEST, str(error)) from error
-
     if candidate.ai_review_enabled and not (
         candidate.openrouter_api_key
         and candidate.openrouter_api_key.get_secret_value().strip()

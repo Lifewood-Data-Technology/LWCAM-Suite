@@ -15,8 +15,6 @@ import 'package:lwcam/pages/login_page.dart';
 import 'package:lwcam/services/adb_device_service.dart';
 import 'package:lwcam/services/audit_log_service.dart';
 import 'package:lwcam/services/node_config_service.dart';
-import 'package:lwcam/services/processing_bootstrap.dart';
-import 'package:lwcam/services/processing_report_service.dart';
 import 'package:lwcam/services/scrcpy_service.dart';
 import 'package:lwcam/services/snackbar_service.dart';
 import 'package:lwcam/services/sync_bootstrap.dart';
@@ -96,16 +94,6 @@ Future<void> main() async {
         await SyncBootstrap.apply(nodeConfig, deviceId: priorDeviceId);
       } catch (e) {
         print('⚠️ Sync bootstrap skipped at startup: $e');
-      }
-
-      // Image-processing phase (LWIP supervisor + report agent). Off unless
-      // this station enabled it in Station Setup; resolves its own device id
-      // (persisted capture device, or a 'PROCESSING' pseudo id on a
-      // processing-only PC). Never blocks startup.
-      try {
-        await ProcessingBootstrap.apply(nodeConfig);
-      } catch (e) {
-        print('⚠️ Processing bootstrap skipped at startup: $e');
       }
 
       // NOTE: notification-service initialization deliberately does NOT
@@ -343,8 +331,6 @@ class _AppWindowListener extends WindowListener {
       // server first would only make it spawn a fresh one on the way out.
       await AdbDeviceService().killServer();
 
-      // Same for the LWIP watcher (image-processing phase), if running.
-
       // Bounded cleanup — nothing here may delay process exit indefinitely.
       if (Get.isRegistered<UploadController>()) {
         try {
@@ -367,18 +353,6 @@ class _AppWindowListener extends WindowListener {
         }
       }
 
-      // Stop the processing report agent's timer, if running.
-      if (Get.isRegistered<ProcessingReportService>()) {
-        try {
-          await Get.delete<ProcessingReportService>(
-            force: true,
-          ).timeout(const Duration(seconds: 3));
-        } catch (e) {
-          print(
-            'Processing report service cleanup skipped on window close: $e',
-          );
-        }
-      }
       // Proceed to close app window
       await windowManager.destroy();
     } catch (e) {

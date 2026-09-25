@@ -1,5 +1,6 @@
-; LWCam offline installer: LWCam Capture, LWCam Admin, and LWIP.
-; QC review now runs from the separate QC Platform installer.
+; LWCam offline installer: LWCam Capture and LWCam Admin, for capture PCs.
+; LWIP and the database are separate installers now (LWIPSetup.exe,
+; LWCamDatabaseSetup.exe); QC review runs from the QC Platform installer.
 
 #define AppNameFull "LWCam"
 #define AppVer "1.0.1"
@@ -9,14 +10,10 @@
 #endif
 #define AdminRelease AppsDir + "\LWCamAdmin\build\windows\x64\runner\Release"
 #define LwcamRelease AppsDir + "\LWCAM\build\windows\x64\runner\Release"
-#define LwipDir AppsDir + "\LWCAM\LWIP"
-#define QcDatabase AppsDir + "\LWCam_QC_Platform\database"
-#define QcScripts AppsDir + "\LWCam_QC_Platform\scripts"
 
 #ifndef ScrcpyDir
   #define ScrcpyDir AppsDir + "\LWCAM\scrcpy"
 #endif
-#define PyEmbedZip "vendor\python-3.13.14-embed-amd64.zip"
 
 [Setup]
 AppName={#AppNameFull}
@@ -53,6 +50,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Type: filesandordirs; Name: "{app}\LWCAM\LWIP\venv"
 Type: filesandordirs; Name: "{app}\LWCAM\LWIP\python"
 Type: files; Name: "{app}\LWCAM\LWIP\python-3.13.14-amd64.exe"
+; LWIP is a separate install now (LWIPSetup.exe). An all-in-one station's old
+; copy under here is stopped by PrepareToInstall's StopLwip, then removed
+; outright - LWCam.iss ships none of it any more.
+Type: filesandordirs; Name: "{app}\LWCAM\LWIP"
+; The database is set up by LWCamDatabaseSetup.exe now, and LWIP was the only
+; user of the Python archive, so an upgrade drops what older versions shipped.
+Type: filesandordirs; Name: "{app}\Database"
+Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
 ; The former all-in-one installer stored the QC engine here. PrepareToInstall
 ; has already stopped it (or aborted setup); QC data folders are left untouched.
 Type: filesandordirs; Name: "{app}\QC"
@@ -69,19 +74,8 @@ Source: "vendor\vcruntime\*"; DestDir: "{app}\LWCamAdmin"; Flags: ignoreversion
 ; LWCam Capture and its bundled phone tools
 Source: "{#LwcamRelease}\*"; DestDir: "{app}\LWCAM"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "vendor\vcruntime\*"; DestDir: "{app}\LWCAM"; Flags: ignoreversion
-Source: "vendor\vcruntime\vcruntime140.dll"; DestDir: "{app}\LWCAM\LWIP\tools"; Flags: ignoreversion
 Source: "vendor\adb\*"; DestDir: "{app}\LWCAM"; Flags: ignoreversion
 Source: "{#ScrcpyDir}\*"; DestDir: "{app}\LWCAM\scrcpy"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; LWIP source only. Its runtime is built on the target from the shared Python zip.
-Source: "{#LwipDir}\*"; DestDir: "{app}\LWCAM\LWIP"; Flags: ignoreversion recursesubdirs; Excludes: "venv\*,python\*,python-3.13.14-amd64.exe,runtime\*,*.pyc,__pycache__\*,.pytest_cache\*,.gitignore,backend\benchmark_lwip.py"
-
-; LWCam Admin's database provisioner uses the same source as the QC installer.
-Source: "{#QcScripts}\setup_qc_db.py"; DestDir: "{app}\Database"; Flags: ignoreversion
-Source: "{#QcDatabase}\*"; DestDir: "{app}\Database\database"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; The embeddable Python archive is shared with LWIP and installed once at the root.
-Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 ; These two are the capture pipeline folders. The QC export folders belong to
@@ -89,13 +83,10 @@ Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{app}\LWCam Capture\1.Images"; Permissions: users-modify
 Name: "{app}\LWCam Capture\2.Batches"; Permissions: users-modify
 Name: "{commonappdata}\LWCAM"; Permissions: users-modify
-Name: "{app}\LWCAM\LWIP\runtime"; Permissions: users-modify
 
-#include "postgres.iss"
+#include "common.iss"
 
 [Run]
-; LWIP's bundled runtime is built from the embeddable Python package.
-Filename: "{cmd}"; Parameters: "/C ""{app}\LWCAM\LWIP\SETUP_DESKEW_CROP.bat"" <NUL"; WorkingDir: "{app}\LWCAM\LWIP"; StatusMsg: "Installing the offline image-processing runtime..."
 ; Admin is the station configuration tool, so offer it after setup.
 Filename: "{app}\LWCamAdmin\lwcam_admin.exe"; Description: "{cm:LaunchProgram,LWCam Admin}"; Flags: postinstall skipifsilent nowait
 
@@ -109,9 +100,6 @@ Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
 Type: files; Name: "{app}\postgres-password.txt"
 Type: files; Name: "{app}\station-seed.json"
 Type: files; Name: "{commonappdata}\LWCAM\station-seed.json"
-Type: filesandordirs; Name: "{app}\LWCAM\LWIP\venv"
-Type: filesandordirs; Name: "{app}\LWCAM\LWIP\python"
-Type: filesandordirs; Name: "{app}\LWCAM\LWIP\runtime"
 Type: filesandordirs; Name: "{app}\QC"
 
 [Code]
@@ -165,25 +153,19 @@ end;
 
 // Runs before a single file is written or deleted. A process that will not
 // stop aborts setup cleanly: overwriting a live Python's .py files succeeds
-// silently (nothing locks them) and leaves the old code running.
+// silently (nothing locks them) and leaves the old code running. LWIP is a
+// separate install now, but an all-in-one station upgrading in place may
+// still have the old copy running under {app}\LWCAM\LWIP - stop it before
+// [InstallDelete] removes that folder.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  Result := PostgreSqlPrepareProblem();
-  if Result <> '' then
-    Exit;
+  Result := '';
   if StopQcBackend() <> 0 then
     Result := 'The old QC engine under ' + ExpandConstant('{app}\QC') +
       ' could not be stopped, so it was not removed. Restart the PC and run setup again.'
   else if StopLwip() <> 0 then
     Result := 'The image-processing worker (LWIP) could not be stopped, so its files ' +
       'were not replaced. Restart the PC and run setup again.';
-end;
-
-function MissingLwipRuntime(): String;
-begin
-  Result := '';
-  if not FileExists(ExpandConstant('{app}\LWCAM\LWIP\runtime\.setup_ok')) then
-    Result := '    Image processing (re-run LWCAM\LWIP\SETUP_DESKEW_CROP.bat)';
 end;
 
 function PreviousInstallDir(): String;
@@ -207,6 +189,11 @@ begin
   Previous := PreviousInstallDir();
   if (Previous = '') or (CompareText(Previous, RemoveBackslash(WizardDirValue)) = 0) then
     Exit;
+  // Setup simulates this click on a silent install too, but there is no one
+  // to answer a Yes/No MsgBox - default to the same answer /SUPPRESSMSGBOXES
+  // gives every other confirmation (Yes, continue) rather than hang.
+  if WizardSilent then
+    Exit;
   Result := MsgBox(
     'LWCam is already installed here:' + #13#10 + #13#10 +
     '    ' + Previous + #13#10 + #13#10 +
@@ -219,99 +206,41 @@ begin
     mbConfirmation, MB_YESNO) = IDYES;
 end;
 
-function RepointLwipAutostart(): Boolean;
-var
-  Cmd, NewExe, Rest: String;
-  P: Integer;
+// Deletes the old all-in-one's per-user LWIP autostart entry. It used to
+// launch LWIP itself from LWCAM's own logon; the standalone install runs
+// LWIP as a SYSTEM scheduled task instead (LWIPSetup.exe on the LWIP PC), so
+// a station upgrading from that layout must not go on starting a second,
+// now-deleted copy from here every time someone logs on.
+function RemoveLwipAutostart(): Boolean;
 begin
-  Result := False;
-  if not RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run',
-                             'LWCamLWIP', Cmd) then
-    Exit;
-  if Pos('\lwip\venv\scripts\pythonw.exe', Lowercase(Cmd)) = 0 then
-    Exit;
-  if (Length(Cmd) < 2) or (Cmd[1] <> '"') then
-    Exit;
-  P := Pos('" ', Cmd);
-  if P = 0 then
-    Exit;
-  Rest := Copy(Cmd, P + 1, Length(Cmd));
-  NewExe := ExpandConstant('{app}\LWCAM\LWIP\runtime\python\pythonw.exe');
-  if RegWriteStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run',
-                         'LWCamLWIP', '"' + NewExe + '"' + Rest) then begin
-    Log('Repointed the LWIP logon entry to ' + NewExe);
-    Result := True;
-  end;
+  Result := True;
+  if RegValueExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'LWCamLWIP') then
+    Result := RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'LWCamLWIP');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  PasswordFile, SeedFile, NL, Missing, Closing, PgMessage: String;
+  NL, Closing: String;
 begin
   // QC engine and LWIP were stopped in PrepareToInstall, before any file changed.
   if CurStep <> ssPostInstall then
     Exit;
 
   NL := #13#10;
-  RepointLwipAutostart();
+  RemoveLwipAutostart();
 
   if StoppedQcBackends > 0 then
     Closing := 'The old QC engine was stopped and removed.' + NL + NL
   else
     Closing := '';
   Closing := Closing + 'LWCam is installed.' + NL + NL +
-    'QC review now runs from the separate QC Platform installer. Install' + NL +
-    'QCPlatformSetup.exe on the server PC to provide the console and QC engine.';
+    'This station connects to a central database and to LWIP over the LAN - it installs' + NL +
+    'neither one itself. Run LWCamDatabaseSetup.exe once on the database PC and' + NL +
+    'LWIPSetup.exe once on the LWIP PC, then open LWCam Admin, complete Station Setup' + NL +
+    'with their host, port, and login, and press Save.' + NL + NL +
+    'QC review runs from the separate QC Platform installer: install QCPlatformSetup.exe' + NL +
+    'on the server PC to provide the console and QC engine.';
 
-  Missing := MissingLwipRuntime();
-  if Missing <> '' then
-    Closing := Closing + NL + NL +
-      'The offline image-processing runtime did not build:' + NL + Missing +
-      NL + NL + 'Run the named setup script again as an administrator.';
-
-  PgMessage := PostgreSqlClosingMessage(
-    'LWCam',
-    'Open LWCam Admin, complete Station Setup, and press Save. For a remote' + NL +
-    'server, enter its host, port 5432, database lwcam, user, and password.' + NL +
-    'The host must allow this PC in pg_hba.conf and its firewall on port 5432.');
-  if PgMessage <> '' then
-    Closing := Closing + NL + NL + PgMessage;
-
-  if PgNeeded and PsqlOnDisk() and not PgReusedCluster and (PgPassword <> '') then begin
-    SeedFile := ExpandConstant('{commonappdata}\LWCAM\station-seed.json');
-    if not SaveStringToFile(SeedFile,
-      '{' + NL +
-      '  "pgHost": "localhost",' + NL +
-      '  "pgPort": 5432,' + NL +
-      '  "pgDatabase": "lwcam",' + NL +
-      '  "pgUser": "postgres",' + NL +
-      '  "pgPassword": "' + PgPassword + '"' + NL +
-      '}' + NL, False) then
-      Closing := Closing + NL + NL +
-        'The PostgreSQL connection seed could not be written. Enter the generated' + NL +
-        'password manually in LWCam Admin; it is also recorded in postgres-password.txt.';
-
-    // The PostgreSQL superuser password: administrators and SYSTEM only. (The
-    // seed in ProgramData stays users-modify on purpose - LWCam Admin runs
-    // unelevated and must delete it after reading it once.) The file is made
-    // EMPTY first and its permission list replaced outright with SYSTEM +
-    // Administrators (RestrictToAdmins verifies it), and only then gets the
-    // password - so the secret is never in a file anyone else can read.
-    PasswordFile := ExpandConstant('{app}\postgres-password.txt');
-    if not (SaveStringToFile(PasswordFile, '', False) and
-            RestrictToAdmins(PasswordFile, False)) then
-      Closing := Closing + NL + NL + 'postgres-password.txt could not be restricted to ' +
-        'administrators, so the password was not written to it. It is in the connection ' +
-        'seed LWCam Admin reads on first launch.'
-    else if not SaveStringToFile(PasswordFile,
-        'PostgreSQL 18 was installed by LWCam setup on this PC.' + NL + NL +
-        'Database user : postgres' + NL +
-        'Password      : ' + PgPassword + NL + NL +
-        'LWCam Admin reads the connection seed on first launch and removes it.' + NL,
-        False) then
-      Closing := Closing + NL + NL + 'The PostgreSQL password could not be written to ' +
-        'postgres-password.txt. It is in the connection seed LWCam Admin reads on first launch.';
-  end;
-
-  MsgBox(Closing, mbInformation, MB_OK);
+  Log('LWCam finished:' + NL + Closing);
+  SuppressibleMsgBox(Closing, mbInformation, MB_OK, IDOK);
 end;

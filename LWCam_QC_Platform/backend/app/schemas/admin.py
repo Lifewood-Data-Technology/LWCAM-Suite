@@ -86,18 +86,6 @@ class AiScannerSettingVO(BaseModel):
     scanIntervalSeconds: int
 
 
-class UploadSettingVO(BaseModel):
-    """Upload to S3 storage."""
-
-    enabled: bool
-    s3Path: str
-    region: str
-    accessKey: str
-    secretKeyConfigured: bool
-    doneRoot: str
-    summaryRoot: str
-
-
 class AiSettingVO(BaseModel):
     """AI review and pre-analysis configuration (editable)."""
 
@@ -127,7 +115,6 @@ class PathSettingsVO(BaseModel):
     exportTiffOutput: bool
     exportZipOutput: bool
     exportAutoEnabled: bool
-    upload: UploadSettingVO
     ai: AiSettingVO
     aiScanner: AiScannerSettingVO
     # Named so the console can say WHERE to go to change any of this.
@@ -152,9 +139,9 @@ class UpdateServerSettingsRequest(BaseModel):
     persists these to `config.txt` (app/core/server_settings.py)
     and mutates the running `settings` singleton in the same call, no restart.
 
-    Secret fields (uploadS3SecretKey, openrouterApiKey) are write-only: omitted
-    in responses and blank in requests means "keep the current value". Other
-    optional strings keep their value when omitted and clear it when blank.
+    Secret fields (openrouterApiKey) are write-only: omitted in responses and
+    blank in requests means "keep the current value". Other optional strings
+    keep their value when omitted and clear it when blank.
     """
 
     qcImagesRoot: str = Field(default="", max_length=10800)
@@ -166,14 +153,6 @@ class UpdateServerSettingsRequest(BaseModel):
     # Defaults True to match Settings.export_auto_enabled: a client that omits
     # the field must not silently stop a station exporting.
     exportAutoEnabled: bool = True
-    # Upload settings: omission keeps existing values; blank clears non-secrets.
-    uploadEnabled: bool | None = None
-    uploadS3Path: str | None = None
-    uploadS3Region: str | None = None
-    uploadS3AccessKey: str | None = None
-    uploadS3SecretKey: str | None = None
-    uploadDoneRoot: str | None = None
-    uploadSummaryRoot: str | None = None
     # AI settings (optional)
     aiReviewEnabled: bool | None = None
     aiPreanalysisEnabled: bool | None = None

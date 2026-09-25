@@ -291,16 +291,6 @@ export interface AiScannerStatus {
   scanIntervalSeconds: number
 }
 
-export interface UploadSettings {
-  enabled: boolean
-  s3Path: string
-  region: string
-  accessKey: string
-  secretKeyConfigured: boolean
-  doneRoot: string
-  summaryRoot: string
-}
-
 export interface AiSettings {
   enabled: boolean
   preanalysisEnabled: boolean
@@ -319,7 +309,6 @@ export interface PathSettingsVO {
   exportTiffOutput: boolean
   exportZipOutput: boolean
   exportAutoEnabled: boolean
-  upload: UploadSettings
   ai: AiSettings
   aiScanner: AiScannerStatus
   configuredBy: string
@@ -341,13 +330,6 @@ export interface UpdateServerSettingsRequest {
   exportTiffOutput: boolean
   luminanceEnabled: boolean
   exportAutoEnabled: boolean
-  uploadEnabled: boolean
-  uploadS3Path: string
-  uploadS3Region: string
-  uploadS3AccessKey: string
-  uploadS3SecretKey: string
-  uploadDoneRoot: string
-  uploadSummaryRoot: string
   aiReviewEnabled: boolean
   aiPreanalysisEnabled: boolean
   openrouterApiKey: string

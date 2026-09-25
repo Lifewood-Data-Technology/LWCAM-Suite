@@ -446,6 +446,10 @@ class PgSyncSink implements SyncSink {
             break;
 
           case 'capture_folder_processing':
+            // LWIP runs standalone now and reports a finished folder straight
+            // to PostgreSQL itself (cloud_report.py) — this app no longer
+            // enqueues this entity. Kept only to drain any row a station
+            // queued before LWIP went standalone.
             if (payload == null) break;
             final pgProject = await capped(
               'processing update',

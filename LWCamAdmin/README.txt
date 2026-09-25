@@ -9,8 +9,10 @@ and per-PC station setup.
 
 It is the ONLY writer of `users`, `projects` and `app_settings` in the
 PostgreSQL schema shared with LWCAM, and the ONLY editor of
-lwcam_node_config.json, the station config that LWCAM, LWIP and the QC backend
-all read. Run this app first on any new machine.
+lwcam_node_config.json, the station config that LWCAM reads. LWIP is now its
+own installer (LWIPSetup) with its own config, and the database is now
+created/upgraded by LWCamDatabaseSetup — this app only connects to it. Run
+this app first on any new capture PC.
 
 Package `lwcam_admin`. Windows is the only target. No capture workflow, no ADB,
 no sqflite, no phone.
@@ -70,11 +72,13 @@ WHAT THIS APP OWNS
 
   Station config  lwcam_node_config.json, default location
                   %USERPROFILE%\LWCAM_DBs. Station Setup is the only editor of
-                  it for the whole suite: this app's PostgreSQL connection,
-                  LWCAM's capture-outbox sync toggle, the image destination
-                  root, and the LWIP image-processing toggle plus its folder
-                  overrides. There are no hand-edited config files anywhere in
-                  the suite.
+                  it: this app's PostgreSQL connection, LWCAM's capture-outbox
+                  sync toggle, the image destination root, and the two LWIP
+                  folder fields rework reads to find a folder's original
+                  images (they must match the folders LWIP is configured with
+                  on its own PC). LWIP's own toggle/workers/crop-padding/
+                  cloud-report fields stay in the file only so an older copy
+                  still loads — LWIP's own installer owns those now.
 
 The fresh-PC bootstrap story is deliberate: run a portable LWCam Admin build
 once on a new capture PC, fill in Station Setup, and LWCAM picks up the same

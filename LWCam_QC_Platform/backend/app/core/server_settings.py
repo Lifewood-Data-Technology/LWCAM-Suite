@@ -35,7 +35,7 @@ from pydantic import SecretStr
 # settings dump with no list of what it may touch. It is also the whole list:
 # since the QC server stopped reading LWCam Admin's node config, anything not
 # here is a code default. The old captureImageHostPath/ContainerPath pair is
-# deliberately absent; qcImagesRoot replaces it.
+# deliberately absent; qcInputRoot replaces it.
 SETTINGS_BY_KEY: dict[str, str] = {
     "dbHost": "db_host",
     "dbPort": "db_port",
@@ -46,21 +46,14 @@ SETTINGS_BY_KEY: dict[str, str] = {
     "jwtSecret": "jwt_secret",
     "bindHost": "bind_host",
     "port": "port",
-    "qcImagesRoot": "qc_images_root",
-    "qcInputRoot": "export_temp_dir",
+    "qcInputRoot": "qc_images_root",
+    "exportWorkRoot": "export_temp_dir",
     "qcOutputRoot": "export_output_dir",
     "exportZipOutput": "export_zip_output",
     "exportTiffOutput": "export_tiff_output",
     "luminanceEnabled": "luminance_enabled",
     "previewCacheMaxMb": "preview_cache_max_mb",
     "exportAutoEnabled": "export_auto_enabled",
-    "uploadEnabled": "upload_enabled",
-    "uploadS3Path": "upload_s3_path",
-    "uploadS3Region": "upload_s3_region",
-    "uploadS3AccessKey": "upload_s3_access_key",
-    "uploadS3SecretKey": "upload_s3_secret_key",
-    "uploadDoneRoot": "upload_done_dir",
-    "uploadSummaryRoot": "upload_summary_dir",
     "aiReviewEnabled": "ai_review_enabled",
     "aiPreanalysisEnabled": "ai_preanalysis_enabled",
     "openrouterApiKey": "openrouter_api_key",
@@ -71,6 +64,15 @@ SETTINGS_BY_KEY: dict[str, str] = {
     "exportTempRetentionHours": "export_temp_retention_hours",
 }
 KEY_BY_SETTING = {field: key for key, field in SETTINGS_BY_KEY.items()}
+# Until 2026-09-24 the images folder was `qcImagesRoot` and `qcInputRoot` was
+# the export work folder - the name every operator misread. Every writer of
+# that layout (installer, console) wrote a qcImagesRoot line, so its presence
+# marks an old file, read with the old meanings; the next save from the
+# console rewrites it with the new keys.
+LEGACY_SETTINGS_BY_KEY: dict[str, str] = {
+    "qcImagesRoot": "qc_images_root",
+    "qcInputRoot": "export_temp_dir",
+}
 SERVER_SETTINGS_KEYS = tuple(SETTINGS_BY_KEY.values())
 # Every value is written as one `key = value` line, so anything the reader
 # would take for a line break must never reach the file: a console value of
@@ -87,7 +89,6 @@ BOOLEAN_SETTINGS = frozenset(
         "export_tiff_output",
         "luminance_enabled",
         "export_auto_enabled",
-        "upload_enabled",
         "ai_review_enabled",
         "ai_preanalysis_enabled",
     }
@@ -123,14 +124,17 @@ _HEADER = """\
 #   port              Port the console is served on (default 8080).
 #
 # Review and export (the console's Admin > Settings page edits these live):
-#   qcImagesRoot      Where QC finds captured folders, when QC is NOT the PC
-#                     that captured them. Leave empty on a single-PC station:
-#                     the server then uses the path LWCAM recorded. On a split
-#                     site set the share the images live on, e.g.
-#                     \\\\nas\\LWCamCapture - each folder's own date and name
-#                     are kept, only the part in front is replaced.
-#   qcInputRoot       Scratch directory the export builds a package in.
-#                     Keep it LOCAL: a share here moves every TIFF twice.
+#   qcInputRoot       Where LWIP's output (2.Batches) is - the folders QC
+#                     reviews. QC saves its edits beside the images, so it
+#                     needs write access there. Leave empty on a single-PC
+#                     station: the server then uses the path LWCAM recorded.
+#                     On a split site set the share the images live on, e.g.
+#                     \\\\capture-pc\\2.Batches - each folder's own date and
+#                     name are kept, only the part in front is replaced.
+#   exportWorkRoot    Temporary folder the export builds each package in,
+#                     cleared after exportTempRetentionHours. Must be separate
+#                     from qcInputRoot and qcOutputRoot. Keep it LOCAL: a
+#                     share here moves every TIFF across the network twice.
 #   qcOutputRoot      Where the finished package is published for ingest.
 #   exportZipOutput   true = publish a .zip, false = publish a folder.
 #   exportTiffOutput  true = lossless TIFF. false re-encodes edited pages as
@@ -146,19 +150,19 @@ _HEADER = """\
 #                     rather than recording a deferred op; off by default.
 #   previewCacheMaxMb Soft cap, in MB, on the rendered-preview cache on disk.
 #
-# Upload to S3:
-#   uploadEnabled     true = send published packages to the bucket.
-#   uploadS3Path      s3://bucket/optional/prefix
-#   uploadS3Region, uploadS3AccessKey, uploadS3SecretKey
-#   uploadDoneRoot    Where a package moves once uploaded. Must not be
-#                     qcOutputRoot or inside it.
-#   uploadSummaryRoot Folder holding Upload_Summary.db3, one row per package.
+# Upload no longer runs here - it moved to the standalone LWCam Upload
+# service (the LWCam_Upload folder), which watches qcOutputRoot on its own
+# schedule and config. An old uploadEnabled/uploadS3*/uploadDoneRoot/
+# uploadSummaryRoot line left over from before that move is simply ignored,
+# and the next save from this console drops it.
 #
 # AI metadata review (OpenRouter):
 #   aiReviewEnabled, aiPreanalysisEnabled, openrouterApiKey,
 #   openrouterExtractModel, openrouterCompareModel
 #
-# A path may be local (C:\\...) or a UNC share (\\\\server\\share\\...).
+# A path may be local (C:\\...) or a UNC share (\\\\server\\share\\...), never a
+# mapped drive letter (Z:\\...): the server runs as a Windows service, which
+# cannot see drives a logged-in user mapped.
 # A blank value means "use the default". A line this file does not recognise
 # is ignored, not fatal; a true/false or number that is not one stops the
 # server with a message naming the key.
@@ -221,17 +225,21 @@ def load_server_settings_overrides() -> dict[str, Any]:
     except OSError as error:
         raise RuntimeError(f"LWCam QC configuration is unreadable: {path}") from error
 
-    values: dict[str, Any] = {}
+    pairs: list[tuple[str, str]] = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, _, raw = stripped.partition("=")
-        field = SETTINGS_BY_KEY.get(key.strip())
-        if field is None:
-            continue
-        value = raw.strip()
-        if not value:
+        pairs.append((key.strip(), raw.strip()))
+
+    keys = SETTINGS_BY_KEY
+    if any(key == "qcImagesRoot" for key, _ in pairs):
+        keys = {**SETTINGS_BY_KEY, **LEGACY_SETTINGS_BY_KEY}
+    values: dict[str, Any] = {}
+    for key, value in pairs:
+        field = keys.get(key)
+        if field is None or not value:
             continue
         values[field] = _coerce(field, value)
     return values

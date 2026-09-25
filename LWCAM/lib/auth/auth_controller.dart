@@ -18,7 +18,6 @@ import 'package:lwcam/services/device_registry.dart';
 import 'package:lwcam/services/node_config_service.dart';
 import 'package:lwcam/services/scrcpy_service.dart';
 import 'package:lwcam/services/snackbar_service.dart';
-import 'package:lwcam/services/processing_bootstrap.dart';
 import 'package:lwcam/services/sync_bootstrap.dart';
 import 'package:lwcam/services/users_store_service.dart';
 import 'package:lwcam/theme/app_colors.dart';
@@ -205,12 +204,6 @@ class AuthController extends GetxController {
       try {
         final config = await Get.find<NodeConfigService>().load();
         await SyncBootstrap.apply(config, deviceId: devId);
-        // Re-bind the processing report agent to the SAME device id the sync
-        // drain now uses. Startup bound it to the PERSISTED id; when this
-        // login switches devices, reports enqueued under the old binding
-        // would land in an outbox nobody drains (handover §7.8). The apply
-        // also migrates any rows already stranded under the old id.
-        await ProcessingBootstrap.apply(config);
       } catch (e) {
         print('⚠️ Sync bootstrap skipped: $e');
       }

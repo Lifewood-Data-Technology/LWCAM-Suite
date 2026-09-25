@@ -1,61 +1,14 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/node_config.dart';
 import '../services/admin_bootstrap.dart';
 import '../services/admin_pg_gateway.dart';
-import '../services/lwip_autostart_service.dart';
-import '../services/lwip_config_writer.dart';
 import '../services/station_seed.dart';
 import '../services/node_config_service.dart';
 import '../services/pg_client.dart';
-
-/// Searches for the database setup script and its SQL directory.
-/// Returns (script path, database dir path) or null if not found.
-/// Searches source/install layouts beside the executable, then `%ProgramFiles%`.
-(String, String)? dbSetupScript({
-  String? executablePath,
-  Map<String, String>? environment,
-}) {
-  var dir = p.dirname(executablePath ?? Platform.resolvedExecutable);
-  for (var level = 0; level < 8; level++) {
-    // Installed layout: <root>\Database\setup_qc_db.py and database\.
-    final installedScript = p.join(dir, 'Database', 'setup_qc_db.py');
-    final installedDbDir = p.join(dir, 'Database', 'database');
-    if (File(installedScript).existsSync() &&
-        Directory(installedDbDir).existsSync()) {
-      return (installedScript, installedDbDir);
-    }
-    // Source layout: <root>\LWCam_QC_Platform\scripts\setup_qc_db.py and database\.
-    final sourceScript =
-        p.join(dir, 'LWCam_QC_Platform', 'scripts', 'setup_qc_db.py');
-    final sourceDbDir = p.join(dir, 'LWCam_QC_Platform', 'database');
-    if (File(sourceScript).existsSync() && Directory(sourceDbDir).existsSync()) {
-      return (sourceScript, sourceDbDir);
-    }
-    final parent = p.dirname(dir);
-    if (parent == dir) break;
-    dir = parent;
-  }
-  // %ProgramFiles% fallbacks: LWCam and the legacy LW Suite layout.
-  final programFiles =
-      (environment ?? Platform.environment)['ProgramFiles'] ??
-      r'C:\Program Files';
-  for (final installDir in [
-    p.join(programFiles, 'LWCam'),
-    p.join(programFiles, 'LW Suite'),
-  ]) {
-    final script = p.join(installDir, 'Database', 'setup_qc_db.py');
-    final dbDir = p.join(installDir, 'Database', 'database');
-    if (File(script).existsSync() && Directory(dbDir).existsSync()) {
-      return (script, dbDir);
-    }
-  }
-  return null;
-}
 
 /// Upgraded LW Suite installs keep `<install>\LWCam Capture`; new LWCam installs
 /// use `<install>\LWCAM`, with `%ProgramFiles%\LWCam\LWCAM` as the fallback.
@@ -145,18 +98,14 @@ class StationSetupController extends GetxController {
   /// configured; LWCAM refuses to start a transfer until it is set.
   final destinationPath = ''.obs;
 
-  // ── Image-processing phase (LWIP) ─────────────────────────────────────────
-  final processingEnabled = false.obs;
+  // ── LWIP folders (as this PC sees them) ────────────────────────────────
+  /// LWIP now runs on its own PC with its own installer and config; these two
+  /// fields only tell REWORK where to find a folder's original images. They
+  /// must be the same folders LWIP is configured with on the LWIP PC (a UNC
+  /// path is recommended so both sides agree without depending on a drive
+  /// letter).
   final processingInputRoot = ''.obs;
   final processingOutputRoot = ''.obs;
-  final processingWorkers = 0.obs;
-  final processingCropPadding = 200.obs;
-  final processingCloudReport = true.obs;
-
-  /// Non-empty when the last save could not register LWIP to start at logon.
-  /// Surfaced on the page: processing silently not running is the failure mode
-  /// nobody notices until a day of captures has piled up unprocessed.
-  final lwipAutostartWarning = ''.obs;
 
   /// What first-run provisioning did, for the page to show once. Empty when
   /// there was nothing to do - which is every launch after the first.
@@ -200,12 +149,8 @@ class StationSetupController extends GetxController {
     final images = p.join(root, captureImagesFolder);
     final batches = p.join(root, captureBatchesFolder);
     destinationPath.value = config.destinationPath ?? images;
-    processingEnabled.value = config.processingEnabled;
     processingInputRoot.value = config.processingInputRoot ?? images;
     processingOutputRoot.value = config.processingOutputRoot ?? batches;
-    processingWorkers.value = config.processingWorkers;
-    processingCropPadding.value = config.processingCropPadding;
-    processingCloudReport.value = config.processingCloudReport;
     isLoaded.value = true;
     await _provisionFromSeedIfUnconfigured();
   }
@@ -262,28 +207,14 @@ class StationSetupController extends GetxController {
     pgUser.value = seed.user;
     pgPassword.value = seed.password;
 
-    // First run is also the moment to decide whether this station processes
-    // images, and it is the ONLY safe moment: past here a stored `false` is an
-    // admin's decision, not an absence.
-    //
-    // Gated on the interpreter actually being present. Registering an autostart
-    // for a runtime that failed to build would replace a station that quietly
-    // does not process with one that noisily cannot.
-    //
-    // The paths were already defaulted to 1.Images -> 2.Batches by
-    // ensureLoaded(), so nothing else is needed to make this a working config.
-    if (!processingEnabled.value && isLwipInstalled()) {
-      processingEnabled.value = true;
-      print('LWIP found: enabling image processing on this station.');
-    }
-
-    // And LWCAM's own sync, for the same reason and at the same moment.
+    // LWCAM's own sync goes on at this same first-run moment - past here a
+    // stored `false` is an admin's decision, not an absence.
     //
     // syncEnabled does not merely pause a drain: with it off, every outbox
     // write in upload_stats_db is a no-op (`if (!syncEnabled) return;`), so
     // captures are never even QUEUED for PostgreSQL. A station provisioned
-    // without it captures and transfers perfectly and LWIP processes the images,
-    // but downstream review sees an empty task list forever.
+    // without it captures and transfers perfectly, but downstream review sees
+    // an empty task list forever.
     //
     // Safe to switch on here: provisioning only reaches this point after the
     // credentials have been proven against the server.
@@ -312,10 +243,10 @@ class StationSetupController extends GetxController {
           'up - press Save to try again.',
         );
       }
-      // The ordinary save path: it writes the config, creates the pipeline
-      // folders, writes the LWIP config, sets up the database when credentials
-      // are complete, and registers the app services. Reusing it
-      // means first run cannot drift from what a manual save does.
+      // The ordinary save path: it writes the config, creates the destination
+      // folder, tests the database connection, and registers the app
+      // services. Reusing it means first run cannot drift from what a manual
+      // save does.
       await save();
       // No success message on purpose. Provisioning working is the expected
       // case, the screen already shows the filled-in settings as proof, and a
@@ -348,152 +279,80 @@ class StationSetupController extends GetxController {
         : usersStorePath.value.trim(),
     pgConnectionEnabled: pgConnectionEnabled.value,
     destinationPath: destinationPath.value.trim(),
-    processingEnabled: processingEnabled.value,
     processingInputRoot: processingInputRoot.value.trim(),
     processingOutputRoot: processingOutputRoot.value.trim(),
-    processingWorkers: processingWorkers.value,
-    processingCropPadding: processingCropPadding.value,
-    processingCloudReport: processingCloudReport.value,
   );
-
-  /// The processing input root actually in effect: the explicit field, else
-  /// the destination path (the common same-PC case).
-  String get _effectiveProcessingInput =>
-      processingInputRoot.value.trim().isEmpty
-      ? destinationPath.value.trim()
-      : processingInputRoot.value.trim();
 
   /// Persists the form and immediately re-registers [AdminStoreService]
   /// against the new config (mirrors LWCAM's SyncBootstrap.apply).
   Future<bool> save() async {
-    if (processingEnabled.value) {
-      // Same check the config writer runs, so validation and generation can never
-      // disagree: it mirrors LWIP's own _validate_roots, failing here at the admin
-      // instead of as a crash-looping python watcher on the capture PC.
-      final problem = lwipConfigProblem(_buildFromForm());
-      if (problem != null) throw StateError(problem);
-    }
     final config = _buildFromForm();
     await _ensureFolders(config);
     await _service.save(config);
     _loadedConfig = config;
-    // LWIP now starts as a background service, before any app has run, so its
-    // config must already be on disk. Station Setup owns every path in it, so it
-    // writes it. LWCAM used to generate this immediately before spawning python,
-    // which only worked while LWCAM was the thing that started LWIP.
-    await writeLwipConfig(config);
-    final databaseSetupRan = await _prepareDatabase(config);
-    if (!databaseSetupRan) {
+    // Database creation/upgrade is LWCamDatabaseSetup's job now, on the
+    // database PC — this app only connects. A complete connection that still
+    // does not answer is worth telling the admin about; an empty one is just
+    // a station not pointed anywhere yet, which the blank fields already show.
+    final complete = _hasCompletePgConnection(config);
+    final status = complete ? await _testDatabaseConnection(config) : null;
+    final databaseReady = status == GatewayStatus.reachable;
+    if (status == GatewayStatus.unreachable) {
       firstRunStatus.value =
-          'Database provisioning was skipped. '
-          'Populate the PostgreSQL connection in Station Setup and save again.';
-    } else {
-      // The seed is no longer needed after successful database setup.
+          'Database not reachable — install LWCamDatabaseSetup on the '
+          'database PC first.';
+    } else if (status == GatewayStatus.schemaOutdated) {
+      firstRunStatus.value =
+          'The database answers but its tables are out of date — run the '
+          'newest LWCamDatabaseSetup on the database PC.';
+    } else if (databaseReady) {
+      // The seed is no longer needed once the connection it left behind works.
       deleteStationSeed();
       firstRunStatus.value = '';
     }
-    // LWIP runs on its own now, not as a child of LWCAM, so enabling processing
-    // means registering it to start at logon AND starting it immediately — an
-    // operator who just switched it on should not have to reboot.
-    lwipAutostartWarning.value = '';
-    // Stop first, ALWAYS. LWIP reads its config once at import, so a live
-    // instance keeps the previous settings until it is replaced. This is also
-    // needed when processing is turned off, not just to apply new settings.
-    final stopped = await stopLwipNow();
-    if (config.processingEnabled) {
-      lwipAutostartWarning.value = await enableLwipAutostart() ?? '';
-      if (lwipAutostartWarning.value.isEmpty) {
-        // Started even when the old one has not gone yet: since 2026-09-10 a
-        // starting LWIP waits on the instance lock (up to 15 min) instead of
-        // exiting on it, and reads its config again once it holds the lock.
-        // The old one finishes the folder it is publishing, exits, and this
-        // one takes over. Before that, a timed-out stop here left image
-        // processing dead until the next logon.
-        await startLwipNow();
-        if (!stopped) {
-          lwipAutostartWarning.value =
-              'Image processing is still finishing a folder. The new settings '
-              'take effect automatically when it does.';
-        }
-      }
-    } else {
-      await disableLwipAutostart();
-    }
     await AdminBootstrap.apply(config);
-    return databaseSetupRan;
+    return databaseReady;
   }
 
-  /// Creates the configured folders, so an operator never has to make them by
-  /// hand and LWCAM/LWIP never fail on a missing path. Runs BEFORE the
-  /// config is written: a path that cannot be created is not worth saving, and
-  /// the admin sees which one it was instead of a capture failing later.
+  /// Creates the image destination folder, so LWCAM never fails on a missing
+  /// path. Runs BEFORE the config is written: a path that cannot be created is
+  /// not worth saving, and the admin sees which one it was instead of a
+  /// capture failing later.
+  ///
+  /// The LWIP folders (processingInputRoot/processingOutputRoot) are
+  /// deliberately NOT created here any more — LWIP runs on its own PC now and
+  /// owns them; this PC only records where they are for rework to read.
   Future<void> _ensureFolders(NodeConfig config) async {
-    final wanted = <String>{
-      if (config.destinationPath != null) config.destinationPath!,
-      if (config.processingEnabled) _effectiveProcessingInput,
-      if (config.processingEnabled)
-        config.processingOutputRoot ?? '${_effectiveProcessingInput}_processed',
-    }..removeWhere((path) => path.trim().isEmpty);
-    for (final path in wanted) {
-      try {
-        await Directory(path).create(recursive: true);
-      } catch (e) {
-        throw StateError(
-          'Could not create the folder $path: $e\n'
-          'Pick a folder this account can write to, or create it and grant '
-          'access first.',
-        );
-      }
+    final path = config.destinationPath?.trim();
+    if (path == null || path.isEmpty) return;
+    try {
+      await Directory(path).create(recursive: true);
+    } catch (e) {
+      throw StateError(
+        'Could not create the folder $path: $e\n'
+        'Pick a folder this account can write to, or create it and grant '
+        'access first.',
+      );
     }
   }
 
-  Future<bool> _prepareDatabase(NodeConfig config) async {
-    if (!_hasCompletePgConnection(config)) return false;
-
-    final setup = dbSetupScript();
-    if (setup == null) {
-      throw StateError(
-        'PostgreSQL connection configured but database setup script not found. '
-        'Cannot provision database.',
-      );
+  /// One-shot reachability test against [config]'s own connection — the
+  /// database-provisioning replacement now that provisioning itself lives in
+  /// LWCamDatabaseSetup. Reuses the same gateway [testConnection] does.
+  Future<GatewayStatus> _testDatabaseConnection(NodeConfig config) async {
+    final gateway = AdminPgGateway(
+      host: config.pgHost!.trim(),
+      port: config.pgPort,
+      database: config.pgDatabase!.trim(),
+      user: config.pgUser!.trim(),
+      password: config.pgPassword!,
+      useSsl: config.pgUseSsl,
+    );
+    try {
+      return (await gateway.probe()).status;
+    } finally {
+      await gateway.close();
     }
-    final (scriptPath, dbDirPath) = setup;
-    final sourceLayout =
-        p.basename(p.dirname(p.dirname(scriptPath))) == 'LWCam_QC_Platform';
-    final lwipRoot = resolveLwipRoot();
-    if (lwipRoot == null) {
-      if (sourceLayout) {
-        debugPrint('Skipping DB setup in source tree without LWIP runtime');
-        return false;
-      }
-      throw StateError(
-        'Found database setup script but LWIP runtime not found. '
-        'Cannot provision database.',
-      );
-    }
-
-    final pythonExePath = p.join(lwipRoot, 'runtime', 'python', 'python.exe');
-    if (!File(pythonExePath).existsSync()) {
-      throw StateError(
-        'LWIP Python interpreter was not found at $pythonExePath. '
-        'Cannot provision database.',
-      );
-    }
-    final result = await Process.run(pythonExePath, [
-      scriptPath,
-      '--config',
-      _service.getConfigPath(),
-      '--database-dir',
-      dbDirPath,
-    ]);
-    if (result.exitCode != 0) {
-      throw StateError(
-        'Database setup failed (exit ${result.exitCode}).\n'
-        'stdout: ${result.stdout}\n'
-        'stderr: ${result.stderr}',
-      );
-    }
-    return true;
   }
 
   bool _hasCompletePgConnection(NodeConfig config) =>
@@ -648,10 +507,10 @@ class StationSetupController extends GetxController {
     }
 
     pgPassword.value = newPassword;
-    // Deliberately NOT the full save(): folders, the LWIP config and autostart
-    // do not carry this credential, and provisioning as a side effect of a
-    // password change would surprise the operator. The config
-    // file and the live gateway are the two things that must not miss it.
+    // Deliberately NOT the full save(): the folder check and the reachability
+    // test do not carry this credential, and running them as a side effect of
+    // a password change would surprise the operator. The config file and the
+    // live gateway are the two things that must not miss it.
     try {
       final config = _buildFromForm();
       await _service.save(config);
@@ -684,7 +543,7 @@ class StationSetupController extends GetxController {
         case GatewayStatus.reachable:
           return;
         case GatewayStatus.schemaOutdated:
-          return; // Provisioning runs on save when database connection is filled.
+          return; // Reachable is enough here; schema upgrades are LWCamDatabaseSetup's job.
         case GatewayStatus.unreachable:
           // probe() flattens every failure into one status, so ask the server
           // directly for a sentence worth showing: "could not reach the host"

@@ -288,56 +288,21 @@ class _StationSetupPageState extends State<StationSetupPage> {
               onChanged: (v) => _c.lwcamSyncEnabled.value = v,
             ),
             const SizedBox(height: 24),
-            const Text('Image processing (LWIP)', style: _sectionTitleStyle),
+            const Text(
+              'LWIP folders (as this PC sees them)',
+              style: _sectionTitleStyle,
+            ),
             const SizedBox(height: 4),
             Text(
-              'When on, the deskew/crop/thumbnail watcher runs in the background '
-              'on this PC and starts again at every logon — it no longer needs '
-              'LWCAM to be open. Saving starts it immediately. Leave the folders '
-              'blank on a same-PC station (input defaults to the destination '
-              'above, output to a sibling "…_processed"). For a separate '
-              'processing PC, point the input at the shared destination using a '
-              'UNC path (\\\\PC\\share) and enable Capture-data sync so results '
-              'reach the cloud.',
+              'Used by rework to find a folder\'s original images — must be the '
+              'same folders LWIP is configured with on the LWIP PC (a UNC path '
+              'is recommended).',
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Run image processing on this PC'),
-              value: _c.processingEnabled.value,
-              onChanged: (v) => _c.processingEnabled.value = v,
-            ),
-            // Processing that silently is not running is the failure nobody
-            // notices until a day of captures has piled up unprocessed.
-            if (_c.lwipAutostartWarning.value.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4, bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _c.lwipAutostartWarning.value,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             Row(
               children: [
                 Expanded(
@@ -387,31 +352,6 @@ class _StationSetupPageState extends State<StationSetupPage> {
                   },
                 ),
               ],
-            ),
-            _textField(
-              'Processing workers (0 = auto)',
-              _c.processingWorkers.value.toString(),
-              (v) => _c.processingWorkers.value =
-                  int.tryParse(v) ?? _c.processingWorkers.value,
-              keyboardType: TextInputType.number,
-            ),
-            _textField(
-              'Crop padding (pixels kept on each side, 0 = crop tight)',
-              _c.processingCropPadding.value.toString(),
-              (v) => _c.processingCropPadding.value =
-                  int.tryParse(v) ?? _c.processingCropPadding.value,
-              keyboardType: TextInputType.number,
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Report finished folders to the database'),
-              subtitle: const Text(
-                'Makes finished folders available to the database while LWCAM '
-                'is closed. Leave this on when the station has a database connection.',
-              ),
-              value: _c.processingCloudReport.value,
-              onChanged: (v) => _c.processingCloudReport.value = v,
             ),
             const SizedBox(height: 24),
             // First run: setup left a connection behind and this screen used it to

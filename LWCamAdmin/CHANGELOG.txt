@@ -10,6 +10,36 @@
   its side of the same-day split.
 
 --------------------------------------------------------------------------------
+ 2026-09-25 - STOP CONFIGURING/STARTING LWIP AND PROVISIONING THE DATABASE
+--------------------------------------------------------------------------------
+
+- LWIP moves to its own installer (LWIPSetup) as a SYSTEM boot-time service
+  with its own config, and the database is now created/upgraded by a separate
+  LWCamDatabaseSetup. Station Setup no longer writes deskew_crop_config.json,
+  starts/stops LWIP, or registers it to autostart at logon — deleted
+  lwip_autostart_service.dart and lwip_config_writer.dart with their tests.
+- Station Setup's "Image processing (LWIP)" section is now "LWIP folders (as
+  this PC sees them)": only the two folder fields survive
+  (processingInputRoot/processingOutputRoot), kept because LWCAM's rework flow
+  still needs this PC's view of them to find a folder's original images. The
+  enable switch, workers, crop padding and cloud-report switch are gone from
+  the page; `NodeConfig` keeps all four round-trip only, so an older
+  lwcam_node_config.json still loads.
+- Dropped database provisioning: `_prepareDatabase`, `dbSetupScript` and the
+  LWIP-runtime python lookup are gone. Save now tests the PostgreSQL
+  connection instead (the same gateway `testConnection` uses) and reports
+  "Database not reachable — install LWCamDatabaseSetup on the database PC
+  first" when a complete connection does not answer.
+  A database that answers but has out-of-date tables is reported too ("run
+  the newest LWCamDatabaseSetup") and does not count as ready.
+- `_ensureFolders` now only creates the image destination folder. The two LWIP
+  folders are no longer created from this PC — LWIP runs on its own PC now and
+  owns them; a UNC path here is only a record of where they are.
+- Tests: deleted lwip_autostart_service_test.dart, lwip_config_writer_test.dart,
+  lwip_launcher_guard_test.dart and qc_setup_db_script_test.dart, and the five
+  dbSetupScript cases in node_config_test.dart.
+
+--------------------------------------------------------------------------------
  2026-09-10 - INSTALLER ACCEPTS ANY POSTGRESQL 18.x SETUP BESIDE IT
 --------------------------------------------------------------------------------
 

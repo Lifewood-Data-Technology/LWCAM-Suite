@@ -16,7 +16,6 @@ from app.services.export import (
     export_coordinator,
     shutdown_conversion_pool,
 )
-from app.services.upload import upload_scheduler
 
 
 class _SpaStaticFiles(StaticFiles):
@@ -60,13 +59,11 @@ async def lifespan(_: FastAPI):
     ai_review_coordinator.resume_if_needed()
     ai_preanalysis_scheduler.start()
     export_auto_scheduler.start()
-    upload_scheduler.start()
     try:
         yield
     finally:
         ai_preanalysis_scheduler.stop()
         export_auto_scheduler.stop()
-        upload_scheduler.stop()
         shutdown_conversion_pool()
         ai_review_coordinator.shutdown()
 

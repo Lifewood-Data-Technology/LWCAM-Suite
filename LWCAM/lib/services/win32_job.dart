@@ -6,10 +6,10 @@ import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
 
 /// A Windows Job Object with kill-on-close, used to guarantee a spawned child
-/// process (scrcpy's mirror, LWIP's watcher) can never outlive LWCAM: when the
-/// held job handle closes — including on an app crash — the OS terminates
-/// every process in the job. Extracted from ScrcpyService so both supervisors
-/// share one implementation.
+/// process (scrcpy's mirror) can never outlive LWCAM: when the held job handle
+/// closes — including on an app crash — the OS terminates every process in
+/// the job. Extracted from ScrcpyService so any future supervisor can share
+/// this implementation instead of reinventing it.
 
 // ── Job-object structs (not exposed by package:win32) ───────────────────────
 // Layouts match the Windows x64 ABI; only limitFlags is actually written.

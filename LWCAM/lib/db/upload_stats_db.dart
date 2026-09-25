@@ -55,17 +55,15 @@ class UploadStatsDB {
 
   /// STABLE per-device DBs, keyed by device id. One handle per device, kept
   /// open for the process's life: a station touches only a few (its operators'
-  /// operator ids plus the 'PROCESSING' ledger), all WAL-mode, so holding them is
-  /// cheap.
+  /// operator ids), all WAL-mode, so holding them is cheap.
   ///
   /// This used to be ONE handle plus a `_currentDeviceId` string, closed and
   /// reopened on every device switch. That pairing could desynchronize: the id
   /// was assigned before the open completed, so two concurrent switches to
   /// different devices could leave the cached id naming one device and the
   /// cached handle pointing at ANOTHER device's file — after which every query
-  /// for the "matching" id silently ran against the wrong database. Login does
-  /// exactly that (SyncBootstrap's unawaited first drain overlaps
-  /// ProcessingBootstrap's outbox migration for the previous device), so an
+  /// for the "matching" id silently ran against the wrong database. Login can
+  /// trigger exactly that (two device DB opens racing each other), so an
   /// account switch could make a still-open box vanish from the box list for
   /// the rest of the session — and, worse, could have written new captures into
   /// the other device's DB. Keyed handles remove the race by construction.
@@ -184,8 +182,10 @@ class UploadStatsDB {
   /// stuck 'OPEN' in the cloud forever and drops submitted QC rework closures.
   /// `replacement_records` (the device's recapture/supersede audit history) and
   /// the stable file's legacy `upload_records`/`daily_summary` are local-only
-  /// too. `processing_ledger` is deliberately NOT carried — it self-heals when
-  /// ProcessingReportService re-reads LWIP's state.json.
+  /// too. `processing_ledger` is deliberately NOT carried — nothing writes to
+  /// it anymore now that LWIP reports finished folders straight to PostgreSQL
+  /// itself; the table stays only so an existing station DB's schema version
+  /// still matches.
   ///
   /// Best-effort by design: each table is independent, and an unreadable one is
   /// logged and skipped rather than failing the whole recovery. Salvaging some
@@ -404,8 +404,8 @@ class UploadStatsDB {
 
       // Everything from here to the final rename is the danger window: the
       // live path is about to stop existing, and this runs on the same isolate
-      // as the sync (30s) and processing-report (15s) timers, both of which
-      // reopen every device DB. Hold the door shut for the whole promotion.
+      // as the sync (30s) timer, which reopens every device DB. Hold the door
+      // shut for the whole promotion.
       _recoveringDeviceIds.add(deviceId);
       try {
         final opening = _openingDeviceDbs.remove(deviceId);
@@ -647,11 +647,11 @@ class UploadStatsDB {
             'CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_entity_key ON sync_outbox(entity, entity_key)',
           );
 
-          // Restart-safe dedupe for the image-processing report agent: one
-          // row per (LWIP input folder, fingerprint) that has already been
-          // reported. A re-transfer changes the fingerprint → new key →
-          // re-report (and qc_status resets to PENDING downstream). Stable
-          // DB only, like the outbox — never rotates.
+          // Historical: this app used to dedupe its own report of each LWIP
+          // completion here — one row per (LWIP input folder, fingerprint).
+          // LWIP now reports finished folders straight to PostgreSQL itself,
+          // so nothing writes this table anymore. Kept only so a fresh DB's
+          // schema still matches an existing station's.
           await db.execute('''
             CREATE TABLE IF NOT EXISTS processing_ledger (
               input_path TEXT NOT NULL,
@@ -968,7 +968,7 @@ class UploadStatsDB {
       // Mid-promotion the live file has been renamed away. Opening the path
       // now would have SQLite mint a NEW empty database there, which then
       // blocks the real rename and defeats the rollback. Callers are timers
-      // (sync tick, processing report) that already tolerate a throw.
+      // (the sync tick) that already tolerate a throw.
       throw StateError(
         'Database for "$key" is being recovered — try again shortly.',
       );
@@ -1230,14 +1230,14 @@ class UploadStatsDB {
   /// SAX01's transfer-completion rows unsent indefinitely — the cloud kept a
   /// fully transferred box at status 'OPEN' with empty folder_names and
   /// pre-rename image names until SAX01 happened to log back in (observed live
-  /// 2026-07-31). This is the capture-data half of the same exposure
-  /// `migratePendingProcessingOutbox` was added for on the processing side.
+  /// 2026-07-31).
   ///
   /// Safe because outbox payloads carry NATURAL keys (project_key, box_name,
   /// folder_seq, image_name, device_id) and never the bound device id, so any
-  /// device's rows resolve to the right cloud rows from any tick — exactly how
-  /// a processing-only PC's reports already sync under a pseudo device id. The
-  /// 'PROCESSING' ledger DB is included for that same reason.
+  /// device's rows resolve to the right cloud rows from any tick. This also
+  /// picks up a `PROCESSING` device DB left on disk from before LWIP moved to
+  /// its own PC and started reporting to PostgreSQL directly — any row queued
+  /// under that pseudo id before the switch still gets drained.
   Future<List<Database>> getOutboxDatabases(String deviceId) async {
     final sources = <Database>[await getDatabase(deviceId)];
     final base = await _ensurePathExists();
@@ -1755,10 +1755,11 @@ class UploadStatsDB {
   /// the sink). The QC-owned pipeline columns (group_id, client_qc_status,
   /// client_rework) remain absent: LWCAM never writes them and PG fills their
   /// defaults on INSERT. The image-PROCESSING columns (is_deskewed/is_cropped/
-  /// is_created_thumbnail/folder_path/thumbnail_path/qc_status) ARE mirrored
-  /// on capture_folders as of the LWIP integration — LWCAM writes them via
-  /// recordFolderProcessing (local UPDATE + the capture_folder_processing
-  /// outbox entity), never through folderUpsertSql.
+  /// is_created_thumbnail/folder_path/thumbnail_path/qc_status) are mirrored
+  /// on capture_folders for schema compatibility with older station DBs, but
+  /// this app no longer writes them — LWIP runs standalone now and reports a
+  /// finished folder straight to PostgreSQL itself, never through this local
+  /// DB or folderUpsertSql.
   Future<void> _createCaptureBoxTablesIfNotExists(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS capture_boxes (
@@ -1805,8 +1806,9 @@ class UploadStatsDB {
         digitizing_entity TEXT,
         source_created_at TEXT NOT NULL,
         source_updated_at TEXT NOT NULL,
-        -- image-processing result (mirrors the cloud pipeline columns;
-        -- written by recordFolderProcessing, never by a folder upsert) ↓
+        -- image-processing result (mirrors the cloud pipeline columns; no
+        -- longer written by this app — LWIP reports these to PostgreSQL
+        -- itself now, never through a folder upsert) ↓
         is_deskewed INTEGER NOT NULL DEFAULT 0,
         is_cropped INTEGER NOT NULL DEFAULT 0,
         is_created_thumbnail INTEGER NOT NULL DEFAULT 0,
@@ -2361,138 +2363,6 @@ class UploadStatsDB {
     );
   }
 
-  // ── Image-processing results (LWIP integration) ───────────────────────────
-
-  /// The dedupe ledger lives in ONE machine-global DB, not the per-device one.
-  /// Its key is (input_path, fingerprint) — properties of THIS machine's
-  /// filesystem, independent of who is logged in. Scoping it per device meant
-  /// a device-id change (different operator on a shared PC) emptied the
-  /// visible ledger and re-reported every completed folder — resetting
-  /// qc_status on long-reviewed folders and, when a report's box had since
-  /// been removed from PG, poisoning the sync batch (handover §7.8/§7.9).
-  static const processingLedgerDeviceId = 'PROCESSING';
-
-  /// The global ledger DB. Just another keyed entry in [_deviceDbs] — it needed
-  /// its own cached handle only while a single flip-flopping handle existed, to
-  /// stop each ledger touch from closing the capture device's DB.
-  Future<Database> _ledgerDb() => getDatabase(processingLedgerDeviceId);
-
-  /// True when a completed LWIP folder (identified by its input path +
-  /// fingerprint) has already been reported — the restart-safe dedupe the
-  /// processing agent checks each tick. A re-transfer changes the
-  /// fingerprint, so it is treated as a fresh, re-reportable job.
-  Future<bool> isProcessingReported({
-    required String inputPath,
-    required String fingerprint,
-  }) async {
-    final db = await _ledgerDb();
-    final rows = await db.query(
-      'processing_ledger',
-      where: 'input_path = ? AND fingerprint = ?',
-      whereArgs: [inputPath, fingerprint],
-      limit: 1,
-    );
-    return rows.isNotEmpty;
-  }
-
-  /// Records one LWIP-processed folder: marks it in the dedupe ledger,
-  /// enqueues the `capture_folder_processing` outbox row (self-gated on
-  /// syncEnabled — cloud reporting needs sync on), and, when the folder row
-  /// also lives in THIS machine's local DB (a co-located capture+processing
-  /// station), mirrors the six pipeline columns onto it. Deliberately does
-  /// NOT go through a normal folder upsert — the pipeline columns must never
-  /// ride `folderUpsertSql`. [identity] is LWIP's marker payload (natural
-  /// keys); [inputPath]/[fingerprint] are the LWIP state.json job key.
-  Future<void> recordFolderProcessing({
-    required String deviceId,
-    required Map<String, dynamic> identity,
-    required String folderPath,
-    required String? thumbnailPath,
-    required bool isCreatedThumbnail,
-    required String inputPath,
-    required String fingerprint,
-  }) async {
-    final projectKey = (identity['project_key'] as String?)?.trim() ?? '';
-    final boxName = (identity['box_name'] as String?)?.trim() ?? '';
-    final folderSeq = (identity['folder_seq'] as num?)?.toInt();
-    if (projectKey.isEmpty || boxName.isEmpty || folderSeq == null) {
-      throw ArgumentError(
-        'processing identity is missing project_key/box_name/folder_seq',
-      );
-    }
-    final db = await getDatabase(deviceId);
-    final nowIso = DateTime.now().toIso8601String();
-    await db.transaction((txn) async {
-      // entity_key = the folder's natural key. Injective (so it can't
-      // wrongly coalesce two distinct folders): project_key carries no '|'
-      // and folder_seq is a pipe-free integer at the end, so box_name in the
-      // middle is unambiguous even if it contains '|'.
-      await _enqueueOutbox(
-        txn,
-        entity: 'capture_folder_processing',
-        entityKey: '$projectKey|$boxName|$folderSeq',
-        op: 'upsert',
-        payload: {
-          'project_key': projectKey,
-          'project_id': identity['project_id'],
-          'box_name': boxName,
-          'renamed_from': identity['renamed_from'],
-          'device_id': identity['device_id'],
-          'folder_seq': folderSeq,
-          'folder_name': identity['folder_name'],
-          'is_created_thumbnail': isCreatedThumbnail,
-          'folder_path': folderPath,
-          'thumbnail_path': thumbnailPath,
-          'processed_at': nowIso,
-        },
-      );
-
-      final boxId = await _localBoxIdByKeys(txn, projectKey, boxName);
-      if (boxId != null) {
-        await txn.update(
-          'capture_folders',
-          {
-            'is_deskewed': 1,
-            'is_cropped': 1,
-            'is_created_thumbnail': isCreatedThumbnail ? 1 : 0,
-            'folder_path': folderPath,
-            'thumbnail_path': thumbnailPath,
-            'qc_status': 'PENDING',
-          },
-          where: 'box_id = ? AND folder_seq = ?',
-          whereArgs: [boxId, folderSeq],
-        );
-      }
-    });
-
-    // Ledger AFTER the outbox row is committed, and in the machine-global DB.
-    // A crash between the two re-reports next tick, which the outbox coalesces
-    // away; the reverse order would ledger a report that never got enqueued —
-    // silently lost.
-    final ledger = await _ledgerDb();
-    await ledger.insert('processing_ledger', {
-      'input_path': inputPath,
-      'fingerprint': fingerprint,
-      'reported_at': nowIso,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  /// Ledgers a completed LWIP folder that could NOT be reported (its manifest
-  /// carried no usable identity — e.g. an externally-dropped folder without a
-  /// marker) so the report agent doesn't re-read and re-warn every tick. No
-  /// outbox row, no local update — just the dedupe marker.
-  Future<void> recordProcessingSkip({
-    required String inputPath,
-    required String fingerprint,
-  }) async {
-    final db = await _ledgerDb();
-    await db.insert('processing_ledger', {
-      'input_path': inputPath,
-      'fingerprint': fingerprint,
-      'reported_at': 'SKIPPED-NO-IDENTITY',
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
   /// Queues the CLOSED row that retires a QC recapture request.
   ///
   /// Called AFTER the recaptured image has been written to LWIP's input folder —
@@ -2601,14 +2471,6 @@ class UploadStatsDB {
     });
   }
 
-  /// Moves still-pending processing reports from [from]'s outbox into [to]'s.
-  ///
-  /// Called when the processing report agent is re-bound to a different device
-  /// id (login on a shared PC): the drain only reads the CURRENT device's
-  /// outbox, so rows left under the old id would strand silently — the
-  /// 2026-07-29 incident (handover §7.8). Attempts/backoff reset on arrival;
-  /// (entity, entity_key) uniqueness coalesces any duplicate. Returns the
-  /// number of rows moved.
   /// Entity keys of rework closures still sitting in this device's outbox,
   /// i.e. `<projectKey>|<boxName>|<folderSeq>|<imageName>`.
   ///
@@ -2637,67 +2499,6 @@ class UploadStatsDB {
       print('⚠️ Could not read pending rework closures: $e');
       return {};
     }
-  }
-
-  Future<int> migratePendingProcessingOutbox({
-    required String from,
-    required String to,
-  }) async {
-    if (from == to) return 0;
-    final source = await getDatabase(from);
-    final rows = await source.query(
-      'sync_outbox',
-      where: "entity = 'capture_folder_processing'",
-    );
-    if (rows.isEmpty) return 0;
-    final target = await getDatabase(to);
-    await target.transaction((txn) async {
-      for (final row in rows) {
-        await txn.insert('sync_outbox', {
-          'entity': row['entity'],
-          'entity_key': row['entity_key'],
-          'op': row['op'],
-          'payload': row['payload'],
-          'created_at': row['created_at'],
-          'updated_at': DateTime.now().toIso8601String(),
-          'attempts': 0,
-          'last_error': null,
-          'next_attempt_at': null,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-    });
-    // Delete only after the copy committed — a crash in between leaves the
-    // rows in both DBs, and the coalescing REPLACE makes the re-copy harmless.
-    // Scoped to the exact rows just copied (not "every row of this entity"):
-    // a row enqueued by a concurrent report between the SELECT and this
-    // DELETE must survive for the next migration/drain to pick up.
-    final ids = [for (final row in rows) row['id'] as int];
-    await source.delete(
-      'sync_outbox',
-      where: 'id IN (${List.filled(ids.length, '?').join(',')})',
-      whereArgs: ids,
-    );
-    return rows.length;
-  }
-
-  /// Local box id for (project_key, box_name), with a renamed_from fallback —
-  /// null on a processing-only PC that never captured the box.
-  Future<int?> _localBoxIdByKeys(
-    DatabaseExecutor txn,
-    String projectKey,
-    String boxName,
-  ) async {
-    for (final column in ['box_name', 'renamed_from']) {
-      final rows = await txn.query(
-        'capture_boxes',
-        columns: ['id'],
-        where: 'project_key = ? AND $column = ?',
-        whereArgs: [projectKey, boxName],
-        limit: 1,
-      );
-      if (rows.isNotEmpty) return (rows.first['id'] as num).toInt();
-    }
-    return null;
   }
 
   /// Deletes a folder only when no images are assigned to it. Returns false

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam_admin/controllers/station_setup_controller.dart';
 import 'package:lwcam_admin/models/node_config.dart';
@@ -192,97 +190,6 @@ void main() {
         r'C:\Program Files\LWCam\LWCAM\1.Images',
       );
     });
-  });
-
-  test('db setup script is found in the source layout', () async {
-    final root = await Directory.systemTemp.createTemp('source_db_');
-    try {
-      final platform = p.join(root.path, 'LWCam_QC_Platform');
-      final database = Directory(p.join(platform, 'database'));
-      await database.create(recursive: true);
-      final script = File(p.join(platform, 'scripts', 'setup_qc_db.py'));
-      await script.parent.create(recursive: true);
-      await script.writeAsString('');
-      final executable = p.join(root.path, 'bin', 'LWCamAdmin', 'admin.exe');
-
-      final setup = dbSetupScript(
-        executablePath: executable,
-      );
-      expect(setup?.$1, script.path);
-      expect(setup?.$2, database.path);
-    } finally {
-      await root.delete(recursive: true);
-    }
-  });
-
-  test('db setup script is found in the installed layout', () async {
-    final root = await Directory.systemTemp.createTemp('installed_db_');
-    try {
-      final suite = p.join(root.path, 'LW Suite');
-      final database = Directory(p.join(suite, 'Database', 'database'));
-      await database.create(recursive: true);
-      final script = File(p.join(suite, 'Database', 'setup_qc_db.py'));
-      await script.writeAsString('');
-      final executable = p.join(suite, 'LWCamAdmin', 'lwcam_admin.exe');
-
-      final setup = dbSetupScript(
-        executablePath: executable,
-      );
-      expect(setup?.$1, script.path);
-      expect(setup?.$2, database.path);
-    } finally {
-      await root.delete(recursive: true);
-    }
-  });
-
-  for (final product in ['LWCam', 'LW Suite']) {
-    test('db setup script falls back to Program Files\\$product', () async {
-      final programFiles = await Directory.systemTemp.createTemp(
-        'program_files_',
-      );
-      final executableRoot = await Directory.systemTemp.createTemp(
-        'admin_exe_',
-      );
-      try {
-        final installDir = Directory(p.join(programFiles.path, product));
-        final database = Directory(
-          p.join(installDir.path, 'Database', 'database'),
-        );
-        await database.create(recursive: true);
-        final script = File(
-          p.join(installDir.path, 'Database', 'setup_qc_db.py'),
-        );
-        await script.writeAsString('');
-
-        final setup = dbSetupScript(
-          executablePath: p.join(
-            executableRoot.path,
-            'LWCamAdmin',
-            'admin.exe',
-          ),
-          environment: {'ProgramFiles': programFiles.path},
-        );
-        expect(setup?.$1, script.path);
-        expect(setup?.$2, database.path);
-      } finally {
-        await programFiles.delete(recursive: true);
-        await executableRoot.delete(recursive: true);
-      }
-    });
-  }
-
-  test('db setup script returns null when no layout is present', () async {
-    final root = await Directory.systemTemp.createTemp('missing_db_');
-    try {
-      expect(
-        dbSetupScript(
-          executablePath: p.join(root.path, 'LWCamAdmin', 'lwcam_admin.exe'),
-        ),
-        isNull,
-      );
-    } finally {
-      await root.delete(recursive: true);
-    }
   });
 
   test(

@@ -21,9 +21,9 @@ TRANSFERRED name (SAX01_..._001.jpg), not the capture name. QC resolves every
 page as folder_path / image_name, and the transfer renamed the files. The
 SQLite row keeps both, so this reads `transferred_name`.
 
-Run it from the platform root, with the shipped runtime:
+Run it from the platform root, with the shipped runtime and its own
+config.txt beside backend\ (or LWCAM_QC_SERVER_CONFIG pointed at it):
 
-    set LWCAM_NODE_CONFIG=%USERPROFILE%\LWCAM_DBs\lwcam_node_config.json
     C:\Python314\python.exe scripts\reset_test_folder.py 11
 
 It deletes the batch output and the folder's DB rows, so it asks first unless
@@ -53,9 +53,8 @@ from sqlalchemy import text  # noqa: E402 - must follow the sys.path fix above
 
 from app.db.session import SessionLocal  # noqa: E402
 
-LWIP_ROOT = Path(r"C:\Program Files\LW Suite\LWCAM\LWIP")
-LWIP_CONFIG = Path.home() / "LWCAM_DBs" / "lwip" / "deskew_crop_config.json"
-LWIP_STATE = Path.home() / "LWCAM_DBs" / "lwip" / "runtime" / "state.json"
+LWIP_ROOT = Path(r"C:\Program Files\LWCam LWIP")
+LWIP_CONFIG = LWIP_ROOT / "config" / "deskew_crop_config.json"
 LWCAM_DBS = Path.home() / "LWCAM_DBs"
 
 # The metadata LWCAM owns and QC only displays. Copied as a block rather than
@@ -109,6 +108,22 @@ def local_sqlite_row(folder_name: str, folder_seq: int) -> dict:
         ).fetchall()
         return {"folder": dict(folder), "images": [dict(i) for i in images], "source": db_path}
     raise SystemExit(f"No LWCAM SQLite row for '{folder_name}' seq {folder_seq} under {LWCAM_DBS}")
+
+
+def lwip_state_path() -> Path:
+    """The state.json this LWIP install actually uses, per its own config.
+
+    Mirrors deskew_crop_tool/config.py's own path resolution (a relative
+    value resolves against the config file's grandparent, i.e. LWIP_ROOT) -
+    the installed config writes an absolute path, but this keeps working
+    against a hand-edited or older-style relative one too.
+    """
+    raw = json.loads(LWIP_CONFIG.read_text(encoding="utf-8"))
+    value = str(raw.get("state_file", "runtime/state.json"))
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = LWIP_CONFIG.parent.parent / path
+    return path.resolve()
 
 
 def run_lwip() -> str:
@@ -190,9 +205,10 @@ def main() -> None:
 
         # LWIP skips anything recorded as completed, so the entry has to go or
         # the re-run is a silent no-op that reads exactly like success.
-        state = json.loads(LWIP_STATE.read_text(encoding="utf-8"))
+        lwip_state = lwip_state_path()
+        state = json.loads(lwip_state.read_text(encoding="utf-8"))
         cleared = state.get("completed", {}).pop(str(source_dir), None)
-        LWIP_STATE.write_text(json.dumps(state, indent=1), encoding="utf-8")
+        lwip_state.write_text(json.dumps(state, indent=1), encoding="utf-8")
         print(f"  cleared LWIP state entry: {cleared is not None}")
 
         print(f"  LWIP: {run_lwip()}")

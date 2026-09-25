@@ -9,7 +9,6 @@ import '../controllers/upload_contoller.dart';
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';
 import '../services/open_rework_cache.dart';
-import '../services/processing_report_service.dart';
 import '../services/snackbar_service.dart';
 import '../services/transfer_queue_service.dart';
 import '../services/sync_service.dart';
@@ -133,15 +132,10 @@ class _CaptureBoxListPageState extends State<CaptureBoxListPage> {
     );
     if (recover != true) return;
 
-    // Both tick on this isolate and reopen device DBs (sync every 30s opens
-    // EVERY device's file; processing every 15s opens this one). The DB layer
-    // refuses reopens mid-promotion anyway, but quiescing them keeps that a
-    // backstop rather than the only line of defence.
-    final processing = Get.isRegistered<ProcessingReportService>()
-        ? Get.find<ProcessingReportService>()
-        : null;
+    // Sync ticks on this isolate and reopens EVERY device's DB file every
+    // 30s. The DB layer refuses reopens mid-promotion anyway, but quiescing
+    // it keeps that a backstop rather than the only line of defence.
     sync.paused = true;
-    processing?.paused = true;
     try {
       await db.rebuildFromCaptureSnapshot(
         deviceId: session.deviceId,
@@ -159,7 +153,6 @@ class _CaptureBoxListPageState extends State<CaptureBoxListPage> {
       }
     } finally {
       sync.paused = false;
-      processing?.paused = false;
     }
   }
 

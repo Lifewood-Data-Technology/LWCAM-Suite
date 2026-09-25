@@ -54,45 +54,32 @@ class NodeConfig {
   final String? destinationPath;
 
   // ── Image-processing phase (LWIP) ─────────────────────────────────────────
-  /// Whether the LWCAM on this machine runs the deskew/crop/thumbnail phase
-  /// (supervises LWIP + reports results). Default false. Set here in Station
-  /// Setup; LWCAM reads it.
+  /// Round-trip only: LWIP is its own installer and boot-time service now
+  /// (LWIPSetup, on its own PC), not something this app registers or starts.
+  /// Kept so an older `lwcam_node_config.json` still round-trips.
   final bool processingEnabled;
 
-  /// Folder LWIP watches. Null ⇒ use [destinationPath]. Split-PC deployments
-  /// point this at the shared destination via a UNC path.
+  /// Folder LWIP watches, AS THIS PC SEES IT — kept for REWORK, which needs a
+  /// folder's original images (see LWCAM's `rework_service.dart`). Null ⇒ use
+  /// [destinationPath]. Must be the same folder LWIP is configured with on the
+  /// LWIP PC's own installer; a UNC path keeps that true on a split site.
   final String? processingInputRoot;
 
-  /// Where LWIP writes processed output. Null ⇒ sibling `<input>_processed`.
-  /// Must not be inside the input root.
+  /// Where LWIP writes processed output, AS THIS PC SEES IT — same rework use
+  /// as [processingInputRoot]. Null ⇒ sibling `<input>_processed`. Must match
+  /// LWIP's own `output_root`, set on the LWIP PC's own installer.
   final String? processingOutputRoot;
 
-  /// LWIP worker process count; 0 ⇒ LWIP auto-sizes (CPU-1).
+  /// Round-trip only: LWIP's own installer fixes `workers` (0, auto) in its
+  /// own config now; Station Setup no longer writes one.
   final int processingWorkers;
 
-  /// Pixels added on EACH side of the detected content rect before LWIP crops,
-  /// clamped to the image edge. Higher keeps more margin; 0 crops tight to the
-  /// detected edge. Station Setup owns it and writes it into LWIP's generated
-  /// `deskew_crop_config.json`, which is the single source every consumer reads
-  /// — nothing hardcodes a crop padding any more.
-  ///
-  /// The default must stay in step with `DEFAULT_CROP_PADDING` in LWIP's
-  /// `backend/deskew_crop_tool/config.py`: two languages cannot share a
-  /// literal, and that constant is the fallback when the key is absent. Same
-  /// change-one-change-the-other convention as `kProcessingMarkerName`.
+  /// Round-trip only: LWIP's own installer fixes `crop_padding` (200) in its
+  /// own config now; Station Setup no longer writes one.
   final int processingCropPadding;
 
-  /// Whether LWIP reports finished folders to PostgreSQL itself.
-  ///
-  /// A folder only reaches a QC operator once `capture_folders.qc_status` is
-  /// 'PENDING'. That used to be written only by LWCAM's 15s report agent, so an
-  /// operator who transferred a box, closed LWCAM and went on leave left the
-  /// batch processed on disk and invisible to QC until someone reopened the app.
-  /// LWIP runs headless from logon, so it can report when nothing else is there.
-  ///
-  /// Both writers stay: the write is idempotent, and LWCAM's outbox still covers
-  /// the offline case this path cannot. Defaults ON, because the stations most
-  /// at risk are the ones nobody revisits to configure.
+  /// Round-trip only: LWIP's own installer fixes `cloud_report` (true) in its
+  /// own config now; Station Setup no longer writes one.
   final bool processingCloudReport;
 
   /// Fields for QC/export/upload/AI settings remain for backward compatibility

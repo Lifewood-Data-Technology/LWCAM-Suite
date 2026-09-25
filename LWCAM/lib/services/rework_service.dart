@@ -181,7 +181,7 @@ class ReworkService {
 
   // ── Input-path resolution ────────────────────────────────────────────────
 
-  /// LWIP's input root for this station (mirrors LwipService's private helper).
+  /// LWIP's input root, as this station sees it.
   static String? effectiveInputRoot(NodeConfig config) {
     final explicit = config.processingInputRoot?.trim() ?? '';
     if (explicit.isNotEmpty) return explicit;
@@ -189,7 +189,7 @@ class ReworkService {
     return destination.isEmpty ? null : destination;
   }
 
-  /// LWIP's output root for this station (mirrors LwipService's private helper).
+  /// LWIP's output root, as this station sees it.
   static String effectiveOutputRoot(NodeConfig config, String inputRoot) {
     final explicit = config.processingOutputRoot?.trim() ?? '';
     return explicit.isNotEmpty ? explicit : '${inputRoot}_processed';

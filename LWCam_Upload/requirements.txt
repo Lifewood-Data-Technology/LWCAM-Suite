@@ -1,0 +1,9 @@
+# S3 uploads. Wheels (boto3, botocore, s3transfer, jmespath, python-dateutil,
+# six, urllib3, tzdata) are staged in wheels/ - SETUP_UPLOAD.bat installs with
+# --no-index, so an unstaged dependency breaks setup on every air-gapped station.
+boto3==1.43.88
+# The console reports finished packages and reads the shared users table for
+# sign-in the same way QC and LWIP do. Pinned to the same major.
+psycopg[binary]==3.3.4
+# The console hashes/verifies sign-in passwords the same way QC and LWIP do.
+bcrypt==5.0.0

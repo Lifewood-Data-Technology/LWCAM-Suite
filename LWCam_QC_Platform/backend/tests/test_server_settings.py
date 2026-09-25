@@ -59,7 +59,7 @@ class ServerSettingsFileTests(unittest.TestCase):
                 [
                     "# LWCam QC engine configuration",
                     "",
-                    r"qcInputRoot = C:\Station\Temp",
+                    r"exportWorkRoot = C:\Station\Temp",
                     "   # an indented note someone left",
                     "exportZipOutput = false",
                     "",
@@ -70,6 +70,34 @@ class ServerSettingsFileTests(unittest.TestCase):
         self.assertEqual(
             load_server_settings_overrides(),
             {"export_temp_dir": r"C:\Station\Temp", "export_zip_output": False},
+        )
+
+    def test_qc_input_root_is_the_image_folder(self) -> None:
+        self.config_path.write_text(
+            f"qcInputRoot = {UNC_PATH}\nexportWorkRoot = C:\\Work\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            load_server_settings_overrides(),
+            {"qc_images_root": UNC_PATH, "export_temp_dir": r"C:\Work"},
+        )
+
+    def test_a_file_from_before_the_rename_keeps_its_meanings(self) -> None:
+        """Installed stations have qcImagesRoot = images, qcInputRoot = export work."""
+        self.config_path.write_text(
+            "qcImagesRoot = \nqcInputRoot = C:\\QC\\Export Work\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            load_server_settings_overrides(), {"export_temp_dir": r"C:\QC\Export Work"}
+        )
+        # The next save rewrites it with the new keys and the same values.
+        write_server_settings({"qc_images_root": UNC_PATH})
+        text = self.config_path.read_text(encoding="utf-8")
+        self.assertIn(f"qcInputRoot = {UNC_PATH}", text)
+        self.assertIn(r"exportWorkRoot = C:\QC\Export Work", text)
+        self.assertNotIn("qcImagesRoot =", text)
+        self.assertEqual(
+            load_server_settings_overrides(),
+            {"qc_images_root": UNC_PATH, "export_temp_dir": r"C:\QC\Export Work"},
         )
 
     def test_a_unc_path_survives_intact(self) -> None:
@@ -167,29 +195,66 @@ class ServerSettingsFileTests(unittest.TestCase):
         secrets = {
             "db_password": SecretStr("db-secret-for-test"),
             "jwt_secret": SecretStr("j" * 40),
-            "upload_s3_secret_key": SecretStr("s3-secret-for-test"),
             "openrouter_api_key": SecretStr("router-secret-for-test"),
         }
         write_server_settings(secrets)
         loaded = Settings(**load_server_settings_overrides())
         self.assertTrue(all(getattr(loaded, field) == value for field, value in secrets.items()))
 
-    def test_database_upload_and_server_values_are_coerced(self) -> None:
+    def test_database_and_server_values_are_coerced(self) -> None:
         self.config_path.write_text(
-            "dbUseSsl = yes\nuploadEnabled = off\nport = 8090\ndbPort = 5544\n",
+            "dbUseSsl = yes\nport = 8090\ndbPort = 5544\n",
             encoding="utf-8",
         )
         self.assertEqual(
             load_server_settings_overrides(),
-            {"db_use_ssl": True, "upload_enabled": False, "port": 8090, "db_port": 5544},
+            {"db_use_ssl": True, "port": 8090, "db_port": 5544},
         )
 
     def test_blank_secrets_are_skipped_on_load(self) -> None:
         self.config_path.write_text(
-            "dbPassword = \njwtSecret = \nuploadS3SecretKey = \nopenrouterApiKey = \n",
+            "dbPassword = \njwtSecret = \nopenrouterApiKey = \n",
             encoding="utf-8",
         )
         self.assertEqual(load_server_settings_overrides(), {})
+
+    def test_old_upload_keys_are_ignored_but_the_rest_of_the_file_still_loads(self) -> None:
+        """Upload moved to the standalone LWCam Upload service (2026-09-25).
+
+        A config.txt saved before that move still has uploadEnabled/
+        uploadS3Path/uploadS3Region/uploadS3AccessKey/uploadS3SecretKey/
+        uploadDoneRoot/uploadSummaryRoot lines. They are simply unrecognised
+        keys now - same as any other stale line - so the engine keeps
+        starting on the file, and a console save silently drops them instead
+        of writing them back.
+        """
+        self.config_path.write_text(
+            "dbPort = 5544\n"
+            "uploadEnabled = true\n"
+            "uploadS3Path = s3://bucket/prefix\n"
+            "uploadS3Region = us-east-1\n"
+            "uploadS3AccessKey = key-id\n"
+            "uploadS3SecretKey = secret-value\n"
+            "uploadDoneRoot = C:\\Uploaded\n"
+            "uploadSummaryRoot = C:\\Upload Reports\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(load_server_settings_overrides(), {"db_port": 5544})
+
+        # A Settings save must not crash on them, and the next save drops them
+        # as WRITTEN `key = value` lines - the header's own explanation of the
+        # move necessarily still names them in prose.
+        write_server_settings({"export_zip_output": False})
+        lines = self.config_path.read_text(encoding="utf-8").splitlines()
+        for key in (
+            "uploadEnabled", "uploadS3Path", "uploadS3Region", "uploadS3AccessKey",
+            "uploadS3SecretKey", "uploadDoneRoot", "uploadSummaryRoot",
+        ):
+            self.assertFalse(any(line.startswith(f"{key} = ") for line in lines), key)
+        self.assertEqual(
+            load_server_settings_overrides(),
+            {"db_port": 5544, "export_zip_output": False},
+        )
 
     def test_dev_jwt_secret_is_refused_for_non_loopback_bind(self) -> None:
         with patch.object(settings, "bind_host", "0.0.0.0"), patch.object(

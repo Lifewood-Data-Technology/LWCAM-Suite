@@ -7,7 +7,6 @@ from app.dependencies import AdminUser, DbSession
 from app.models.capture import CaptureFolder
 from app.schemas.export import ExportFolderVO, ExportPreflightVO
 from app.services.export import ExportError, export_coordinator, list_export_folders
-from app.services.upload import UploadError, upload_coordinator, upload_scheduler
 
 router = APIRouter(prefix="/admin/exports", tags=["exports"])
 
@@ -157,20 +156,3 @@ def run_export(current_user: AdminUser, db: DbSession) -> ApiResponse[dict[str, 
 @router.get("/current", response_model=ApiResponse[dict[str, Any] | None])
 def current_export(_: AdminUser) -> ApiResponse[dict[str, Any] | None]:
     return ok(export_coordinator.current())
-
-
-@router.get("/uploads", response_model=ApiResponse[dict[str, Any]])
-def upload_status(_: AdminUser) -> ApiResponse[dict[str, Any]]:
-    """The S3 upload phase: what has gone up, what is waiting, what failed."""
-    return ok(upload_coordinator.status())
-
-
-@router.post("/uploads/retry", response_model=ApiResponse[dict[str, Any]])
-def retry_uploads(_: AdminUser) -> ApiResponse[dict[str, Any]]:
-    """Lifts the back-off on every failed upload and wakes the sweep."""
-    try:
-        cleared = upload_coordinator.retry_failed()
-    except (UploadError, ExportError) as error:
-        raise BusinessError(ApiCodes.BAD_REQUEST, str(error), 400) from error
-    upload_scheduler.kick()
-    return ok({"cleared": cleared, **upload_coordinator.status()})

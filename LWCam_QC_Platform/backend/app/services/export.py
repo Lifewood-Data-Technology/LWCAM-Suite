@@ -1086,35 +1086,6 @@ def _replace_with_retry(source: Path, target: Path, attempts: int = 5) -> None:
             time.sleep(0.5)
 
 
-def upload_ledger_path(config: ExportRuntimeConfig) -> Path:
-    """Where the upload sweep keeps its per-package state.
-
-    Duplicated deliberately rather than imported from `upload.py`: that module
-    imports boto3 lazily and owns the sweep, and the export has no business
-    pulling it in just to invalidate one row. Same path both sides compute -
-    keep them together if it ever moves.
-    """
-    return config.temp_dir / ".lwcam-export" / "uploads.json"
-
-
-def clear_upload_ledger_entry(config: ExportRuntimeConfig, package_name: str) -> bool:
-    """Forget that [package_name] was uploaded, so the sweep sends it again.
-
-    Best effort on purpose: the package is published either way, and a ledger
-    that cannot be written must not fail an export that has already succeeded.
-    The cost of failing to clear is that the correction waits for someone to
-    retry the upload, not that anything is lost.
-    """
-    path = upload_ledger_path(config)
-    ledger = JsonLedger(path)
-    data = ledger.load()
-    if package_name not in data:
-        return False
-    data.pop(package_name, None)
-    ledger.save(data, best_effort=True)
-    return True
-
-
 def _remove_published(path: Path) -> None:
     """Delete a published package so a rework can take its name.
 
@@ -1927,15 +1898,11 @@ class ExportCoordinator:
                 final_path = publish_package(
                     exported, group_id, config, len(snapshot.images), replace=is_rework
                 )
-                if is_rework:
-                    # The upload sweep is keyed by package NAME and skips
-                    # anything its ledger already calls UPLOADED - so without
-                    # this the corrected package would be silently "moved"
-                    # instead of sent, and the client would keep the version
-                    # they rejected. Clearing the row makes the sweep treat it
-                    # as new and PUT it over the same S3 key, which is the
-                    # in-place replacement FamilySearch asked for.
-                    clear_upload_ledger_entry(config, final_path.name)
+                # A republished (client-rework) package is picked up by the
+                # standalone LWCam Upload service on its own: it fingerprints
+                # each package's files and treats a changed fingerprint under
+                # an UPLOADED name as new, so nothing here needs to clear an
+                # upload ledger any more.
                 self._set_item(
                     config,
                     item,
