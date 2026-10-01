@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import lwcam_secrets
 from .image_ops import DEFAULT_DESKEW_MIN_DEGREES
 
 
@@ -21,6 +22,14 @@ DEFAULT_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
 # Keep in step with NodeConfig.processingCropPadding on the Dart side --
 # two languages cannot share a literal.
 DEFAULT_CROP_PADDING = 200
+
+
+def db_sslmode(host: str, use_ssl: bool = False) -> str:
+    """TLS is required for every non-local database host (encrypted, certificate
+    not verified - the server's is self-signed). Only loopback may fall back to
+    plain text, and only when dbUseSsl is not true."""
+    local = str(host).strip().strip("[]").lower() in ("localhost", "127.0.0.1", "::1")
+    return "require" if use_ssl or not local else "prefer"
 
 
 @dataclass(frozen=True)
@@ -51,6 +60,7 @@ class ToolConfig:
     # on its own terms - a config that does not ask for reporting must not
     # get it.
     cloud_report: bool = False
+    rework_settle_seconds: float = 30.0
     # Defaulted for the same reason as cloud_report above. The value that
     # matters is in image_ops (DEFAULT_DESKEW_MIN_DEGREES); this carries a
     # station's override to it.
@@ -74,6 +84,9 @@ class ToolConfig:
     # rest of the file.
     ui_port: int = 8090
     ui_bind: str = "0.0.0.0"
+    # https for the console: both set = serve https (tls.py); blank = http.
+    tls_cert_file: str = ""
+    tls_key_file: str = ""
 
 
 def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
@@ -105,6 +118,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
     poll_interval = float(raw.get("poll_interval_seconds", 5))
     stable_seconds = float(raw.get("stable_seconds", 60))
     minimum_age = float(raw.get("minimum_file_age_seconds", 30))
+    rework_settle = float(raw.get("rework_settle_seconds", 30))
     presence_interval = float(raw.get("presence_check_interval_seconds", 300))
     checksum_interval = float(raw.get("checksum_check_interval_seconds", 86400))
     padding = int(raw.get("crop_padding", DEFAULT_CROP_PADDING))
@@ -123,12 +137,18 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
     db_port = int(raw.get("db_port", 5432))
     db_name = str(raw.get("db_name", "lwcam")).strip() or "lwcam"
     db_user = str(raw.get("db_user", "")).strip()
-    db_password = str(raw.get("db_password", ""))
+    # Stored as dpapi:... (lwcam_secrets); a plain value is still accepted.
+    # An undecryptable one raises SecretError, shown as the config problem.
+    db_password = lwcam_secrets.unprotect(str(raw.get("db_password", "")), "db_password")
     db_use_ssl = raw.get("db_use_ssl", False)
     if not isinstance(db_use_ssl, bool):
         raise ValueError("db_use_ssl must be true or false")
     ui_port = int(raw.get("ui_port", 8090))
     ui_bind = str(raw.get("ui_bind", "0.0.0.0")).strip() or "0.0.0.0"
+    tls_cert_file = str(raw.get("tls_cert_file", "")).strip()
+    tls_key_file = str(raw.get("tls_key_file", "")).strip()
+    if bool(tls_cert_file) != bool(tls_key_file):
+        raise ValueError("tls_cert_file and tls_key_file must be set together")
     marker = str(raw.get("completion_marker", "")).strip() or None
     # Depth 1 (default) = each child dir of input_root is a job — the tool's
     # original contract. Depth 2 = each grandchild (e.g. YYYYMMDD/<folder>),
@@ -225,6 +245,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
         thumbnail_quality=thumbnail_quality,
         thumbnail_dirname=thumbnail_dirname,
         cloud_report=cloud_report,
+        rework_settle_seconds=rework_settle,
         deskew_min_degrees=deskew_min_degrees,
         db_host=db_host,
         db_port=db_port,
@@ -234,6 +255,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
         db_use_ssl=db_use_ssl,
         ui_port=ui_port,
         ui_bind=ui_bind,
+        tls_cert_file=tls_cert_file,
+        tls_key_file=tls_key_file,
     )
 
 

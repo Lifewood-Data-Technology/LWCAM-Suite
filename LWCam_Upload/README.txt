@@ -37,12 +37,56 @@ every scan) and does nothing until it is fixed.
 Console
 -------
 
-By default at http://localhost:8091/. Sign in with an Admin or SuperAdmin
+By default at https://<this PC's name>:8091/. Sign in with an Admin or SuperAdmin
 account from the shared PostgreSQL users table (the same one LWCAM/LWCam
-Admin/QC/LWIP use). If the database cannot be reached at all, a browser open
-on THIS machine still gets full access so the settings can be fixed from
-there; a browser anywhere else gets read-only status and log viewing until
-the database comes back.
+Admin/QC/LWIP use). If the database cannot be reached the console is
+read-only: a browser open on THIS machine sees status and the log without
+signing in, and an admin who has signed in before can sign in from the saved
+admin list (admin_cache.json beside the config, refreshed every ten minutes
+while the database answers). Nobody changes settings from a remote browser
+until the database comes back.
+
+"Network folder logins" saves the account this PC signs in with to reach a
+folder on another PC - needed outside a domain, where the other PC refuses
+this PC's own SYSTEM account. The list is shared by every LWCam service on
+this PC; installer\README.txt ("SYSTEM account and UNC shares") has the rest.
+
+Passwords at rest
+-----------------
+db_password and s3_secret_key are stored encrypted ("dpapi:...") in config\upload_config.json: Windows DPAPI
+tied to this PC, written by the installer and by the console, and encrypted at
+start-up if an older install left it plain. A copy of the file on another PC
+cannot be decrypted (enter the password again in the console). It does not
+protect against an administrator on this PC. See installer\README.txt.
+
+HTTPS and other PCs
+-------------------
+
+The console is https:// only: plain http on the same port no longer answers.
+The certificate is made by the installer (C:\ProgramData\LWCAM\tls, shared by
+the QC, LWIP and Upload services on one PC, renewed by the service on every
+start). On every PC whose browser opens the page, copy "Trust this LWCam
+server.cmd" and "LWCam server certificate.crt" from the install folder, keep
+them together and double-click the .cmd once, then reopen the browser. Firefox
+has its own certificate store: Settings > Privacy & Security > Certificates >
+View Certificates > Authorities > Import the .crt and tick "Trust this CA to
+identify websites". Details: installer\README.txt ("HTTPS").
+
+The database may be on another PC or another site (LAN or Tailscale). This
+service uses the one shared LWCam database login (the one LWCamDatabaseSetup shows) and reports to the QC console's
+System status page (green / red / grey; "never reported" when it has not yet
+reached the database). While the database or the QC PC is off, Upload keeps scanning QC's output folder and
+sends packages to S3 (nothing here needs the database except the console sign-in
+and the status report, which are retried). A package that fails stays where it is,
+is retried with back-off, and shows on the status page as failed (red) until it goes
+through. If the QC PC's share is off, the folder is retried every two minutes.
+
+Schema gate: if the database is older than this program, the service says so
+("The database is older than this program (needs level N, has M). Run
+LWCamDatabaseSetup on the database PC.") and does no database work until the
+database PC has been upgraded - upgrade the database PC first. The whole-site
+upgrade order, backups, restore and rebuild-on-new-hardware recipes are in
+installer\README.txt ("Upgrading a multi-PC site").
 
 
 Logs

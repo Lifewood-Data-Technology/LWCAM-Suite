@@ -9,6 +9,7 @@ import '../db/upload_stats_db.dart';
 import 'audit_log_service.dart';
 import 'image_name_mapping.dart';
 import 'orphan_image_store.dart';
+import 'safe_copy.dart';
 
 export 'image_name_mapping.dart' show baseNameForDeviceFilename;
 
@@ -134,7 +135,7 @@ Future<int> healOrphanImages({
           final landed = File(p.join(dir.path, e.deviceFilename));
           if (!landed.existsSync()) {
             try {
-              await e.file.copy(landed.path);
+              await safeCopy(e.file, landed.path);
             } catch (_) {}
           }
           await store.discard(e);

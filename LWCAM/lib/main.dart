@@ -26,6 +26,7 @@ import 'package:lwcam/services/single_instance.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
+import 'services/windows_error_popup.dart';
 
 Future<void> main() async {
   // Capture uncaught Flutter errors
@@ -220,19 +221,8 @@ Future<void> _handleGlobalError(String error, String stack) async {
 String _twoDigits(int n) => n.toString().padLeft(2, '0');
 
 // Windows popup error dialog
-Future<void> _showWindowsErrorMessage(String message) async {
-  final escaped = message.replaceAll("'", "''");
-  try {
-    await Process.run('powershell', [
-      '-Command',
-      "Add-Type -AssemblyName PresentationFramework; "
-          "[System.Windows.MessageBox]::Show('$escaped', "
-          "'LWCAM Error', 'OK', 'Error')",
-    ]);
-  } catch (e) {
-    print('Failed to show Windows popup: $e');
-  }
-}
+Future<void> _showWindowsErrorMessage(String message) =>
+    showWindowsErrorPopup(message);
 
 // Main App widget
 class MyApp extends StatelessWidget {

@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../auth/auth_controller.dart';
 import '../models/app_user.dart';
 import '../widgets/session_app_bar_actions.dart';
+import '../widgets/sync_warning_banner.dart';
 import 'orphan_resolution_page.dart';
 import 'projects_page.dart';
 
@@ -47,49 +48,62 @@ class HomePage extends StatelessWidget {
           title: const Text('LWCAM (Lifewood Capture)'),
           actions: sessionAppBarActions(context),
         ),
-        body: Center(
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 24),
-                  Image.asset('assets/logo.png', height: 64),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Welcome, ${auth.username.value}',
-                    style: const TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.w600),
-                  ),
-                  if (roleText.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Role: $roleText',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        body: Column(
+          children: [
+            const SyncWarningBanner(),
+            Expanded(
+              child: Center(
+                child: SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(height: 24),
+                        Image.asset('assets/logo.png', height: 64),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Welcome, ${auth.username.value}',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
+                        if (roleText.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Role: $roleText',
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 28),
+                        _HomeCard(
+                          icon: Icons.folder_special_outlined,
+                          title: 'Projects',
+                          subtitle: 'Pick a project to work on.',
+                          onTap: () => Get.to(() => const ProjectsPage()),
+                        ),
+                        _HomeCard(
+                          icon: Icons.image_not_supported_outlined,
+                          title: 'Unresolved Images',
+                          subtitle:
+                              'Captures that were not filed into a group.',
+                          onTap: () =>
+                              Get.to(() => const OrphanResolutionPage()),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
                     ),
-                  const SizedBox(height: 28),
-                  _HomeCard(
-                    icon: Icons.folder_special_outlined,
-                    title: 'Projects',
-                    subtitle: 'Pick a project to work on.',
-                    onTap: () => Get.to(() => const ProjectsPage()),
                   ),
-                  _HomeCard(
-                    icon: Icons.image_not_supported_outlined,
-                    title: 'Unresolved Images',
-                    subtitle: 'Captures that were not filed into a group.',
-                    onTap: () => Get.to(() => const OrphanResolutionPage()),
-                  ),
-                  const SizedBox(height: 24),
-                ],
+                ),
               ),
             ),
-          ),
+          ],
         ),
       );
     });
@@ -127,11 +141,19 @@ class _HomeCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        leading:
-            Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
-        title: Text(title,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 10,
+        ),
+        leading: Icon(
+          icon,
+          size: 32,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
         onTap: onTap,

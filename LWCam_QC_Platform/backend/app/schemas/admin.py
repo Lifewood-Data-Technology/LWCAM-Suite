@@ -121,6 +121,14 @@ class PathSettingsVO(BaseModel):
     configuredBy: str
 
 
+class NetworkLoginRequest(BaseModel):
+    """One PC's network-folder login. A blank password keeps the saved one."""
+
+    host: str = Field(default="", max_length=300)
+    username: str = Field(default="", max_length=300)
+    password: str = Field(default="", max_length=1000)
+
+
 class UpdatePathSettingsRequest(BaseModel):
     """Candidate paths to probe. This request does not save them."""
 

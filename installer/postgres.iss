@@ -14,11 +14,12 @@ Name: "remotedb"; Description: "Use an existing PostgreSQL server (on this PC or
 [Run]
 ; dontlogparameters: the superuser password is on this command line, and Inno
 ; writes [Run] parameters to the setup log whenever setup runs with /LOG.
-Filename: "{code:PgSetupPath}"; Parameters: "--mode unattended --unattendedmodeui minimal --superpassword ""{code:GetPgPassword}"" --serverport 5432 --enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder"; StatusMsg: "Installing PostgreSQL 18 (none was found on this PC)..."; Check: NeedsPostgreSql; Flags: dontlogparameters
+Filename: "{code:PgSetupPath}"; Parameters: "--mode unattended --unattendedmodeui minimal --superpassword ""{code:GetPgPassword}"" --serverport {code:GetPgPort} --enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder"; StatusMsg: "Installing PostgreSQL 18 (none was found on this PC)..."; Check: NeedsPostgreSql; Flags: dontlogparameters
 
 [Code]
 var
   PgPassword: String;
+  PgPort: String;  // the port the operator chose; Database.iss sets it before [Run]
   PgChecked: Boolean;
   PgNeeded: Boolean;
   PgReusedCluster: Boolean;
@@ -72,6 +73,74 @@ begin
       Log('PostgreSQL: a local server is already present; skipping installation.');
   end;
   Result := PgNeeded;
+end;
+
+// The port for a fresh PostgreSQL install (EDB --serverport).
+function GetPgPort(Param: String): String;
+begin
+  if PgPort = '' then
+    Result := '5432'
+  else
+    Result := PgPort;
+end;
+
+// The port an existing local server listens on: `port = N` in the postgresql.conf
+// of the highest-numbered PostgreSQL under Program Files, else 5432. Only used
+// to prefill the wizard, so a wrong guess is harmless (the operator can edit it).
+function PgConfPort(): String;
+var
+  Find: TFindRec;
+  Base, Best, Conf, Line: String;
+  Lines: TArrayOfString;
+  I, Eq, Hash, Number: Integer;
+begin
+  Result := '5432';
+  Base := ExpandConstant('{commonpf64}\PostgreSQL');
+  Best := '';
+  if FindFirst(Base + '\*', Find) then begin
+    try
+      repeat
+        if (Find.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0)
+           and (Find.Name <> '.') and (Find.Name <> '..') then
+          if FileExists(Base + '\' + Find.Name + '\data\postgresql.conf') and
+             ((Best = '') or (CompareText(Find.Name, Best) > 0)) then
+            Best := Find.Name;
+      until not FindNext(Find);
+    finally
+      FindClose(Find);
+    end;
+  end;
+  if Best = '' then
+    Exit;
+  Conf := Base + '\' + Best + '\data\postgresql.conf';
+  if not LoadStringsFromFile(Conf, Lines) then
+    Exit;
+  for I := 0 to GetArrayLength(Lines) - 1 do begin
+    Line := Trim(Lines[I]);
+    Eq := Pos('=', Line);
+    if (Eq > 0) and (CompareText(Trim(Copy(Line, 1, Eq - 1)), 'port') = 0) then begin
+      Line := Trim(Copy(Line, Eq + 1, Length(Line)));
+      Hash := Pos('#', Line);
+      if Hash > 0 then
+        Line := Trim(Copy(Line, 1, Hash - 1));
+      Number := StrToIntDef(Line, 0);
+      if (Number > 0) and (Number < 65536) then
+        Result := IntToStr(Number);
+    end;
+  end;
+end;
+
+// True when something on this PC is already listening on the TCP port. Asked of
+// PowerShell (no braces in the command: "{" opens an Inno constant). If it
+// cannot even ask, report "free": the EDB installer then fails visibly instead.
+function PortInUse(const Port: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -Command "exit [int]((Get-NetTCPConnection -State Listen ' +
+    '-LocalPort ' + Port + ' -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 1);
 end;
 
 // Finds the highest-named PostgreSQL 18 installer beside the setup executable.
@@ -146,9 +215,10 @@ var
 begin
   Result := '';
   NL := #13#10;
+  // Only what went wrong or needs acting on: a server on another PC chosen on
+  // purpose is not news.
   if WizardIsTaskSelected('remotedb') then
-    Result := ProductName + ' is installed. No PostgreSQL server was installed here.' +
-      NL + NL + NextStep
+    Result := ''
   else if PgNeeded and not PsqlOnDisk() then
     Result := 'PostgreSQL could not be installed automatically.' + NL + NL +
       'Install PostgreSQL manually, then finish ' + ProductName + ' setup:' +

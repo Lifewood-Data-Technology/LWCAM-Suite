@@ -20,8 +20,11 @@ import '../services/audit_log_service.dart';
 import '../services/box_integrity.dart' show localImageNameForCloudImage;
 import '../services/node_config_service.dart';
 import '../services/open_rework_cache.dart';
+import '../services/processing_marker_service.dart' show setReworkInProgress;
 import '../services/pg_statements.dart' as st;
-import '../services/rework_service.dart' show ReworkItem, ReworkService;
+import '../services/fs_probe.dart' show FsProbe;
+import '../services/rework_service.dart'
+    show ReworkInput, ReworkItem, ReworkService;
 import '../services/scrcpy_service.dart';
 import '../services/thumbnail_service.dart';
 import '../services/shutter_hotkey_service.dart';
@@ -456,28 +459,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     }
   }
 
-  String _resolveAdbPath() {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-
-    final candidates = <String>[
-      p.join(exeDir, 'adb.exe'),
-      p.join(Directory.current.path, 'adb.exe'),
-      r'C:\Android\platform-tools\adb.exe',
-      'adb',
-    ];
-
-    for (final candidate in candidates) {
-      if (candidate == 'adb') {
-        return candidate;
-      }
-      if (File(candidate).existsSync()) {
-        print("✅ Using adb at: $candidate");
-        return candidate;
-      }
-    }
-
-    return 'adb';
-  }
+  String _resolveAdbPath() => AdbDeviceService.resolveAdbPath();
 
   Future<bool> _ensureAdbAvailable() async {
     try {
@@ -2884,6 +2866,10 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   }
 
   Future<File?> _pullSingleFile(String name, {Directory? targetDir}) async {
+    if (!AdbDeviceService.isSafeDeviceName(name)) {
+      print('⚠️ Refusing to pull unsafe device file name: $name');
+      return null;
+    }
     if ((_workingPath ?? '').isEmpty) {
       final names = await _listDeviceImageNames();
       if (names.isEmpty || (_workingPath ?? '').isEmpty) {
@@ -3009,7 +2995,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       return result;
     }
 
-    if (!targetDir.existsSync()) {
+    if (!await targetDir.exists()) {
       await targetDir.create(recursive: true);
     }
 
@@ -3106,7 +3092,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     String name,
   ) async {
     final candidate = File(p.join(originalsDir.path, name));
-    if (!candidate.existsSync()) {
+    if (!await candidate.exists()) {
       return candidate;
     }
 
@@ -3118,7 +3104,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       final next = File(
         p.join(originalsDir.path, '${base}_original_$suffix$ext'),
       );
-      if (!next.existsSync()) {
+      if (!await next.exists()) {
         return next;
       }
       counter++;
@@ -3153,7 +3139,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     final originalsDir = Directory(
       p.join(dailyDestination.path, 'original_images'),
     );
-    if (!originalsDir.existsSync()) {
+    if (!await originalsDir.exists()) {
       await originalsDir.create(recursive: true);
     }
 
@@ -5013,14 +4999,34 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
 
   /// The INPUT file a rework item's recapture must replace, or null when it
   /// cannot be resolved on this station.
-  File? _reworkInputFileFor(ReworkItem item) {
+  ///
+  /// Sync, cache-only (build code calls it): the share is asked, async and
+  /// time-bounded, by [_resolveReworkInput].
+  File? _reworkInputFileFor(ReworkItem item) =>
+      _reworkInputs[_reworkInputKey(item)]?.file;
+
+  final Map<String, ReworkInput> _reworkInputs = {};
+
+  String _reworkInputKey(ReworkItem item) => '${item.folderKey}|${item.imageName}';
+
+  bool _reworkShareUnreachable(ReworkItem item) =>
+      _reworkInputs[_reworkInputKey(item)]?.unreachable ?? false;
+
+  static const _kInputShareDown =
+      'The LWIP input share is unreachable — try again when it is back.';
+
+  /// Asks the LWIP input share (async, 5 s limit) and caches the answer.
+  Future<ReworkInput> _resolveReworkInput(ReworkItem item) async {
     final config = _reworkConfig;
-    if (config == null) return null;
-    return ReworkService.inputFileFor(
-      config,
-      folderPath: item.folderPath,
-      imageName: item.imageName,
-    );
+    final result = config == null
+        ? ReworkInput.none
+        : await ReworkService.inputFileFor(
+            config,
+            folderPath: item.folderPath,
+            imageName: item.imageName,
+          );
+    if (mounted) setState(() => _reworkInputs[_reworkInputKey(item)] = result);
+    return result;
   }
 
   /// Rework's replacement for loadDcimImages: resolves the rejected images in
@@ -5039,14 +5045,14 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       }
     }
     c.groupedImages.clear();
-    var missing = 0;
-    for (final item in _reworkItems) {
-      final file = _reworkInputFileFor(item);
-      if (file == null || !await file.exists()) missing++;
-    }
+    final resolved = await Future.wait(_reworkItems.map(_resolveReworkInput));
+    final missing = resolved.where((r) => r.file == null).length;
+    final down = resolved.any((r) => r.unreachable);
     if (!mounted) return;
     setState(() {
-      statusMsg = missing == 0
+      statusMsg = down
+          ? _kInputShareDown
+          : missing == 0
           ? '${_reworkItems.length} image(s) awaiting rework in this group.'
           : '${_reworkItems.length} image(s) awaiting rework — $missing source '
                 'file(s) could not be found on this PC.';
@@ -5267,6 +5273,13 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   /// phone deletion, none of which apply to a transferred box — and reusing it
   /// would have meant threading rework conditionals through the most
   /// safety-critical widget in this file.
+  /// A staged photo is local (cheap to stat); the LWIP input file was already
+  /// probed, async, by [_resolveReworkInput] - never stat a UNC path in build.
+  bool _reworkSourceReadable(ReworkItem item, File source) =>
+      _reworkStaged[item.imageName] != null
+      ? source.existsSync()
+      : _reworkInputs[_reworkInputKey(item)]?.status == FsProbe.found;
+
   Widget _buildReworkTile(ReworkItem item) {
     final lw = LifewoodColors.of(context);
     final cs = Theme.of(context).colorScheme;
@@ -5293,7 +5306,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (source != null && source.existsSync())
+                  if (source != null && _reworkSourceReadable(item, source))
                     Image.file(
                       source,
                       key: ValueKey('${source.path}:$_reworkStageEpoch'),
@@ -5307,6 +5320,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                     _reworkTilePlaceholder(
                       _reworkConfig == null
                           ? 'This station has no processing folders configured.'
+                          : _reworkShareUnreachable(item)
+                          ? _kInputShareDown
                           : 'Source file not on this PC — the folder was captured '
                                 'on another station.',
                     ),
@@ -5359,7 +5374,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                   // GestureDetector 鈥?that would delay every focus tap by
                   // kDoubleTapTimeout, and focusing is the main interaction
                   // here. Only over a real image, never the placeholder.
-                  if (source != null && source.existsSync())
+                  if (source != null && _reworkSourceReadable(item, source))
                     Positioned(
                       bottom: 6,
                       right: 6,
@@ -5724,11 +5739,18 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   /// Staging only — nothing is written until Submit Rework, so LWIP reprocesses
   /// the folder once and QC never sees it half fixed.
   Future<void> _startReworkRecaptureForSlot(ReworkItem item) async {
-    final target = _reworkInputFileFor(item);
+    final input = await _resolveReworkInput(item);
+    final target = input.file;
     if (target == null) {
       showAppSnackBar(
-        _reworkConfig == null ? 'Not configured' : 'Different station',
         _reworkConfig == null
+            ? 'Not configured'
+            : input.unreachable
+            ? 'Share unreachable'
+            : 'Different station',
+        input.unreachable
+            ? _kInputShareDown
+            : _reworkConfig == null
             ? 'This station has no processing folders configured. Ask an admin '
                   'to complete LWCam Admin → Station Setup.'
             : 'This folder was captured on another station, so its source '
@@ -5918,18 +5940,31 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       )) {
         final items = byFolder[folder.folderSeq]!;
         final recaptured = <int>{}; // reworkIds settled by a new photo
+        // Input folders whose completion marker says "rework in progress"
+        // while files are being replaced (LWIP holds off until it is cleared).
+        final flagged = <String>{};
 
         for (final item in items) {
           final source = _reworkStaged[item.imageName];
           if (source == null) continue;
-          final target = _reworkInputFileFor(item);
+          final input = await _resolveReworkInput(item);
+          final target = input.file;
           if (target == null) {
             failures.add(
-              '${item.imageName}: could not resolve its source file',
+              input.unreachable
+                  ? '${item.imageName}: $_kInputShareDown'
+                  : '${item.imageName}: could not resolve its source file',
             );
             continue;
           }
           try {
+            final inputDir = target.parent.path;
+            if (!flagged.contains(inputDir)) {
+              // Fail closed: an unflagged folder could be fingerprinted by LWIP
+              // half-replaced, so a failed flag write skips the replacement.
+              await setReworkInProgress(inputDir, true);
+              flagged.add(inputDir);
+            }
             setState(() => statusMsg = 'Replacing ${item.imageName}…');
             await _overwriteReworkFileAtomically(
               source: source,
@@ -5941,6 +5976,15 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
           } catch (e) {
             print('⚠️ Rework write failed for ${item.imageName}: $e');
             failures.add('${item.imageName}: $e');
+          }
+        }
+
+        for (final inputDir in flagged) {
+          try {
+            await setReworkInProgress(inputDir, false);
+          } catch (e) {
+            print('⚠️ Rework: could not clear the in-progress flag: $e');
+            failures.add('$inputDir: could not mark the rework finished ($e)');
           }
         }
 

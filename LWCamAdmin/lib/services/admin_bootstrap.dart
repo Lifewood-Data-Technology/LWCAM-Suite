@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/node_config.dart';
+import 'admin_login.dart';
 import 'admin_pg_gateway.dart';
 import 'admin_store_service.dart';
 
@@ -29,12 +30,13 @@ class AdminBootstrap {
     if (Get.isRegistered<AdminStoreService>()) {
       await Get.delete<AdminStoreService>(force: true);
     }
+    final login = adminLoginFor(config);
     final gateway = AdminPgGateway(
       host: config.pgHost?.trim() ?? '',
       port: config.pgPort,
       database: config.pgDatabase ?? '',
-      user: config.pgUser ?? '',
-      password: config.pgPassword ?? '',
+      user: login.user,
+      password: login.password,
       useSsl: config.pgUseSsl,
     );
     final service = AdminStoreService(

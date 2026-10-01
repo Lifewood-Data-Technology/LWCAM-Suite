@@ -42,6 +42,10 @@ class BoxTransferJob {
   /// early — see [QueueAlertPresenter.waitForReconnect].
   Completer<void>? _reconnectSignal;
 
+  /// When this job began waiting for the destination share (null while it is
+  /// not); feeds the capture heartbeat's `oldest_transfer_wait_minutes`.
+  DateTime? waitingSince;
+
   BoxTransferJob({
     required this.id,
     required this.box,
@@ -94,9 +98,11 @@ class QueueAlertPresenter extends TransferAlertPresenter {
   }) async {
     while (true) {
       if (await checkConnection()) {
+        job.waitingSince = null;
         job.state.value = BoxTransferJobState.running;
         return;
       }
+      job.waitingSince ??= DateTime.now();
       job.state.value = BoxTransferJobState.waitingForDestination;
       final signal = Completer<void>();
       job._reconnectSignal = signal;
@@ -106,6 +112,24 @@ class QueueAlertPresenter extends TransferAlertPresenter {
       ]);
     }
   }
+}
+
+/// The capture heartbeat's transfer-wait backlog: how many jobs are stuck
+/// waiting for the LWIP share and how long the oldest has waited (QC turns the
+/// capture row red past 60 minutes).
+Map<String, Object?> transferWaitBacklog(
+  Iterable<DateTime> waitingSince,
+  DateTime now,
+) {
+  final list = waitingSince.toList();
+  if (list.isEmpty) {
+    return {'transfers_waiting': 0, 'oldest_transfer_wait_minutes': 0};
+  }
+  final oldest = list.reduce((a, b) => a.isBefore(b) ? a : b);
+  return {
+    'transfers_waiting': list.length,
+    'oldest_transfer_wait_minutes': now.difference(oldest).inMinutes,
+  };
 }
 
 /// One-at-a-time background transfer queue for box-mode boxes. Staging
@@ -127,6 +151,14 @@ class TransferQueueService extends GetxController {
 
   int _nextId = 1;
   bool _pumping = false;
+
+  /// See [transferWaitBacklog].
+  Map<String, Object?> heartbeatBacklog() => transferWaitBacklog([
+    for (final j in queue)
+      if (j.state.value == BoxTransferJobState.waitingForDestination &&
+          j.waitingSince != null)
+        j.waitingSince!,
+  ], DateTime.now());
 
   @override
   void onInit() {

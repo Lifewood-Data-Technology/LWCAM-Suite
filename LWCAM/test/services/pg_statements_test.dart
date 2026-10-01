@@ -34,6 +34,24 @@ void main() {
     });
   });
 
+  group('changeOwnPasswordSql', () {
+    test('calls the function with old password and new hash as bound parameters', () {
+      final stmt = changeOwnPasswordSql(
+        username: 'alice',
+        oldPassword: 'Temp1234',
+        bcryptHash: r'$2a$10$abc',
+      );
+      expect(stmt.sql, contains('lwcam_change_own_password(@user_id, @old_password, @new_hash)'));
+      expect(stmt.sql, isNot(contains('UPDATE')));
+      expect(stmt.sql, isNot(contains('Temp1234')));
+      expect(stmt.parameters, {
+        'user_id': 'alice',
+        'old_password': 'Temp1234',
+        'new_hash': r'$2a$10$abc',
+      });
+    });
+  });
+
   group('boxUpsertSql', () {
     final stmt = boxUpsertSql(
       {

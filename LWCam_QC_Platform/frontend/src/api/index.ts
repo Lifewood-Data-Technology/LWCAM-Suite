@@ -11,12 +11,14 @@ import type {
   ExportRun,
   CropRect,
   MetadataQcTask,
+  NetworkLogin,
   PageResult,
   PathSettingsVO,
   PathValidation,
   ProjectOption,
   RejectedImagePayload,
   StatsOverview,
+  SystemStatus,
   UpdatePathSettingsRequest,
   UpdateServerSettingsRequest,
   UserInfo,
@@ -25,12 +27,19 @@ import type {
 export const authApi = {
   login: (data: { username: string; password: string }) => request.post<ApiResponse<AuthResponse>>('/auth/login', data),
   me: () => request.get<ApiResponse<UserInfo>>('/auth/me'),
+  logout: () => request.post<ApiResponse<Record<string, never>>>('/auth/logout'),
   changePassword: (oldPassword: string, newPassword: string) =>
     request.put<ApiResponse<UserInfo>>('/auth/password', { oldPassword, newPassword }),
 }
 
 export const adminApi = {
   stats: () => request.get<ApiResponse<StatsOverview>>('/admin/stats/overview'),
+  systemStatus: (all = false) =>
+    request.get<ApiResponse<SystemStatus>>('/admin/system-status', { params: all ? { all: 1 } : {} }),
+  forgetPc: (part: string, host: string) =>
+    request.delete<ApiResponse<Record<string, never>>>(
+      `/admin/system-status/${encodeURIComponent(part)}/${encodeURIComponent(host)}`,
+    ),
   // No user-management bindings here on purpose. Creating, editing, disabling and
   // password-resetting an account is SuperAdmin work and is done in LWCam Admin, against
   // Postgres directly. The engine still exposes those endpoints, but gated to
@@ -70,6 +79,14 @@ export const adminApi = {
     request.post<ApiResponse<PathValidation>>('/admin/settings/paths/validate', payload),
   updateServerSettings: (payload: UpdateServerSettingsRequest) =>
     request.put<ApiResponse<PathSettingsVO>>('/admin/settings', payload),
+  networkLogins: () =>
+    request.get<ApiResponse<{ logins: NetworkLogin[] }>>('/admin/settings/network-logins'),
+  checkNetworkLogins: () =>
+    request.post<ApiResponse<{ logins: NetworkLogin[] }>>('/admin/settings/network-logins/check'),
+  saveNetworkLogin: (payload: { host: string; username: string; password: string }) =>
+    request.post<ApiResponse<{ error: string | null }>>('/admin/settings/network-logins', payload),
+  removeNetworkLogin: (host: string) =>
+    request.post<ApiResponse<Record<string, never>>>('/admin/settings/network-logins/remove', { host }),
 }
 
 export const qcApi = {

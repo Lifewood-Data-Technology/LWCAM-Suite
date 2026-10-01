@@ -30,7 +30,7 @@ layout and the station.
 | Path | What it is |
 | --- | --- |
 | `LWCAM` | Flutter Windows capture app. Capture and the rework recapture list. **No QC** since Phase 8 (2026-09-22): the review screens and the local engine are gone. **No LWIP** since 2026-09-25: LWIP is its own installer and boot-time SYSTEM service on its own PC, reports to PostgreSQL itself (`cloud_report.py`), and LWCAM neither starts/stops it nor reads its `state.json` any more — `ProcessingBootstrap`, `ProcessingReportService` and `LwipService` are deleted. |
-| `LWCamAdmin` | Flutter Windows SuperAdmin app. Owns Station Setup, which writes the capture station's config (`lwcam_node_config.json`) and (since 2026-09-25) only TESTS the database connection — creating/upgrading the schema is `LWCamDatabaseSetup`'s job, and Station Setup no longer configures or starts LWIP either. It keeps only the two "LWIP folders (as this PC sees them)" fields, which LWCAM's rework still needs to map `folder_path` back to the original images. No QC, upload or AI settings since 2026-09-23 — the QC server owns those. |
+| `LWCamAdmin` | Flutter Windows SuperAdmin app. Owns Station Setup, which writes the capture station's config (`lwcam_node_config.json`) and (since 2026-09-25) only TESTS the database connection — creating/upgrading the schema is `LWCamDatabaseSetup`'s job, and Station Setup no longer configures or starts LWIP either. Since 2026-09-28 it has no LWIP fields at all: LWCAM's rework finds a recapture's original under the image destination (`rework_service.dart`). No QC, upload or AI settings since 2026-09-23 — the QC server owns those. |
 | `LWIP` | Deskew/crop/thumbnail engine, its own product at the repository root since 2026-09-25 (no longer nested under `LWCAM`). Runs as its own boot-time SYSTEM service on its own machine and reports each finished folder straight to PostgreSQL itself (`backend/deskew_crop_tool/cloud_report.py`). **Start with `LWIP/README.txt`.** |
 | `LWCam_QC_Platform` | **QC as a standalone LAN server** — FastAPI backend plus the Vue console it serves from `frontend/dist`. Review, approve, reject, separation, client rework, export, admin settings. It talks to LWCAM only through the database. **Start with `LWCam_QC_Platform/AGENTS.md`** for anything QC. |
 | `LWCam_Upload` | The S3 upload phase, moved out of the QC server into its own app: a SYSTEM boot task that watches QC's output folder, uploads with size-verified logic, keeps its own ledger, and serves its own console (status, paths/S3 settings, live log). |
@@ -62,15 +62,15 @@ measured on 2026-09-25 on this branch — several failures are pre-existing and
 chasing them wastes a session.**
 
 ```bash
-cd LWCAM        && flutter analyze && flutter test     # 5 infos, 407 pass
-cd LWCamAdmin   && flutter analyze && flutter test     # clean,   93 pass
+cd LWCAM        && flutter analyze && flutter test     # 5 infos, 442 pass (2026-09-30)
+cd LWCamAdmin   && flutter analyze && flutter test     # clean,   136 pass (2026-09-30)
 cd LWCam_QC_Platform/backend && C:\Python314\python.exe -m unittest discover -s tests -t .
-                                                       # 194 total: 190 pass, 4 skipped, 0 fail (upload-standalone)
+                                                       # 291 total, 0 fail; 1 skip with LWCAM_DB_PASSWORD set, 5 without (2026-09-30)
 cd LWCam_QC_Platform/frontend && npm run build         # vue-tsc --noEmit && vite build
 cd LWIP/backend        && C:\Python314\python.exe -m unittest discover -s tests
-                                                       # 105 run, 2 fail, 1 skipped
+                                                       # 206 run, 2 fail, 1 skipped (2026-09-30)
 cd LWCam_Upload/backend && C:\Python314\python.exe -m unittest discover -s tests
-                                                       # 51 pass (no real S3 or DB)
+                                                       # 143 pass (no real S3 or DB; 2026-09-30)
 ```
 
 (The QC backend count is the same whether collected by `unittest` or by
@@ -454,6 +454,74 @@ before debugging anything else.
 
 The QC platform's own state — what was exercised on the console, test folders,
 and its open list — is in `LWCam_QC_Platform/AGENTS.md`. What spans the apps:
+
+**2026-09-30: one shared database login replaces the five per-part logins.**
+`LWCamDatabaseSetup` asks for database name, port, user and password on one
+page (defaults `lwcam` / 5432 / `lwcam_user`; password >= 12 chars, typed
+twice; on a re-run prefilled from `config\database.txt`, blank keeps it) and
+stores `appUser` / `appPassword` / `dbName` / `dbPort` there beside the
+`postgres` login; `logins.txt` is no longer written. The password reaches
+`setup_qc_db.py --app-login` only through the `LWCAM_APP_PASSWORD` environment
+variable (`Win32SetEnv` in `Database.iss`, read by `SETUP_DATABASE.bat`, which
+falls back to database.txt when run by hand). Silent: `/APPDB /DBPORT /APPUSER
+/APPPASSWORD` (no default password). The chosen port goes to the EDB installer
+(`--serverport {code:GetPgPort}` in `postgres.iss`), the firewall rule and
+database.txt; a port already listening is refused on a fresh install. QC, LWIP
+and Upload installers got a Database name field (`/DBNAME`, default `lwcam`)
+and user default `lwcam_user`, written as `dbName` / `db_name`;
+`ValidateDbPage` in `common.iss` now has five fields. Not built into a
+running install here; compiled with ISCC only.
+
+**2026-09-30: multi-PC hardening (round 2).** Core rule: the database, QC,
+LWIP, Upload and every capture PC may be different machines on a LAN or
+Tailscale, with different clocks and shares reached through saved logins, and
+any of them may be off - so nothing waits on a remote host without a timeout,
+everything queues and retries, and the QC console's **System status** page
+shows it (green / red / grey; QC, QC export, LWIP, Upload and backup are
+"never reported" red until they report; capture PCs are informational - grey
+when off, red only for held/old unsent records or an error; ages come from the
+DB's own `now()`; "Forget this PC" deletes a stale row, `lwcam_qc` has DELETE
+on `service_heartbeat`). What changed, by area:
+
+- **Schema level 8** (`008_hardening.sql`): QC needs 8, every other part 7.
+  `lwcam_qc` lost CREATE on `public`; export numbers come from
+  `public.lwcam_next_export_number(bigint)` (SECURITY DEFINER). The DB PC's
+  `LWCamDatabaseSetup` must therefore run BEFORE any QC upgrade.
+  `setup_qc_db.py`: `--create-roles` refuses a lost `logins.txt`
+  (`--reset-missing-roles` is never passed by the installer);
+  `--strict-logins` refuses while a non-part login is connected from another PC
+  or a broader non-TLS `pg_hba` line remains (`--force-strict` overrides only
+  the first); migrations 006-008 are one transaction with a 30 s lock timeout.
+- **Installers (`installer\`)**: `Database.iss` locks `{app}` (new
+  `SetExactAcl`/`LockProgramFolder` in `common.iss`: Set-Acl with read-back, so
+  other explicit grants are removed; trailing backslashes stripped) BEFORE it
+  registers the SYSTEM backup task, refuses an unlockable folder; rewrites a
+  kept `database.txt` (old copy `.bak-<time>`) when PostgreSQL was reinstalled;
+  backup page refuses drive roots/system folders/foreign non-empty folders;
+  "Run a backup now" default ticked; `strictlogins` requires `openlan`; the
+  finish page shows setup_qc_db's `[ERROR]` line. `LWCam.iss` deletes old
+  `station-seed.json`/`postgres-password.txt`. `build-installer.ps1` appends
+  `-dirty` to the build id when the tree is dirty and runs `npm ci` first.
+- **Backup/restore**: `backup_db.py` also writes
+  `lwcam-globals-YYYYMMDD-HHMM.sql` (`pg_dumpall --globals-only`, the roles and
+  their hashes), pruned with the dumps; `--tool NAME` prints the newest pg tool
+  and `--safety-dump` writes `pre-restore-*.dump`. `RESTORE_DATABASE.bat` uses
+  those, needs `fltmc` elevation, aborts if the safety dump fails, restores with
+  `--single-transaction`, stops/restarts only the LWCam tasks that are running.
+- **Web consoles are https-only** (`tls.py`, one copy per service, trusted per
+  viewing PC; Firefox has its own store). With the database down they are
+  read-only (a local browser sees status; a saved admin list lets a prior admin
+  in); a capture PC's marker carries `image_count` and LWIP waits for that many
+  images; the capture DB password is stored DPAPI-protected
+  (`pgPasswordProtected`).
+- **Docs**: `installer\README.txt` has the site upgrade order ("Upgrading a
+  multi-PC site"), status page, held records / Try again, schema-gate messages,
+  strictlogins guidance and the rebuild-on-new-hardware recipe; `LWIP\README.txt`
+  and `LWCam_Upload\README.txt` describe https and DB-down behaviour.
+- **Unproven here** (nothing was installed on this PC): the new `SetExactAcl`
+  with `Users:RX` on a real Program Files folder, the restore script elevated,
+  and a live multi-PC upgrade. The installers compile; `QCPlatformSetup.exe`
+  was compiled with ISCC directly (BuildId `test`), not through the script.
 
 **Done.** Phase 8, the desktop cutover (2026-09-22): LWCAM has no QC and
 LWCamAdmin no longer registers a local QC engine. The console has been tested

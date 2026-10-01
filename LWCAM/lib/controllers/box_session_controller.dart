@@ -21,8 +21,10 @@ import '../services/cloud_box_names.dart';
 import '../services/open_rework_cache.dart';
 import '../services/orphan_image_store.dart';
 import '../services/rework_service.dart' show ReworkItem;
+import '../services/safe_copy.dart';
 import '../services/processing_marker_service.dart';
 import '../services/sync_service.dart';
+import '../services/transfer_destination_service.dart';
 import '../services/thumbnail_service.dart';
 
 /// One box on the list, with derived counts (pattern: ReworkBoxEntry).
@@ -777,7 +779,7 @@ class BoxSessionController extends GetxController {
       if (localFile != null && await localFile.exists()) {
         try {
           final dir = await _boxImagesDir(box.id);
-          await localFile.copy(p.join(dir.path, deviceFilename));
+          await safeCopy(localFile, p.join(dir.path, deviceFilename));
         } catch (e) {
           print('ℹ️ Local persist skipped for $deviceFilename: $e');
         }
@@ -868,7 +870,7 @@ class BoxSessionController extends GetxController {
     if (box == null || !await source.exists()) return;
     try {
       final dir = await _boxImagesDir(box.id);
-      await source.copy(p.join(dir.path, deviceFilename));
+      await safeCopy(source, p.join(dir.path, deviceFilename));
     } catch (e) {
       print('ℹ️ Durable replace skipped for $deviceFilename: $e');
     }
@@ -955,14 +957,38 @@ class BoxSessionController extends GetxController {
     // The folder name is now just the Volume (see computeFolderNames).
     // Names taken by other groups are reserved too: the destination day folder
     // is shared across groups, so a repeated name is a merged directory.
-    final names = computeFolderNames(
-      box.boxDetails,
-      folders,
-      reserved: await _db.reservedFolderNames(
-        deviceId: deviceId,
-        excludeBoxId: box.id,
-      ),
+    var reserved = await _db.reservedFolderNames(
+      deviceId: deviceId,
+      excludeBoxId: box.id,
     );
+    var names = computeFolderNames(box.boxDetails, folders, reserved: reserved);
+    // A folder on the LWIP input share may already carry ANOTHER box's marker
+    // (two capture PCs, same day, same Volume): that is not in this PC's DB, so
+    // reserve those names too and take the suffixed one instead of merging.
+    final dayDir = TransferDestinationService.isDayDirectory(box.transferredTo)
+        ? box.transferredTo!.trim()
+        : Get.isRegistered<SettingsController>() &&
+              Get.find<SettingsController>().destinationPath.value.trim().isNotEmpty
+        ? TransferDestinationService.directoryForDate(
+            Get.find<SettingsController>().destinationPath.value.trim(),
+            DateTime.now(),
+          ).path
+        : null;
+    if (dayDir != null) {
+      final boxKeys = await _db.boxNaturalKeys(deviceId: deviceId, boxId: box.id);
+      for (var round = 0; round < 5; round++) {
+        final foreign = await foreignMarkerFolderNames(
+          dayDir: dayDir,
+          boxKeys: boxKeys,
+          folderSeqByName: {
+            for (var i = 0; i < folders.length; i++) names[i]: folders[i].folderSeq,
+          },
+        );
+        if (foreign.isEmpty) break;
+        reserved = {...reserved, ...foreign};
+        names = computeFolderNames(box.boxDetails, folders, reserved: reserved);
+      }
+    }
     final finalized = <CaptureFolder>[];
     for (var i = 0; i < folders.length; i++) {
       final f = folders[i];
@@ -1198,7 +1224,7 @@ class BoxSessionController extends GetxController {
         if (localPath != null &&
             localPath.isNotEmpty &&
             File(localPath).existsSync()) {
-          await File(localPath).copy(slotTarget.path);
+          await safeCopy(File(localPath), slotTarget.path);
           file = slotTarget;
         } else {
           final fresh = await adb.pullSingleFile(
@@ -1214,7 +1240,7 @@ class BoxSessionController extends GetxController {
         if (!deviceNames.contains(name) && await localCopy.exists()) {
           // Phone no longer has it (healed/admin-resolved orphan) — the
           // durable copy is now authoritative; a pull would be doomed.
-          await localCopy.copy(slotTarget.path);
+          await safeCopy(localCopy, slotTarget.path);
           file = slotTarget;
           reused++;
         } else if (await localCopy.exists() &&
@@ -1222,7 +1248,7 @@ class BoxSessionController extends GetxController {
             await localCopy.length() == deviceSize) {
           // Local-first: reuse the capture-time copy when its size matches the
           // device's (size unknown → don't trust it, re-pull).
-          await localCopy.copy(slotTarget.path);
+          await safeCopy(localCopy, slotTarget.path);
           file = slotTarget;
           reused++;
         } else {
@@ -1231,7 +1257,7 @@ class BoxSessionController extends GetxController {
           // Refresh the durable copy for a later retry.
           if (file != null && await file.exists()) {
             try {
-              await file.copy(localCopy.path);
+              await safeCopy(file, localCopy.path);
             } catch (_) {}
           }
         }

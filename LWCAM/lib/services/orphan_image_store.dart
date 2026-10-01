@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'safe_copy.dart';
+
 /// Retries [op] on a THROWN error only — a normal return value (including
 /// `false`) is a result, not a failure, and is returned as-is. Sleeps
 /// [delays] BETWEEN attempts, so `delays.length + 1` attempts total; the
@@ -125,7 +127,7 @@ class OrphanImageStore {
       final dir = await _deviceDir(deviceId);
       final storedName = _uniqueStoredName(dir, deviceFilename);
       final dest = File(p.join(dir.path, storedName));
-      await source.copy(dest.path);
+      await safeCopy(source, dest.path);
 
       final at = stashedAt ?? DateTime.now();
       final sidecar = File('${dest.path}$_sidecarSuffix');
@@ -268,7 +270,7 @@ class OrphanImageStore {
   Future<File> resolveInto(OrphanEntry e, Directory targetDir) async {
     if (!targetDir.existsSync()) await targetDir.create(recursive: true);
     final landed = File(p.join(targetDir.path, e.deviceFilename));
-    await e.file.copy(landed.path);
+    await safeCopy(e.file, landed.path);
     await discard(e);
     return landed;
   }

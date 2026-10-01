@@ -20,6 +20,8 @@ class ExportFolderVO(ExportableFolderVO):
     exportedTime: datetime | None
     groupId: str | None
     exportable: bool
+    uploadedTime: datetime | None = None
+    uploadError: str | None = None
 
 
 class ExportIssueVO(BaseModel):

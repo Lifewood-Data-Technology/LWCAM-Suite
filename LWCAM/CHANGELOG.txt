@@ -9,6 +9,26 @@
   alone (its sibling LWRework has its own CHANGELOG.txt from the same point).
 
 --------------------------------------------------------------------------------
+ 2026-09-28 - REWORK FINDS THE ORIGINAL UNDER THE IMAGE DESTINATION
+--------------------------------------------------------------------------------
+
+- `ReworkService.inputFileFor` no longer reads the two "LWIP folders" from
+  Station Setup. It takes the `<YYYYMMDD>\<folder>` tail of the
+  `folder_path` LWIP recorded and looks under `destinationPath` - the folder
+  this station copied the originals into, which IS LWIP's input. The old
+  fields had to hold LWIP's output root spelt exactly as LWIP's own PC spells
+  it, while Station Setup labelled them "as this PC sees them", so on a split
+  site a recapture silently could not find its file.
+- The date is searched from the end and must have a folder after it, because
+  a Volume (the folder name) can itself be eight digits.
+- Returns a file only when it exists: a recapture REPLACES an original, and a
+  folder captured on a station with another destination is not here to
+  replace. `effectiveInputRoot`/`effectiveOutputRoot` are deleted;
+  `processingInputRoot`/`processingOutputRoot` stay in `NodeConfig`
+  round-trip only.
+- Tests: rework_service_test.dart rewritten against real files (5).
+
+--------------------------------------------------------------------------------
  2026-09-25 - LWIP RUNS STANDALONE; LWCAM STOPS SUPERVISING/REPORTING IT
 --------------------------------------------------------------------------------
 

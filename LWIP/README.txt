@@ -106,7 +106,10 @@ completion_marker
     images have been closed. When configured, a folder is eligible only when the
     marker exists; image readability and unchanged-snapshot checks still apply.
     A producer-written marker is the only way to distinguish a finished transfer
-    from a long pause between files with certainty. The installed config sets
+    from a long pause between files with certainty. LWCAM's marker also carries
+    "image_count", the number of images it copied into the folder: a folder
+    holding fewer image files than that is treated as still arriving (logged
+    once) and is not processed. A marker without the field behaves as before. The installed config sets
     the marker to "lwcam_capture_marker.json", matching what LWCAM's own
     `processing_marker_service.dart` still writes (carrying the folder's DB
     identity) into each folder once a box's transfer fully verifies; that
@@ -194,18 +197,60 @@ Console
 
 START_LWIP.bat now runs deskew_crop_tool.service, a supervisor that starts
 the watcher above as a child process and also serves a small web console
-beside it - by default at http://localhost:8090/ (ui_port / ui_bind in the
+beside it - by default at https://<this PC's name>:8090/ (ui_port / ui_bind in the
 config). It stays reachable even if the watcher's config is bad enough that
 the watcher itself cannot start, so that is something an operator can see and
 fix from a browser instead of only from logs\service.log.
 
 Sign in with an Admin or SuperAdmin account from the shared PostgreSQL users
 table (the same one LWCAM/LWCam Admin/QC use) - a plain qc-only account has
-no console access. If the database cannot be reached at all, a browser open
-on THIS machine still gets full access so the database settings can be fixed
-from there; a browser anywhere else gets read-only status and log viewing
+no console access. If the database cannot be reached the console is
+read-only: a browser open on THIS machine sees status and the log without
+signing in, and an admin who has signed in before can sign in from the saved
+admin list (admin_cache.json beside the config, refreshed every ten minutes
+while the database answers). Nobody changes settings from a remote browser
 until the database comes back. Saving Settings restarts the watcher with the
 new values.
+
+"Network folder logins" saves the account this PC signs in with to reach a
+folder on another PC - needed outside a domain, where the other PC refuses
+this PC's own SYSTEM account. The list is shared by every LWCam service on
+this PC; installer\README.txt ("SYSTEM account and UNC shares") has the rest.
+
+Passwords at rest
+-----------------
+db_password is stored encrypted ("dpapi:...") in config\deskew_crop_config.json: Windows DPAPI
+tied to this PC, written by the installer and by the console, and encrypted at
+start-up if an older install left it plain. A copy of the file on another PC
+cannot be decrypted (enter the password again in the console). It does not
+protect against an administrator on this PC. See installer\README.txt.
+
+HTTPS and other PCs
+-------------------
+
+The console is https:// only: plain http on the same port no longer answers.
+The certificate is made by the installer (C:\ProgramData\LWCAM\tls, shared by
+the QC, LWIP and Upload services on one PC, renewed by the service on every
+start). On every PC whose browser opens the page, copy "Trust this LWCam
+server.cmd" and "LWCam server certificate.crt" from the install folder, keep
+them together and double-click the .cmd once, then reopen the browser. Firefox
+has its own certificate store: Settings > Privacy & Security > Certificates >
+View Certificates > Authorities > Import the .crt and tick "Trust this CA to
+identify websites". Details: installer\README.txt ("HTTPS").
+
+The database may be on another PC or another site (LAN or Tailscale). This
+service uses the one shared LWCam database login (the one LWCamDatabaseSetup shows) and reports to the QC console's
+System status page (green / red / grey; "never reported" when it has not yet
+reached the database). While the database or the QC PC is off, LWIP keeps working from its
+input folder and reports finished folders when the database returns; a finished folder
+waits for QC in the database queue. The status page shows folders waiting or failed.
+
+Schema gate: if the database is older than this program, the service says so
+("The database is older than this program (needs level N, has M). Run
+LWCamDatabaseSetup on the database PC.") and does no database work until the
+database PC has been upgraded - upgrade the database PC first. The whole-site
+upgrade order, backups, restore and rebuild-on-new-hardware recipes are in
+installer\README.txt ("Upgrading a multi-PC site").
 
 
 Package Contents

@@ -415,7 +415,9 @@ class DeskewCropToolTests(unittest.TestCase):
             # Nothing journaled — state.json is only written once something
             # completes, so it may not exist at all yet.
             self.assertEqual(orchestrator.state.data["completed"], {})
-            self.assertFalse((root / "state.json").is_file())
+            # The failure is journaled for the back-off, though.
+            failures = orchestrator.state.data["failures"]
+            self.assertEqual([item["count"] for item in failures.values()], [1])
 
             # No permanent limbo: the next scan resolves the folder one way or
             # the other. Here the bytes were actually fine (only the mocked
@@ -424,7 +426,12 @@ class DeskewCropToolTests(unittest.TestCase):
             # reprocessed instead. Either way it ends up journaled and valid.
             recovered = FolderOrchestrator(config)
             recovered.run_once()
+            self.assertEqual(recovered.state.data["completed"], {})  # inside its 1-minute back-off
+            for item in recovered.state.data["failures"].values():
+                item["next_retry_epoch"] = 0  # the back-off has run out
+            recovered.run_once()
             self.assertEqual(len(recovered.state.data["completed"]), 1)
+            self.assertEqual(recovered.state.data["failures"], {})  # success clears it
             self.assertIsNotNone(cv2.imread(str(root / "output" / "job" / "a.jpg")))
 
     def test_adopts_existing_valid_output_without_reprocessing(self) -> None:

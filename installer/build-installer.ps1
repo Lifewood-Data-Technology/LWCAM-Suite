@@ -14,7 +14,10 @@ param(
 
     [string] $ScrcpyDir,
 
-    [switch] $ResolveOnly
+    [switch] $ResolveOnly,
+
+    # Rewrite installer\SHA256SUMS.txt from the bundled files on disk (all targets) and exit.
+    [switch] $UpdateChecksums
 )
 
 Set-StrictMode -Version Latest
@@ -51,7 +54,7 @@ function Require-Wheel {
 
 $installerDir = $PSScriptRoot
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $installerDir '..'))
-$targets = if ($Target -eq 'All') { @('LWCam', 'QC', 'LWIP', 'Upload', 'Database') } else { @($Target) }
+$targets = if ($Target -eq 'All' -or $UpdateChecksums) { @('LWCam', 'QC', 'LWIP', 'Upload', 'Database') } else { @($Target) }
 $scriptByTarget = @{ LWCam = 'LWCam.iss'; QC = 'QCPlatform.iss'; LWIP = 'LWIP.iss'; Upload = 'Upload.iss'; Database = 'Database.iss' }
 $outputByTarget = @{ LWCam = 'LWCamSetup.exe'; QC = 'QCPlatformSetup.exe'; LWIP = 'LWIPSetup.exe'; Upload = 'LWCamUploadSetup.exe'; Database = 'LWCamDatabaseSetup.exe' }
 $iscc = Resolve-Newest @(
@@ -91,6 +94,26 @@ foreach ($targetName in $targets) {
     Require-File (Join-Path $installerDir $scriptByTarget[$targetName]) "$targetName installer script"
 }
 
+# lwcam_secrets.py (DPAPI for the passwords in each config file) ships inside every
+# server module and with the Database installer. The copies must be byte-identical.
+$secretsCopy = @{
+    QC       = 'LWCam_QC_Platform\backend\app\core\lwcam_secrets.py'
+    LWIP     = 'LWIP\backend\deskew_crop_tool\lwcam_secrets.py'
+    Upload   = 'LWCam_Upload\backend\lwcam_upload\lwcam_secrets.py'
+    Database = 'installer\db\lwcam_secrets.py'
+}
+$secretsHash = @{}
+foreach ($targetName in $targets) {
+    if ($secretsCopy.ContainsKey($targetName)) {
+        $copy = Join-Path $repoRoot $secretsCopy[$targetName]
+        Require-File $copy "$targetName lwcam_secrets.py"
+        $secretsHash[[Convert]::ToBase64String([System.IO.File]::ReadAllBytes($copy))] = $copy
+    }
+}
+if ($secretsHash.Count -gt 1) {
+    throw ('lwcam_secrets.py copies differ (they must be byte-identical): ' + ($secretsHash.Values -join '; '))
+}
+
 # Only Database.iss installs PostgreSQL - LWCam, QC and LWIP just connect to
 # a server LWCamDatabaseSetup already created.
 $pgSource = $null
@@ -102,6 +125,109 @@ if ($targets -contains 'Database') {
     }
 }
 
+# Bundled third-party inputs (not built from our source) are pinned in
+# SHA256SUMS.txt: "<sha256>  <path relative to repo root>", sorted, LF.
+# Scopes per target = exactly what that target's .iss / this script consumes.
+function Get-BundledInputs {
+    param([string[]] $TargetNames)
+    $vc = @{ Dir = 'installer/vendor/vcruntime' }
+    $py = @{ Dir = 'installer/vendor'; Names = @('python-3.13.14-embed-amd64.zip') }
+    $scopes = @()
+    foreach ($t in $TargetNames) {
+        switch ($t) {
+            'LWCam'    { $scopes += $vc, @{ Dir = 'installer/vendor/adb' }, @{ Dir = 'LWCAM/scrcpy'; Abs = $scrcpy.FullName } }
+            'QC'       { $scopes += $vc, $py, @{ Dir = 'LWCam_QC_Platform/backend/wheels' } }
+            'LWIP'     { $scopes += $vc, $py, @{ Dir = 'LWIP/tools' }, @{ Dir = 'LWIP/wheels' } }
+            'Upload'   { $scopes += $vc, $py, @{ Dir = 'LWCam_Upload/wheels' } }
+            'Database' { $scopes += $vc, $py, @{ Dir = 'installer/vendor/postgresql'; Names = @('postgresql-18.*-windows-x64.exe') },
+                                    @{ Dir = 'LWIP/wheels'; Names = @('pip-*.whl', 'psycopg-*.whl', 'psycopg_binary-*.whl', 'tzdata-*.whl', 'cryptography-*.whl', 'cffi-*.whl', 'pycparser-*.whl') } }
+        }
+    }
+    $found = @{}   # key -> full path
+    $seen = @{}
+    foreach ($sc in $scopes) {
+        if (-not $sc.ContainsKey('Names')) { $sc.Names = @('*') }
+        if ($seen.ContainsKey($sc.Dir + '|' + ($sc.Names -join ','))) { continue }
+        $seen[$sc.Dir + '|' + ($sc.Names -join ',')] = 1
+        $abs = if ($sc.ContainsKey('Abs')) { $sc.Abs } else { Join-Path $repoRoot $sc.Dir }
+        $names = $sc.Names
+        # The python zip scope must not recurse into vendor's subfolders.
+        $recurse = $sc.Dir -ne 'installer/vendor'
+        if (Test-Path -LiteralPath $abs -PathType Container) {
+            $files = Get-ChildItem -LiteralPath $abs -File -Recurse:$recurse |
+                Where-Object { $n = $_.Name; @($names | Where-Object { $n -like $_ }).Count -gt 0 }
+            foreach ($f in $files) {
+                $rel = $f.FullName.Substring($abs.TrimEnd([char]92).Length + 1).Replace([string][char]92, '/')
+                $found[$sc.Dir + '/' + $rel] = $f.FullName
+            }
+        }
+        $sc.Prefix = $sc.Dir + '/'
+        $sc.Like = $names
+    }
+    [pscustomobject]@{ Found = $found; Scopes = $scopes }
+}
+
+function Get-Sha256Map {
+    param([hashtable] $Found)
+    $map = @{}
+    # .NET directly, not Get-FileHash: Windows PowerShell 5.1 started with a
+    # PowerShell 7 PSModulePath (e.g. from Git Bash) cannot autoload it.
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        foreach ($k in $Found.Keys) {
+            $stream = [System.IO.File]::OpenRead($Found[$k])
+            try { $map[$k] = ([System.BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant() }
+            finally { $stream.Dispose() }
+        }
+    } finally { $sha.Dispose() }
+    $map
+}
+
+$sumsFile = Join-Path $installerDir 'SHA256SUMS.txt'
+if ($UpdateChecksums) {
+    $map = Get-Sha256Map (Get-BundledInputs $targets).Found
+    $keys = [string[]]$map.Keys
+    [Array]::Sort($keys, [StringComparer]::Ordinal)
+    $lines = @($keys | ForEach-Object { "$($map[$_])  $_" })
+    [System.IO.File]::WriteAllText($sumsFile, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "Wrote $sumsFile ($($lines.Count) files)."
+    return
+}
+
+function Test-BundledChecksums {
+    param([string[]] $TargetNames)
+    if (-not (Test-Path -LiteralPath $sumsFile -PathType Leaf)) {
+        Write-Host 'installer\SHA256SUMS.txt is missing. Run build-installer.ps1 -UpdateChecksums and commit it.'
+        return $false
+    }
+    $listed = @{}
+    foreach ($line in [System.IO.File]::ReadAllLines($sumsFile)) {
+        if ($line -match '^([0-9a-f]{64})  (.+)$') { $listed[$Matches[2]] = $Matches[1] }
+    }
+    $in = Get-BundledInputs $TargetNames
+    $actual = Get-Sha256Map $in.Found
+    $bad = New-Object System.Collections.Generic.List[string]
+    $hint = 'If this change is intended, run build-installer.ps1 -UpdateChecksums and commit SHA256SUMS.txt.'
+    foreach ($k in ($actual.Keys | Sort-Object)) {
+        if (-not $listed.ContainsKey($k)) { $bad.Add("Bundled file is not in SHA256SUMS.txt: $k. $hint") }
+        elseif ($listed[$k] -ne $actual[$k]) { $bad.Add("Bundled file changed: $k. $hint") }
+    }
+    foreach ($k in ($listed.Keys | Sort-Object)) {
+        if ($actual.ContainsKey($k)) { continue }
+        $inScope = $false
+        foreach ($sc in $in.Scopes) {
+            if ($k.StartsWith($sc.Prefix)) {
+                $leaf = $k.Substring($sc.Prefix.Length)
+                if ($sc.Dir -eq 'installer/vendor' -and $leaf.Contains('/')) { continue }
+                if (@($sc.Like | Where-Object { ($leaf.Split('/')[-1]) -like $_ }).Count -gt 0) { $inScope = $true }
+            }
+        }
+        if ($inScope) { $bad.Add("Bundled file is listed in SHA256SUMS.txt but missing: $k. $hint") }
+    }
+    foreach ($m in $bad) { Write-Host $m }
+    return ($bad.Count -eq 0)
+}
+
 Write-Host "ISCC   : $($iscc.FullName)"
 if ($scrcpy) { Write-Host "scrcpy : $($scrcpy.FullName)" }
 Write-Host "Target : $Target"
@@ -110,6 +236,13 @@ if ($ResolveOnly) {
     Write-Host 'ResolveOnly: nothing built.'
     return
 }
+
+Write-Host 'Checking bundled files against SHA256SUMS.txt...'
+if (-not (Test-BundledChecksums $targets)) {
+    Write-Host 'Build stopped: bundled files do not match SHA256SUMS.txt.'
+    exit 1
+}
+Write-Host 'Bundled files match SHA256SUMS.txt.'
 
 # QC, LWIP and Database all build a private Python runtime from the same
 # embeddable archive and vcruntime DLLs; LWCam no longer needs either (LWIP
@@ -158,6 +291,14 @@ if ($targets -contains 'QC') {
     $frontendDir = Join-Path $repoRoot 'LWCam_QC_Platform\frontend'
     Push-Location $frontendDir
     try {
+        # npm ci: exactly the versions in package-lock.json, not whatever is in a stale node_modules.
+        if (Test-Path -LiteralPath (Join-Path $frontendDir 'package-lock.json')) {
+            Write-Host 'Installing QC console packages (npm ci)...'
+            & npm.cmd ci
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm ci failed with exit code $LASTEXITCODE."
+            }
+        }
         Write-Host 'Building QC console (npm run build)...'
         & npm.cmd run build
         if ($LASTEXITCODE -ne 0) {
@@ -178,8 +319,9 @@ if ($targets -contains 'QC') {
 
 if ($targets -contains 'Database') {
     # Database.iss ships these straight out of the LWIP wheelhouse - it needs
-    # only the DB driver and pip itself, not the image-processing libraries.
-    foreach ($wheel in @('pip-*.whl', 'psycopg-*.whl', 'psycopg_binary-*.whl', 'tzdata-*.whl')) {
+    # only the DB driver, pip and cryptography (the server TLS certificate),
+    # not the image-processing libraries.
+    foreach ($wheel in @('pip-*.whl', 'psycopg-*.whl', 'psycopg_binary-*.whl', 'tzdata-*.whl', 'cryptography-*.whl', 'cffi-*.whl', 'pycparser-*.whl')) {
         Require-Wheel (Join-Path $repoRoot 'LWIP\wheels') $wheel 'The LWIP wheelhouse'
     }
     Require-File (Join-Path $repoRoot 'LWCam_QC_Platform\scripts\setup_qc_db.py') 'QC database setup script'
@@ -189,14 +331,23 @@ if ($targets -contains 'Database') {
     if (-not (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'LWCam_QC_Platform\database\migrations') -Filter '*.sql' -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
         throw 'The QC database folder has no migrations.'
     }
-    foreach ($name in @('SETUP_DB_RUNTIME.bat', 'SETUP_DATABASE.bat')) {
+    foreach ($name in @('SETUP_DB_RUNTIME.bat', 'SETUP_DATABASE.bat', 'BACKUP_DATABASE.bat', 'RESTORE_DATABASE.bat', 'backup_db.py')) {
         Require-File (Join-Path $installerDir "db\$name") "Database helper $name"
     }
 }
 
+# Suite version: root VERSION plus the commit. Every installer gets it as
+# /DAppVer and /DBuildId, and ships it as {app}\VERSION.txt (vendor\ is ignored).
+$appVer = (Get-Content -LiteralPath (Join-Path $repoRoot 'VERSION') -TotalCount 1).Trim()
+$buildId = (& git -C $repoRoot rev-parse --short HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or -not $buildId) { $buildId = 'dev' }
+elseif (& git -C $repoRoot status --porcelain 2>$null) { $buildId = "$buildId-dirty" }  # uncommitted changes went into this build
+[System.IO.File]::WriteAllText((Join-Path $installerDir 'vendor\VERSION.txt'), "$appVer+$buildId", [System.Text.Encoding]::ASCII)
+Write-Host "Version: $appVer+$buildId"
+
 foreach ($targetName in $targets) {
     $iss = Join-Path $installerDir $scriptByTarget[$targetName]
-    $arguments = @("/DAppsDir=$repoRoot")
+    $arguments = @("/DAppsDir=$repoRoot", "/DAppVer=$appVer", "/DBuildId=$buildId")
     if ($targetName -eq 'LWCam') {
         $arguments += "/DScrcpyDir=$($scrcpy.FullName)"
     }

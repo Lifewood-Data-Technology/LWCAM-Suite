@@ -2,6 +2,7 @@
 
 import 'package:get/get.dart';
 import 'package:postgres/postgres.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/node_config.dart';
 import '../models/project.dart';
@@ -32,8 +33,12 @@ class DeviceGateResult {
   final String? boundLocationCode;
   final String? boundProjectName;
 
+  /// True when the decision came from the locally cached binding because the
+  /// database could not be reached.
+  final bool fromCache;
+
   const DeviceGateResult(this.gate,
-      {this.boundLocationCode, this.boundProjectName});
+      {this.boundLocationCode, this.boundProjectName, this.fromCache = false});
 }
 
 class DeviceRegistry {
@@ -46,6 +51,41 @@ class DeviceRegistry {
     return existing.toLowerCase() == projectCode.trim().toLowerCase()
         ? DeviceGate.allowed
         : DeviceGate.blocked;
+  }
+
+  static String _cacheKey(String deviceId) =>
+      'device_gate_project.${deviceId.trim().toLowerCase()}';
+
+  /// Remembers the device's project binding so capture keeps working (for
+  /// that project only) while the database is unreachable.
+  static Future<void> rememberBinding(String deviceId, String code) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey(deviceId), code.trim());
+    } catch (_) {}
+  }
+
+  /// Decision when the database cannot be asked: the last known binding
+  /// decides. Same project -> allowed; another project -> blocked (an
+  /// offline PC must not quietly capture into a project the device is not
+  /// bound to); never seen bound -> allowed (offline capture must work).
+  static Future<DeviceGateResult> offlineDecision(
+      String deviceId, String projectCode) async {
+    String? cached;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      cached = prefs.getString(_cacheKey(deviceId));
+    } catch (_) {}
+    if (cached == null || cached.trim().isEmpty) {
+      print('ℹ️ Device registry: unreachable and no cached binding for '
+          '$deviceId - gate skipped.');
+      return const DeviceGateResult(DeviceGate.skipped);
+    }
+    if (evaluate(cached, projectCode) == DeviceGate.blocked) {
+      return DeviceGateResult(DeviceGate.blocked,
+          boundLocationCode: cached, fromCache: true);
+    }
+    return const DeviceGateResult(DeviceGate.allowed, fromCache: true);
   }
 
   Future<NodeConfig?> _syncConfig() async {
@@ -96,7 +136,7 @@ class DeviceRegistry {
     final config = await _syncConfig();
     if (config == null) return const DeviceGateResult(DeviceGate.skipped);
     final conn = await _open(config);
-    if (conn == null) return const DeviceGateResult(DeviceGate.skipped);
+    if (conn == null) return offlineDecision(devId, code);
 
     try {
       final existing = await conn.execute(
@@ -108,6 +148,9 @@ class DeviceRegistry {
       );
       final existingCode =
           existing.isEmpty ? null : existing.first[0] as String?;
+      if (existingCode != null && existingCode.trim().isNotEmpty) {
+        await rememberBinding(devId, existingCode);
+      }
       if (evaluate(existingCode, code) == DeviceGate.blocked) {
         return DeviceGateResult(
           DeviceGate.blocked,
@@ -134,11 +177,13 @@ class DeviceRegistry {
         // Project row not in PG yet (snapshot pending) — allow, sync heals.
         print('ℹ️ Device registry: project "$code" not pushed yet — '
             'registration deferred.');
+      } else {
+        await rememberBinding(devId, existingCode ?? code);
       }
       return const DeviceGateResult(DeviceGate.allowed);
     } catch (e) {
-      print('ℹ️ Device registry check failed ($e) — gate skipped.');
-      return const DeviceGateResult(DeviceGate.skipped);
+      print('ℹ️ Device registry check failed ($e) — using cached binding.');
+      return offlineDecision(devId, code);
     } finally {
       try {
         await conn.close();

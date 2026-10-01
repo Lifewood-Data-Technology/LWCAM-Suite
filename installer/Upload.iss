@@ -5,7 +5,12 @@
 ; who is signed in to its own console.
 
 #define AppNameFull "LWCam Upload"
-#define AppVer "1.0.0"
+#ifndef AppVer
+  #define AppVer "1.0.0"
+#endif
+#ifndef BuildId
+  #define BuildId "dev"
+#endif
 
 #ifndef AppsDir
   #define AppsDir ".."
@@ -40,6 +45,9 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+; Written by build-installer.ps1: "<version>+<commit>". Each part shows it and sends it in its heartbeat.
+Source: "vendor\VERSION.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Trust this LWCam server.cmd"; DestDir: "{app}"; Flags: ignoreversion
 ; Upload source only, no tests, and no runtime bytecode.
 Source: "{#UploadDir}\backend\lwcam_upload\*"; DestDir: "{app}\backend\lwcam_upload"; Flags: ignoreversion recursesubdirs; Excludes: "*.pyc,__pycache__\*"
 Source: "{#UploadDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -67,16 +75,26 @@ Filename: "{cmd}"; Parameters: "/C ""{app}\SETUP_UPLOAD.bat"" <NUL"; WorkingDir:
 Name: "{autoprograms}\Upload Console"; Filename: "{code:ConsoleUrl}"
 
 [UninstallRun]
+; End before delete: deleting a running task leaves its restart loop alive.
+Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""LWCam Upload"""; Flags: runhidden waituntilterminated; RunOnceId: "EndUploadTask"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam Upload"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveUploadTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam Upload"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveUploadFirewallRule"
 
 [UninstallDelete]
 Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
-Type: filesandordirs; Name: "{app}\runtime"
+; runtime\ is NOT removed wholesale: uploads.json is the ledger of what was
+; already sent, and without it a reinstall would upload every package again.
+; Only what Setup or the service can rebuild goes.
+Type: filesandordirs; Name: "{app}\runtime\python"
+Type: filesandordirs; Name: "{app}\runtime\vc"
+Type: files; Name: "{app}\runtime\.setup_ok"
+Type: files; Name: "{app}\runtime\stop.request"
+Type: files; Name: "{app}\runtime\.uploads.json.*.tmp"
 Type: filesandordirs; Name: "{app}\logs"
 ; The private config folder: upload_config.json holds the database password
 ; and the S3 secret key.
 Type: filesandordirs; Name: "{app}\config"
+Type: files; Name: "{app}\LWCam server certificate.crt"
 ; Never the watched/done/summary folders: those are the operator's data,
 ; outside {app}.
 
@@ -377,17 +395,21 @@ begin
     'PostgreSQL connection',
     'Connect the Upload console to the PostgreSQL database',
     'Upload signs console users in against the same accounts the QC server and LWIP use. ' +
-    'Enter the host this PC uses and the login created by LWCamDatabaseSetup.');
+    'Enter the host this PC uses and the one database login LWCamDatabaseSetup''s finish ' +
+    'page shows (database, user and password).');
   DatabasePage.Add('Host', False);
   DatabasePage.Add('Port', False);
+  DatabasePage.Add('Database', False);
   DatabasePage.Add('User', False);
   DatabasePage.Add('Password', True);
-  // Defaults come from the command line (/DBHOST=, /DBPORT=, /DBUSER=,
-  // /DBPASSWORD=), read here for the same reason.
+  // Defaults come from the command line (/DBHOST=, /DBPORT=, /DBNAME=,
+  // /DBUSER=, /DBPASSWORD=), read here for the same reason. The port is
+  // always filled in (5432) and can be edited.
   DatabasePage.Values[0] := ExpandConstant('{param:DBHOST|}');
   DatabasePage.Values[1] := ExpandConstant('{param:DBPORT|5432}');
-  DatabasePage.Values[2] := ExpandConstant('{param:DBUSER|postgres}');
-  DatabasePage.Values[3] := ExpandConstant('{param:DBPASSWORD|}');
+  DatabasePage.Values[2] := ExpandConstant('{param:DBNAME|lwcam}');
+  DatabasePage.Values[3] := ExpandConstant('{param:DBUSER|lwcam_user}');
+  DatabasePage.Values[4] := ExpandConstant('{param:DBPASSWORD|}');
 end;
 
 // upload_config.json holds the database password and the S3 secret key, so it
@@ -447,9 +469,9 @@ begin
     '  "log_file": ' + JsonString(ExpandConstant('{app}\logs\upload.log')) + ',' + NL +
     '  "db_host": ' + JsonString(DatabasePage.Values[0]) + ',' + NL +
     '  "db_port": ' + IntToStr(StrToIntDef(DatabasePage.Values[1], 5432)) + ',' + NL +
-    '  "db_name": "lwcam",' + NL +
-    '  "db_user": ' + JsonString(DatabasePage.Values[2]) + ',' + NL +
-    '  "db_password": ' + JsonString(DatabasePage.Values[3]) + ',' + NL +
+    '  "db_name": ' + JsonString(DatabasePage.Values[2]) + ',' + NL +
+    '  "db_user": ' + JsonString(DatabasePage.Values[3]) + ',' + NL +
+    '  "db_password": ' + JsonString(DatabasePage.Values[4]) + ',' + NL +
     '  "db_use_ssl": false,' + NL +
     // The console's own port/bind - written once here so a fresh install has
     // a value to read back; ConfiguredUiPort() re-reads this on every upgrade
@@ -497,14 +519,14 @@ end;
 
 function ConsoleUrl(Param: String): String;
 begin
-  Result := 'http://localhost:' + ConfiguredUiPort() + '/';
+  Result := 'https://localhost:' + ConfiguredUiPort() + '/';
 end;
 
 // Runtime and task registration; problems are collected rather than raised so
 // one failure (e.g. a runtime that failed to build) does not hide another.
 procedure ConfigureUpload(var Issues: String);
 var
-  Params, StartCommand, Port: String;
+  Port: String;
   ResultCode: Integer;
 begin
   if not FileExists(ExpandConstant('{app}\runtime\.setup_ok')) then
@@ -519,17 +541,12 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   if not Exec(ExpandConstant('{sys}\netsh.exe'),
     'advfirewall firewall add rule name="LWCam Upload" dir=in action=allow protocol=TCP localport=' +
-    Port + ' profile=domain,private',
+    Port + ' profile=any remoteip=localsubnet,100.64.0.0/10,fd7a:115c:a1e0::/48',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
     AppendIssue(Issues, 'The Windows Firewall rule for TCP ' + Port + ' could not be added.');
 
-  // /TR takes the whole command as ONE argument, and the path has spaces, so it
-  // is quoted inside the quoted argument: /TR "\"C:\...\START_UPLOAD.bat\"".
-  StartCommand := ExpandConstant('{app}\START_UPLOAD.bat');
-  Params := '/Create /TN "LWCam Upload" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR "\"' +
-    StartCommand + '\"" /F';
-  if not Exec(ExpandConstant('{sys}\schtasks.exe'), Params, '',
-       SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  // No run-time limit, restart after a failure: see RegisterBootTask.
+  if not RegisterBootTask('LWCam Upload', ExpandConstant('{app}\START_UPLOAD.bat')) then
     AppendIssue(Issues, 'The LWCam Upload startup task could not be registered.')
   else if not Exec(ExpandConstant('{sys}\schtasks.exe'),
        '/Run /TN "LWCam Upload"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or
@@ -546,6 +563,11 @@ begin
     Exit;
 
   NL := #13#10;
+  Issues := '';
+  // Program folder first, before the task exists: code that runs as SYSTEM
+  // must not be replaceable by an ordinary user. config\ keeps its own list.
+  if not LockProgramFolder(ExpandConstant('{app}')) then
+    AppendIssue(Issues, 'The install folder could not be locked to Administrators; check its permissions.');
   // Private folder first, secrets second: the file inherits the folder's
   // restricted permissions when it is created, so there is no moment when it
   // is readable.
@@ -565,18 +587,20 @@ begin
     Exit;
   end;
 
-  Issues := '';
+  // https certificate for the web page; without it the page stays plain http.
+  if not SetUpTls(ExpandConstant('{app}\runtime\python\python.exe'), 'lwcam_upload.tls',
+       ExpandConstant('{app}\backend'), ExpandConstant('{app}\config\upload_config.json')) then
+    AppendIssue(Issues, 'The https certificate could not be created, so the page is plain http. Run setup again as Administrator.');
+
+  if not ProtectConfigSecrets(ExpandConstant('{app}\runtime\python\python.exe'), '-m lwcam_upload.lwcam_secrets',
+       ExpandConstant('{app}\backend'), ExpandConstant('{app}\config\upload_config.json'),
+       'db_password,s3_secret_key') then
+    AppendIssue(Issues, PlainSecretsWarning('config\upload_config.json') + ' Upload encrypts them itself when it starts.');
+
   ConfigureUpload(Issues);
 
   Closing := 'LWCam Upload is installed.' + NL + NL +
-    'Config : ' + ExpandConstant('{app}\config\upload_config.json') + NL +
-    'Logs   : ' + ExpandConstant('{app}\logs') +
-      ' (upload.log from the tool itself, service.log from the task wrapper)' + NL + NL +
-    'Console: http://' + GetComputerNameString() + ':' + ConfiguredUiPort() +
-      '/ (sign in with an Admin or SuperAdmin account)' + NL + NL +
-    'This PC''s computer account needs modify access to the watched share, the Uploaded' + NL +
-    'folder and the Upload Reports folder if either is set - SYSTEM cannot use a drive' + NL +
-    'letter mapped in someone''s logon session.';
+    'Console: https://' + GetComputerNameString() + ':' + ConfiguredUiPort() + '/' + NL + NL + TlsClosingNote();
   if Issues <> '' then
     Closing := Closing + NL + NL + 'Setup needs attention:' + NL + Issues;
   Log('LWCam Upload finished:' + NL + Closing);

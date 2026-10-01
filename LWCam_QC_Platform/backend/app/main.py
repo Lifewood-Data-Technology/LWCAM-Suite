@@ -6,11 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core import netlogin, server_settings
 from app.core.config import DEVELOPMENT_JWT_SECRET, is_loopback_bind_host, settings
 from app.core.errors import register_exception_handlers
 from app.routers import api_router
 from app.services.ai_preanalysis import ai_preanalysis_scheduler
 from app.services.ai_review import ai_review_coordinator
+from app.services import schema_check
+from app.services.heartbeat import heartbeat_sweep
+from app.services.sweep import PeriodicSweep
 from app.services.export import (
     export_auto_scheduler,
     export_coordinator,
@@ -52,23 +56,49 @@ class _SpaStaticFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
+_resumed = False
+
+
+def resume_pending_work() -> None:
+    """Picks up the export / AI jobs a restart interrupted, once, and only when
+    the schema gate is open (they read the DB)."""
+    global _resumed
+    if _resumed or not schema_check.gate_ok("resume"):
+        return
     export_coordinator.resume_if_needed()
     ai_preanalysis_scheduler.reconcile_active_jobs()
     ai_review_coordinator.resume_if_needed()
+    _resumed = True
+
+
+resume_sweep = PeriodicSweep("resume", tick=resume_pending_work, interval=lambda: 60.0)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # First: the export resume below may already need a network folder.
+    netlogin.start_keeper()
+    resume_pending_work()
+    resume_sweep.start()  # retries the resume if the DB was too old / away at start
     ai_preanalysis_scheduler.start()
     export_auto_scheduler.start()
+    heartbeat_sweep.start()
     try:
         yield
     finally:
         ai_preanalysis_scheduler.stop()
         export_auto_scheduler.stop()
+        heartbeat_sweep.stop()
+        resume_sweep.stop()
         shutdown_conversion_pool()
         ai_review_coordinator.shutdown()
 
 
 def create_app() -> FastAPI:
+    if "jwtSecret" in server_settings.SECRET_PROBLEMS:
+        # Falling back to the development secret would sign tokens with a
+        # public key; say what is wrong instead.
+        raise RuntimeError(server_settings.SECRET_PROBLEMS["jwtSecret"])
     if (
         not is_loopback_bind_host(settings.bind_host)
         and settings.jwt_secret.get_secret_value() == DEVELOPMENT_JWT_SECRET
@@ -78,9 +108,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         debug=settings.app_debug,
-        openapi_url=f"{settings.api_prefix}/openapi.json",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        openapi_url=f"{settings.api_prefix}/openapi.json" if settings.app_debug else None,
+        # The API map is for developers: off unless app_debug.
+        docs_url="/docs" if settings.app_debug else None,
+        redoc_url="/redoc" if settings.app_debug else None,
         lifespan=lifespan,
     )
 

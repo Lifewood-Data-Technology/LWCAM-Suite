@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppShell from '@/components/AppShell.vue'
 import { adminApi } from '@/api'
-import type { PathSettingsVO, PathValidation, UpdateServerSettingsRequest } from '@/types'
+import type { NetworkLogin, PathSettingsVO, PathValidation, UpdateServerSettingsRequest } from '@/types'
 
 const { t, te } = useI18n()
 
@@ -175,6 +175,7 @@ async function save() {
     form.openrouterExtractModel = data.data.ai.extractModel
     form.openrouterCompareModel = data.data.ai.compareModel
     ElMessage.success(t('admin.settings.saved'))
+    loadNetLogins()
   } catch (error) {
     ElMessage.error((error as Error).message)
   } finally {
@@ -182,7 +183,103 @@ async function save() {
   }
 }
 
-onMounted(load)
+// --- Network folder logins ------------------------------------------------
+// One list per PC, shared with LWIP and Upload on the same PC; the backend
+// (app/core/netlogin.py) says why. Passwords are sent, never shown.
+const netLogins = ref<NetworkLogin[]>([])
+const netChecked = ref(false)
+const netChecking = ref(false)
+const netSaving = ref(false)
+const netForm = reactive({ host: '', username: '', password: '' })
+
+// The saved list knows the SAVED folders; a network path typed above but not
+// saved yet (Save refuses it until it validates) still needs its row, or
+// there is nowhere to add the login that would let it validate.
+const netRows = computed<NetworkLogin[]>(() => {
+  const rows = [...netLogins.value]
+  const known = new Set(rows.map((row) => row.host.toLowerCase()))
+  for (const path of [form.qcImagesRoot, form.exportTempDir, form.exportOutputDir]) {
+    const host = /^[\\/]{2}([^\\/?]+)/.exec((path || '').trim())?.[1]
+    if (host && !known.has(host.toLowerCase())) {
+      known.add(host.toLowerCase())
+      rows.push({ host, username: '', saved: false, usedByThisService: true })
+    }
+  }
+  return rows
+})
+
+async function loadNetLogins() {
+  try {
+    const { data } = await adminApi.networkLogins()
+    netLogins.value = data.data.logins
+    netChecked.value = false
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+    return
+  }
+  // The list is instant; the check signs in and tries each folder, so it follows.
+  await checkNetLogins()
+}
+
+async function checkNetLogins() {
+  netChecking.value = true
+  try {
+    const { data } = await adminApi.checkNetworkLogins()
+    netLogins.value = data.data.logins
+    netChecked.value = true
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    netChecking.value = false
+  }
+}
+
+function editNetLogin(row: NetworkLogin) {
+  netForm.host = row.host
+  netForm.username = row.username
+  netForm.password = ''
+}
+
+async function removeNetLogin(row: NetworkLogin) {
+  try {
+    await ElMessageBox.confirm(
+      t('admin.settings.netLoginRemoveConfirm', { host: row.host }),
+      t('admin.settings.netLoginRemove'),
+      { type: 'warning', cancelButtonText: t('common.cancel') },
+    )
+  } catch {
+    return
+  }
+  try {
+    await adminApi.removeNetworkLogin(row.host)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+  await loadNetLogins()
+}
+
+async function saveNetLogin() {
+  netSaving.value = true
+  try {
+    const { data } = await adminApi.saveNetworkLogin({ ...netForm })
+    netForm.password = ''
+    if (data.data.error) {
+      ElMessage.warning(t('admin.settings.netLoginSavedButFailed', { error: data.data.error }))
+    } else {
+      ElMessage.success(t('admin.settings.netLoginSaved'))
+    }
+    await loadNetLogins()
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  } finally {
+    netSaving.value = false
+  }
+}
+
+onMounted(() => {
+  load()
+  loadNetLogins()
+})
 </script>
 
 <template>
@@ -271,6 +368,65 @@ onMounted(load)
 
         <div class="actions">
           <el-button type="primary" :loading="saving" @click="save">{{ t('admin.settings.save') }}</el-button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top: 16px">
+      <div class="panel-heading"><h2>{{ t('admin.settings.netLoginSection') }}</h2></div>
+      <div class="settings-form">
+        <p class="muted settings-note">{{ t('admin.settings.netLoginNote') }}</p>
+        <p v-if="!netRows.length" class="muted settings-note">{{ t('admin.settings.netLoginNone') }}</p>
+        <div v-for="row in netRows" :key="row.host" class="net-row">
+          <div class="net-head">
+            <strong>{{ row.host }}</strong>
+            <span class="muted">
+              {{ row.saved ? t('admin.settings.netLoginSignsInAs', { user: row.username }) : t('admin.settings.netLoginNotSaved') }}
+            </span>
+          </div>
+          <template v-if="netChecked">
+            <span v-if="row.saved" :class="row.loginError ? 'check-message' : 'net-ok'">
+              {{ row.loginError || t('admin.settings.netLoginSignedIn') }}
+            </span>
+            <span v-for="folder in row.folders || []" :key="folder.path" :class="folder.error ? 'check-message' : 'muted'">
+              <template v-if="folder.error">&#10007;</template><template v-else>&#10003;</template>
+              {{ folder.path }}<template v-if="folder.error"> &mdash; {{ folder.error }}</template>
+            </span>
+          </template>
+          <div class="actions">
+            <el-button size="small" @click="editNetLogin(row)">
+              {{ row.saved ? t('admin.settings.netLoginChange') : t('admin.settings.netLoginAdd') }}
+            </el-button>
+            <el-button v-if="row.saved" size="small" type="danger" plain @click="removeNetLogin(row)">
+              {{ t('admin.settings.netLoginRemove') }}
+            </el-button>
+          </div>
+        </div>
+        <div class="actions">
+          <el-button :loading="netChecking" @click="checkNetLogins">{{ t('admin.settings.netLoginTest') }}</el-button>
+        </div>
+
+        <h3 class="net-form-title">{{ t('admin.settings.netLoginFormTitle') }}</h3>
+        <div class="settings-field">
+          <label>{{ t('admin.settings.netLoginHost') }}</label>
+          <el-input v-model="netForm.host" placeholder="FILE-PC" />
+        </div>
+        <div class="settings-field">
+          <label>{{ t('admin.settings.netLoginUser') }}</label>
+          <el-input v-model="netForm.username" placeholder="FILE-PC\lwcam-share" autocomplete="off" />
+        </div>
+        <div class="settings-field">
+          <label>{{ t('admin.settings.netLoginPassword') }}</label>
+          <el-input
+            v-model="netForm.password"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            :placeholder="t('admin.settings.netLoginPasswordPlaceholder')"
+          />
+        </div>
+        <div class="actions">
+          <el-button type="primary" :loading="netSaving" @click="saveNetLogin">{{ t('admin.settings.netLoginSave') }}</el-button>
         </div>
       </div>
     </section>
@@ -377,5 +533,27 @@ onMounted(load)
 .actions {
   display: flex;
   gap: 10px;
+}
+.net-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.net-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+.net-ok {
+  color: var(--el-color-success);
+}
+.net-form-title {
+  margin: 8px 0 0;
+  font-size: 16px;
 }
 </style>

@@ -8,13 +8,28 @@ import 'package:lwcam/services/password_hasher.dart';
 import 'package:lwcam/services/user_directory_service.dart';
 import 'package:lwcam/services/users_store_service.dart';
 import 'package:path/path.dart' as p;
+import 'package:postgres/postgres.dart' show ServerException;
+
+/// A PG server error with just a SQLSTATE (the real class has no public
+/// constructor).
+class _FakeServerError implements ServerException {
+  _FakeServerError(this.code);
+  @override
+  final String? code;
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
 
 /// Test double for the PG write whitelist — [UserDirectoryService]'s real
 /// implementation needs a live connection, so this overrides its public
 /// surface instead of touching the network.
 class FakeUserDirectoryService implements UserDirectoryService {
   bool reachable = true;
+
+  /// What the database function answers (false = old password not accepted).
+  bool accept = true;
   Object? changePasswordError;
+  final List<({String user, String old, String hash})> calls = [];
   final List<String> changedPasswords = [];
   final List<String> recordedLogins = [];
   final List<String> markedProjects = [];
@@ -27,13 +42,20 @@ class FakeUserDirectoryService implements UserDirectoryService {
   void Function()? onChangePassword;
 
   @override
-  Future<void> changePassword({required String username, required String bcryptHash}) async {
+  Future<bool> changePassword({
+    required String username,
+    required String oldPassword,
+    required String bcryptHash,
+  }) async {
     onChangePassword?.call();
     if (!reachable) {
-      throw StateError('Connect to the sync database to change your password.');
+      throw StateError('Connect to the database to change your password.');
     }
     if (changePasswordError != null) throw changePasswordError!;
+    calls.add((user: username, old: oldPassword, hash: bcryptHash));
+    if (!accept) return false;
     changedPasswords.add(username);
+    return true;
   }
 
   @override
@@ -180,7 +202,7 @@ void main() {
   });
 
   group('changeOwnPassword', () {
-    test('PG-first: writes through the directory before touching the local copy', () async {
+    Future<UsersStoreService> forced() async {
       await seedStore(UsersStore(
         updatedAt: DateTime.now(),
         updatedBy: 'test',
@@ -197,152 +219,79 @@ void main() {
       ));
       final svc = makeService();
       await svc.load();
-      final queuedOffline = await svc.changeOwnPassword('alice', 'BrandNew99');
+      return svc;
+    }
 
-      expect(queuedOffline, isFalse);
-      expect(directory.changedPasswords, ['alice']);
+    test('a database without the function or the right to call it answers '
+        'needsDbUpdate, not an error that locks the user out', () async {
+      final svc = await forced();
+      for (final code in ['42883', '42501']) {
+        directory.changePasswordError = _FakeServerError(code);
+        expect(await svc.changeOwnPassword('alice', 'Temp1234', 'BrandNew99'),
+            PasswordChangeResult.needsDbUpdate,
+            reason: code);
+      }
+      directory.changePasswordError = _FakeServerError('23505');
+      await expectLater(
+          svc.changeOwnPassword('alice', 'Temp1234', 'BrandNew99'), throwsA(anything));
+    });
+
+    test('calls the database function with the old password and a bcrypt hash of the new one', () async {
+      final svc = await forced();
+      final result = await svc.changeOwnPassword('alice', 'Temp1234', 'BrandNew99');
+
+      expect(result, PasswordChangeResult.changed);
+      expect(directory.calls.single.user, 'alice');
+      expect(directory.calls.single.old, 'Temp1234');
+      expect(directory.calls.single.hash, isNot('BrandNew99'));
+      expect(PasswordHasher.verify('BrandNew99', directory.calls.single.hash), isTrue);
       expect((await svc.authenticate('alice', 'BrandNew99')).status, AuthStatus.ok);
       expect((await svc.authenticate('alice', 'Temp1234')).status, AuthStatus.wrongPassword);
 
-      // Survives a reload from disk — the local mirror was updated too.
+      // Survives a reload from disk - the local mirror was updated too.
       final fresh = makeService();
       await fresh.load();
       expect((await fresh.authenticate('alice', 'BrandNew99')).status, AuthStatus.ok);
     });
 
-    test('when PG is unreachable, the change is queued locally instead of '
-        'blocking — some sites are permanently offline', () async {
-      final svc = await seeded();
-      directory.reachable = false;
-      final queuedOffline = await svc.changeOwnPassword('admin', 'BrandNew99');
+    test('the database refusing (false) leaves the local snapshot unchanged', () async {
+      final svc = await forced();
+      directory.accept = false;
+      final result = await svc.changeOwnPassword('alice', 'WrongOld1', 'BrandNew99');
 
-      expect(queuedOffline, isTrue);
-      expect(directory.changedPasswords, isEmpty);
-      // Logs in with the new password THIS session, immediately.
-      expect((await svc.authenticate('admin', 'BrandNew99')).status, AuthStatus.ok);
-
-      // And survives a reload from disk — the local mirror was updated too.
+      expect(result, PasswordChangeResult.wrongCurrent);
+      expect(directory.calls, hasLength(1));
+      expect((await svc.authenticate('alice', 'Temp1234')).status, AuthStatus.mustChangePassword);
+      expect((await svc.authenticate('alice', 'BrandNew99')).status, AuthStatus.wrongPassword);
       final fresh = makeService();
       await fresh.load();
-      expect((await fresh.authenticate('admin', 'BrandNew99')).status, AuthStatus.ok);
+      expect((await fresh.authenticate('alice', 'Temp1234')).status, AuthStatus.mustChangePassword);
     });
 
-    test('ANY PG failure queues (a connection dying mid-execute is just '
-        'connectivity in a costume) — the operator is never blocked', () async {
-      final svc = await seeded();
-      directory.changePasswordError = Exception('connection reset mid-execute');
-      final queuedOffline = await svc.changeOwnPassword('admin', 'NewPass1');
-      expect(queuedOffline, isTrue);
-      expect((await svc.authenticate('admin', 'NewPass1')).status, AuthStatus.ok);
-
-      // The retry delivers once the failure clears — idempotent even if the
-      // original write actually committed before its response was lost.
-      directory.changePasswordError = null;
-      await svc.flushPendingPasswordChanges();
-      expect(directory.changedPasswords, ['admin']);
-    });
-  });
-
-  group('pending password changes (offline queue)', () {
-    test('flushPendingPasswordChanges retries against PG and clears the '
-        'queue on success', () async {
-      final svc = await seeded();
+    test('offline: refused, nothing queued or written, no plaintext on disk', () async {
+      final svc = await forced();
+      final before = await File(p.join(storeDir.path, UsersStoreService.usersFileName)).readAsString();
       directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'BrandNew99');
+      final result = await svc.changeOwnPassword('alice', 'Temp1234', 'BrandNew99');
+
+      expect(result, PasswordChangeResult.offline);
       expect(directory.changedPasswords, isEmpty);
+      expect((await svc.authenticate('alice', 'Temp1234')).status, AuthStatus.mustChangePassword);
+      expect((await svc.authenticate('alice', 'BrandNew99')).status, AuthStatus.wrongPassword);
 
-      directory.reachable = true;
-      await svc.flushPendingPasswordChanges();
-      expect(directory.changedPasswords, ['admin']);
-
-      // A second flush is a no-op — nothing left queued.
-      await svc.flushPendingPasswordChanges();
-      expect(directory.changedPasswords, ['admin']);
+      final files = storeDir.listSync().whereType<File>().map((f) => p.basename(f.path)).toList();
+      expect(files, [UsersStoreService.usersFileName]);
+      final after = await File(p.join(storeDir.path, UsersStoreService.usersFileName)).readAsString();
+      expect(after, before);
+      expect(after, isNot(contains('BrandNew99')));
+      expect(after, isNot(contains('Temp1234')));
     });
 
-    test('flushPendingPasswordChanges is a no-op (never throws) with '
-        'nothing queued or no store loaded', () async {
-      final svc = makeService();
-      await svc.flushPendingPasswordChanges(); // no store loaded yet
-      final seededSvc = await seeded();
-      await seededSvc.flushPendingPasswordChanges(); // nothing pending
-      expect(directory.changedPasswords, isEmpty);
-    });
-
-    test('applySnapshot never reverts a still-pending offline password '
-        'change — a pull must not silently undo it', () async {
-      final svc = await seeded();
-      directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'BrandNew99');
-
-      // A sync pull lands with PG's (stale) copy of the user, still on the
-      // old hash — applying it must not overwrite the newer local change.
-      final pulled = UsersStore(
-        updatedAt: DateTime.now(),
-        updatedBy: 'pg-pull',
-        users: [makeUser('admin', 'adminpass')], // stale: old password
-      );
-      await svc.applySnapshot(pulled);
-
-      expect((await svc.authenticate('admin', 'BrandNew99')).status, AuthStatus.ok);
-      expect((await svc.authenticate('admin', 'adminpass')).status, AuthStatus.wrongPassword);
-    });
-
-    test('applySnapshot flushes a pending change once reachable and clears '
-        'the queue', () async {
-      final svc = await seeded();
-      directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'BrandNew99');
-
-      directory.reachable = true;
-      final pulled = UsersStore(
-        updatedAt: DateTime.now(),
-        updatedBy: 'pg-pull',
-        users: [makeUser('admin', 'adminpass')],
-      );
-      await svc.applySnapshot(pulled);
-
-      expect(directory.changedPasswords, ['admin']);
-      expect((await svc.authenticate('admin', 'BrandNew99')).status, AuthStatus.ok);
-
-      // Queue is clear — a later pull with the (now-correct) hash no longer
-      // needs to splice anything.
-      final finalPull = UsersStore(
-        updatedAt: DateTime.now(),
-        updatedBy: 'pg-pull',
-        users: [makeUser('admin', 'BrandNew99')],
-      );
-      await svc.applySnapshot(finalPull);
-      expect(directory.changedPasswords, ['admin']); // not called again
-    });
-
-    test('writeSnapshotFile (the pre-login static variant) also reconciles '
-        'a pending change from a prior session', () async {
-      final path = p.join(storeDir.path, UsersStoreService.usersFileName);
-      await UsersStoreService.writeSnapshotFile(
-        UsersStore(updatedAt: DateTime.now(), updatedBy: 'test', users: [makeUser('admin', 'adminpass')]),
-        path,
-      );
-      final svc = makeService();
-      await svc.load();
-      directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'BrandNew99');
-
-      // Simulate the pre-login startup tick: a stale pull writes straight
-      // through the static path (no live instance around this time).
-      directory.reachable = true;
-      final pulled = UsersStore(
-        updatedAt: DateTime.now(),
-        updatedBy: 'pg-pull',
-        users: [makeUser('admin', 'adminpass')],
-      );
-      await UsersStoreService.writeSnapshotFile(pulled, path, directory: directory);
-      expect(directory.changedPasswords, ['admin']);
-
-      final reloaded = makeService();
-      final res = await reloaded.load();
-      expect((await reloaded.authenticate('admin', 'BrandNew99')).status, AuthStatus.ok);
-      expect(res.source, UsersStoreSource.snapshot);
+    test('a database error other than unreachable propagates and changes nothing', () async {
+      final svc = await forced();
+      directory.changePasswordError = Exception('permission denied');
+      await expectLater(svc.changeOwnPassword('alice', 'Temp1234', 'BrandNew99'), throwsException);
+      expect((await svc.authenticate('alice', 'Temp1234')).status, AuthStatus.mustChangePassword);
     });
   });
 
@@ -417,7 +366,6 @@ void main() {
       await UsersStoreService.writeSnapshotFile(
         UsersStore(updatedAt: DateTime.now(), updatedBy: 'pg-pull'),
         path,
-        directory: directory,
       );
       final onDisk = await File(path).readAsString();
       expect(onDisk, contains('"dirty":true'));
@@ -429,8 +377,7 @@ void main() {
       await seedDirtyAdminStore();
       final svc = makeService();
       await svc.load();
-      directory.reachable = false;
-      await svc.changeOwnPassword('offline-created', 'BrandNew99');
+      await svc.changeOwnPassword('offline-created', 'x', 'BrandNew99');
 
       final onDisk = await File(
               p.join(storeDir.path, UsersStoreService.usersFileName))
@@ -527,7 +474,6 @@ void main() {
       await UsersStoreService.writeSnapshotFile(
         emptyPull,
         path,
-        directory: directory,
       );
 
       final onDisk = await File(path).readAsString();
@@ -535,25 +481,32 @@ void main() {
     });
   });
 
-  group('pending hash cleared on success (Fix 5)', () {
-    test('a successful direct change clears any earlier queued hash so it '
-        'cannot later replay over the newer password', () async {
+  group('retired pending-password queue file', () {
+    test('an old queue file is deleted on a pull and its hashes are never applied', () async {
       final svc = await seeded();
-      directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'StaleQueued1');
-      expect(directory.changedPasswords, isEmpty); // queued, not sent
+      final queue = File(p.join(storeDir.path, 'lwcam_pending_password_changes.json'));
+      await queue.writeAsString(jsonEncode({'admin': PasswordHasher.hash('Queued1')}));
 
-      directory.reachable = true;
-      await svc.changeOwnPassword('admin', 'FreshDirect2');
-      expect(directory.changedPasswords, ['admin']); // exactly one direct write
+      await svc.applySnapshot(UsersStore(
+        updatedAt: DateTime.now(),
+        updatedBy: 'pg-pull',
+        users: [makeUser('admin', 'adminpass')],
+      ));
 
-      // The stale queued hash must be gone — a flush must not resend it.
-      await svc.flushPendingPasswordChanges();
-      expect(directory.changedPasswords, ['admin']);
-      expect(
-        (await svc.authenticate('admin', 'FreshDirect2')).status,
-        AuthStatus.ok,
+      expect(await queue.exists(), isFalse);
+      expect(directory.changedPasswords, isEmpty);
+      expect((await svc.authenticate('admin', 'adminpass')).status, AuthStatus.ok);
+      expect((await svc.authenticate('admin', 'Queued1')).status, AuthStatus.wrongPassword);
+    });
+
+    test('a corrupt queue file is also removed, without throwing', () async {
+      final queue = File(p.join(storeDir.path, 'lwcam_pending_password_changes.json'));
+      await queue.writeAsString('not json');
+      await UsersStoreService.writeSnapshotFile(
+        UsersStore(updatedAt: DateTime.now(), updatedBy: 'x', users: [makeUser('admin', 'a')]),
+        p.join(storeDir.path, UsersStoreService.usersFileName),
       );
+      expect(await queue.exists(), isFalse);
     });
   });
 
@@ -563,7 +516,7 @@ void main() {
       final lockFile = File(
         '${p.join(storeDir.path, UsersStoreService.usersFileName)}.lock',
       );
-      await svc.changeOwnPassword('admin', 'NewPass1');
+      await svc.changeOwnPassword('admin', 'adminpass', 'NewPass1');
       expect(await lockFile.exists(), isFalse);
     });
 
@@ -578,7 +531,7 @@ void main() {
         DateTime.now().subtract(const Duration(seconds: 40)),
       );
 
-      await svc.changeOwnPassword('admin', 'NewPass1');
+      await svc.changeOwnPassword('admin', 'adminpass', 'NewPass1');
 
       expect(await lockFile.exists(), isFalse);
       expect(
@@ -588,70 +541,25 @@ void main() {
     });
   });
 
-  // Each queued entry costs up to a 5s PG connect timeout, and the lock's
-  // stale grace is 30s with no heartbeat. Retrying ~7 of them under the lock
-  // pushed the hold past the grace period, at which point LWCam Admin deletes
-  // it as stale and both processes write lwcam_users.json at once — precisely
-  // what the lock exists to prevent.
-  group('the shared lock is never held across a PG call (Fix 7)', () {
-    late File lockFile;
-
-    setUp(() {
-      lockFile = File(
+  // The lock's stale grace is 30s with no heartbeat; a slow PG call made while
+  // holding it lets LWCam Admin delete it as stale and both processes write
+  // lwcam_users.json at once - precisely what the lock exists to prevent.
+  group('the shared lock is never held across a PG call', () {
+    test('changeOwnPassword calls the database before taking the lock', () async {
+      final svc = await seeded();
+      final lockFile = File(
         '${p.join(storeDir.path, UsersStoreService.usersFileName)}.lock',
       );
-    });
-
-    test('flushPendingPasswordChanges retries outside the lock', () async {
-      final svc = await seeded();
-      directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'Queued1'); // queues offline
-
       var heldDuringPgCall = false;
-      directory
-        ..reachable = true
-        ..onChangePassword = () {
-          if (lockFile.existsSync()) heldDuringPgCall = true;
-        };
+      directory.onChangePassword = () {
+        if (lockFile.existsSync()) heldDuringPgCall = true;
+      };
 
-      await svc.flushPendingPasswordChanges();
+      await svc.changeOwnPassword('admin', 'adminpass', 'Queued1');
 
-      expect(directory.changedPasswords, contains('admin'));
-      expect(
-        heldDuringPgCall,
-        isFalse,
-        reason: 'the PG retry must run before the lock is taken',
-      );
-      expect(await lockFile.exists(), isFalse);
-    });
-
-    test('applySnapshot reconciles outside the lock too', () async {
-      final svc = await seeded();
-      directory.reachable = false;
-      await svc.changeOwnPassword('admin', 'Queued1');
-
-      var heldDuringPgCall = false;
-      directory
-        ..reachable = true
-        ..onChangePassword = () {
-          if (lockFile.existsSync()) heldDuringPgCall = true;
-        };
-
-      await svc.applySnapshot(
-        UsersStore(
-          updatedAt: DateTime.now(),
-          updatedBy: 'pg-pull',
-          users: [makeUser('admin', 'stale-hash')],
-        ),
-      );
-
-      expect(directory.changedPasswords, contains('admin'));
+      expect(directory.changedPasswords, ['admin']);
       expect(heldDuringPgCall, isFalse);
-      // And the queued hash still wins over the stale pulled one.
-      expect(
-        (await svc.authenticate('admin', 'Queued1')).status,
-        AuthStatus.ok,
-      );
+      expect(await lockFile.exists(), isFalse);
     });
   });
 

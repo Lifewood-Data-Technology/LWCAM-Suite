@@ -472,19 +472,14 @@ def parse_source_identity(*filenames: str) -> tuple[str, date]:
 def allocate_sequence(db: Session, project_id: int) -> int:
     if project_id <= 0:
         raise ExportError("projectIdInvalid")
-    sequence_name = f"lwcam_export_project_{project_id}_seq"
     db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:resource, 0))"),
         {"resource": f"lwcam-export-sequence:{project_id}"},
     )
-    db.execute(
-        text(
-            f"CREATE SEQUENCE IF NOT EXISTS public.{sequence_name} "
-            "AS BIGINT START WITH 1 INCREMENT BY 1 MAXVALUE 999999 NO CYCLE"
-        )
-    )
+    # Migration 008: the login no longer has CREATE on public; this SECURITY
+    # DEFINER function creates the per-project sequence and returns nextval.
     value = int(
-        db.scalar(text(f"SELECT nextval('public.{sequence_name}'::regclass)")) or 0
+        db.scalar(text("SELECT public.lwcam_next_export_number(:pid)"), {"pid": project_id}) or 0
     )
     if value < 1 or value > 999999:
         raise ExportError("sequenceExhausted", {"projectId": project_id})
@@ -1086,17 +1081,64 @@ def _replace_with_retry(source: Path, target: Path, attempts: int = 5) -> None:
             time.sleep(0.5)
 
 
-def _remove_published(path: Path) -> None:
-    """Delete a published package so a rework can take its name.
+ASIDE_MAX_AGE_SECONDS = 24 * 3600
 
-    Only ever called with `replace`, which only a client rework sets: the
-    package under that name is the version the client rejected, and the
-    corrected one has to land under the SAME Group ID.
+
+def _sweep_stale_asides(staging_dir: Path) -> None:
+    """Deletes `<name>.old-<epoch>-<hex>` leftovers older than a day.
+
+    `_swap_in_folder` sets the previous package aside under that name and
+    deletes it once the corrected one is in place; only a crash or a locked
+    file between those two steps leaves one behind.
     """
-    if fs_path(path).is_dir():
-        shutil.rmtree(fs_path(path), ignore_errors=True)
-    else:
-        fs_path(path).unlink(missing_ok=True)
+    try:
+        entries = list(fs_path(staging_dir).iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        _, marker, tail = entry.name.rpartition(".old-")
+        stamp = tail.split("-", 1)[0]
+        if marker and stamp.isdigit() and time.time() - int(stamp) > ASIDE_MAX_AGE_SECONDS:
+            # The aside is the previous DELIVERED package. If the corrected one
+            # never landed under the final name, it is the only copy: keep it.
+            final_name = entry.name[: len(entry.name) - len(marker) - len(tail)]
+            if not fs_path(staging_dir.parent / final_name).exists():
+                logger.error(
+                    "Kept %s: the package %s it replaced is missing, so this is the only "
+                    "delivered copy. Rename it back by hand.",
+                    entry,
+                    final_name,
+                )
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+
+
+def _swap_in_folder(partial_path: Path, final_path: Path, staging_dir: Path) -> None:
+    """Puts a verified folder at `final_path`, replacing a previous package.
+
+    A client rework republishes under the SAME Group ID, so the package there
+    is the version the client rejected. It is renamed into staging (same
+    volume, atomic) instead of deleted first: until the corrected package is in
+    place under the name, the old one stays deliverable, and if moving the new
+    one in fails the old one is renamed straight back.
+    """
+    aside = None
+    if fs_path(final_path).exists():
+        aside = staging_dir / f"{final_path.name}.old-{int(time.time())}-{uuid.uuid4().hex}"
+        _replace_with_retry(final_path, aside)
+    try:
+        _replace_with_retry(partial_path, final_path)
+    except BaseException:
+        if aside is not None:
+            _replace_with_retry(aside, final_path)
+        raise
+    if aside is not None:
+        if not fs_path(final_path).exists():
+            logger.error("Kept %s: %s is missing after the swap; it is the only copy", aside, final_path)
+            return
+        shutil.rmtree(fs_path(aside), ignore_errors=True)
+        if fs_path(aside).exists():
+            logger.warning("Could not delete the replaced package %s; it is cleaned up later", aside)
 
 
 def publish_folder(
@@ -1113,18 +1155,16 @@ def publish_folder(
     cross volumes, the rename that makes the package VISIBLE never does, so a
     consumer watching the output folder cannot see a half-copied group. A
     directory rename is atomic within a volume too, but unlike a file it will not
-    overwrite - which suits us, since an existing group is a conflict either way.
+    overwrite - which suits us, since an existing group is a conflict unless
+    `replace` (a client rework) says the package there is the one to swap out,
+    which `_swap_in_folder` does only after the new one is built and verified.
     """
     staging_dir = config.output_dir / ".staging"
     fs_path(staging_dir).mkdir(parents=True, exist_ok=True)
+    _sweep_stale_asides(staging_dir)
     final_path = config.output_dir / group_id
     partial_path = staging_dir / group_id
-    if fs_path(final_path).exists() and replace:
-        # A client rework republishes under the SAME Group ID, so the package
-        # already there is the version the client rejected. Refusing would
-        # strand the correction; leaving it would ship the old pages.
-        _remove_published(final_path)
-    if fs_path(final_path).exists():
+    if fs_path(final_path).exists() and not replace:
         raise ExportError("folderConflict", {"filename": final_path.name})
     try:
         if fs_path(partial_path).exists():
@@ -1133,7 +1173,7 @@ def publish_folder(
         verify_published_folder(
             partial_path, group_id, artifact_count, config.encoding, config.tiff_output
         )
-        _replace_with_retry(partial_path, final_path)
+        _swap_in_folder(partial_path, final_path, staging_dir)
     finally:
         shutil.rmtree(fs_path(partial_path), ignore_errors=True)
         try:
@@ -1199,11 +1239,10 @@ def publish_zip(
     fs_path(staging_dir).mkdir(parents=True, exist_ok=True)
     final_path = config.output_dir / f"{group_id}.zip"
     partial_path = staging_dir / f"{group_id}.zip.partial"
-    if fs_path(final_path).is_file() and replace:
-        # See publish_folder: the package under this name is the one the client
-        # sent back.
-        _remove_published(final_path)
-    if fs_path(final_path).is_file():
+    # With `replace` (see publish_folder) the zip under this name is the one the
+    # client sent back, and the os.replace below swaps it atomically - the old
+    # zip is never deleted first.
+    if fs_path(final_path).is_file() and not replace:
         same_size = fs_path(final_path).stat().st_size == exported.size
         if same_size and sha256_file(final_path) == exported.sha256:
             return final_path
@@ -1218,7 +1257,7 @@ def publish_zip(
             or sha256_file(partial_path) != exported.sha256
         ):
             raise ExportError("zipCopyValidationFailed")
-        os.replace(fs_path(partial_path), fs_path(final_path))
+        _replace_with_retry(partial_path, final_path)  # antivirus may hold the old zip briefly
     finally:
         fs_path(partial_path).unlink(missing_ok=True)
         # Only when empty: a concurrent publish of another folder may still have
@@ -1307,6 +1346,9 @@ def list_export_folders(
             CaptureFolder.is_exported,
             CaptureFolder.exported_time,
             CaptureFolder.group_id,
+            CaptureFolder.is_ingested,
+            CaptureFolder.ingested_time,
+            CaptureFolder.upload_error,
             CaptureBox.box_name,
             Project.project_id,
             Project.project_name,
@@ -1324,6 +1366,9 @@ def list_export_folders(
             CaptureFolder.is_exported,
             CaptureFolder.exported_time,
             CaptureFolder.group_id,
+            CaptureFolder.is_ingested,
+            CaptureFolder.ingested_time,
+            CaptureFolder.upload_error,
             CaptureBox.box_name,
             Project.project_id,
             Project.project_name,
@@ -1342,6 +1387,8 @@ def list_export_folders(
             "isExported": bool(row.is_exported),
             "exportedTime": row.exported_time,
             "groupId": row.group_id,
+            "uploadedTime": row.ingested_time if row.is_ingested else None,
+            "uploadError": row.upload_error,
             "exportable": row.qc_status.lower() == "pass" and not bool(row.is_exported),
             "boxName": row.box_name,
             "projectId": row.project_id,
@@ -1952,6 +1999,10 @@ class ExportAutoScheduler(PeriodicSweep):
             interval=lambda: settings.export_auto_interval_seconds,
             enabled=lambda: bool(settings.export_auto_enabled),
         )
+        # Plain sentence while preflight blocks the sweep, else None. The
+        # qc-export heartbeat carries it as last_error.
+        self.blocked_reason: str | None = None
+        self._blocked_logged = float("-inf")
 
     def scan_once(self) -> int:
         """Starts a run for everything eligible. Returns how many were queued."""
@@ -1961,6 +2012,7 @@ class ExportAutoScheduler(PeriodicSweep):
         with SessionLocal() as db:
             pending = [f for f in eligible_folder_ids(db) if f not in backing_off]
             if not pending:
+                self.blocked_reason = None
                 return 0
             # preflight guards the things a run cannot recover from - an
             # unconfigured output root, a missing sequence - and reports them
@@ -1968,7 +2020,9 @@ class ExportAutoScheduler(PeriodicSweep):
             # the ledger with noise that is really one configuration problem.
             readiness = export_coordinator.preflight(db)
             if not readiness.get("ready"):
+                self._note_blocked(readiness.get("errors") or [])
                 return 0
+            self.blocked_reason = None
             try:
                 export_coordinator.start("auto", pending)
             except ExportError:
@@ -1976,6 +2030,16 @@ class ExportAutoScheduler(PeriodicSweep):
                 # eligible after all. Either way the next tick retries.
                 return 0
         return len(pending)
+
+    def _note_blocked(self, errors: list[dict[str, Any]]) -> None:
+        parts = []
+        for entry in errors:
+            key = str(entry.get("errorKey") or "unexpected")
+            parts.append(str(ExportError(key, entry.get("errorParams") or {})))
+        self.blocked_reason = ("Export cannot start: " + "; ".join(parts))[:200] if parts else None
+        if self.blocked_reason and time.monotonic() - self._blocked_logged > 600.0:
+            self._blocked_logged = time.monotonic()
+            logger.warning("%s", self.blocked_reason)
 
     def _backing_off(self) -> set[int]:
         """Folder ids whose last failure is too recent to retry.

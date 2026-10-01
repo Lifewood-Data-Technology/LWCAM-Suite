@@ -7,9 +7,11 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from pydantic import SecretStr
 
+from app.core import netlogin
 from app.core.config import Settings, settings
 from app.core.errors import BusinessError
 from app.core.server_settings import load_server_settings_overrides, write_server_settings
@@ -31,6 +33,10 @@ class AdminServerSettingsTests(unittest.TestCase):
         previous = os.environ.get("LWCAM_QC_SERVER_CONFIG")
         os.environ["LWCAM_QC_SERVER_CONFIG"] = str(self.config_path)
         self.addCleanup(self._restore_env, previous)
+        # Never the real per-PC login store under %ProgramData%.
+        store = patch.dict(os.environ, {netlogin.STORE_ENV: str(self.root / "logins.json")})
+        store.start()
+        self.addCleanup(store.stop)
 
         names = (
             "qc_images_root",
@@ -205,6 +211,56 @@ class AdminServerSettingsTests(unittest.TestCase):
         check = check_directory("exportOutputDir", f"{free}\\Export", require_writable=True)
         self.assertFalse(check.writable)
         self.assertIn("\\\\server\\share", check.message)
+
+    def test_a_refused_network_login_is_explained_not_a_500(self) -> None:
+        """What a workgroup PC answers the QC server's SYSTEM task: WinError 1326.
+
+        On Python 3.13 (the shipped runtime) Path.is_dir() raises it; 3.14's
+        answers False. Both are patched in, so this fails on either runtime
+        unless the check neither raises nor calls it "does not exist".
+        """
+        for refused in (
+            OSError(22, "The user name or password is incorrect", r"\\PC1\share", 1326),
+            # What the QC PC's own log showed on 2026-09-28, for \\FILE-PC\...
+            PermissionError(13, "Access is denied", r"\\PC1\share", 5),
+        ):
+            with (
+                self.subTest(winerror=refused.winerror),
+                patch("pathlib.Path.is_dir", side_effect=refused),
+                patch("app.routers.admin.os.stat", side_effect=refused),
+            ):
+                check = check_directory("exportOutputDir", r"\\PC1\share\3.Export", require_writable=True)
+                self.assertFalse(check.exists)
+                self.assertFalse(check.writable)
+                self.assertIn(refused.strerror, check.message)
+                self.assertIn("Add a login for PC1 under Network folder logins", check.message)
+
+    def test_a_saved_network_login_is_used_and_its_refusal_reported(self) -> None:
+        with patch.object(netlogin, "_add_connection", return_value=0), patch.object(netlogin, "_cancel"):
+            netlogin.save_login("PC1", r"PC1\lwcam-share", "secret")
+        with patch.object(netlogin, "_add_connection", return_value=1326) as add:
+            check = check_directory("exportOutputDir", r"\\PC1\share\3.Export", require_writable=True)
+        add.assert_called_with("PC1", r"PC1\lwcam-share", "secret")
+        self.assertFalse(check.writable)
+        self.assertEqual(check.message, "PC1 did not accept this username or password.")
+
+    def test_netlogin_copies_match(self) -> None:
+        """The module ships inside three products; they must not drift."""
+        repo = Path(__file__).resolve().parents[3]
+        mine = Path(netlogin.__file__).read_bytes()
+        for other in (
+            repo / "LWIP" / "backend" / "deskew_crop_tool" / "netlogin.py",
+            repo / "LWCam_Upload" / "backend" / "lwcam_upload" / "netlogin.py",
+        ):
+            if not other.is_file():
+                self.skipTest(f"{other} is not checked out here")
+            self.assertEqual(other.read_bytes(), mine, f"{other} differs from app/core/netlogin.py")
+
+    def test_an_unknown_network_pc_is_not_called_a_missing_folder(self) -> None:
+        missing_pc = FileNotFoundError(2, "The network path was not found", r"\\PC1\share", 53)
+        with patch("app.routers.admin.os.stat", side_effect=missing_pc):
+            check = check_directory("qcImagesRoot", r"\\PC1\share", require_writable=True, must_exist=True)
+        self.assertEqual(check.message, "This folder could not be reached: The network path was not found.")
 
     def test_every_path_can_be_a_network_path(self) -> None:
         """\\\\localhost\\C$ reaches this PC's own disk through SMB, as a share would."""

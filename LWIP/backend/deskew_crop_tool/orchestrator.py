@@ -7,6 +7,9 @@ from logging.handlers import RotatingFileHandler
 import os
 import shutil
 import signal
+import stat
+import sys
+import threading
 import time
 from concurrent.futures import (
     FIRST_COMPLETED,
@@ -29,6 +32,65 @@ from .image_ops import deskew_crop_file, fs_path, initialise_worker
 
 LOGGER = logging.getLogger("deskew_crop")
 MANIFEST_NAME = ".deskew_crop_manifest.json"
+
+# A folder that keeps failing backs off 1, 2, 4 ... minutes (capped) and is
+# marked `failed` after this many failures; it is tried again after the back-off
+# or the moment its files change.
+FAILED_AFTER = 5
+BACKOFF_CAP_MINUTES = 60
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
+
+class WorkerStalled(BrokenExecutor):
+    """An image job ran past its deadline; the supervisor restarts the worker."""
+
+
+def _is_link(info: os.stat_result) -> bool:
+    """A symlink or junction. Followed, they could leave the input tree or loop.
+    ponytail: only the LINK reparse tags, so dedup / cloud-placeholder files
+    (also reparse points) still process."""
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    if not getattr(info, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT:
+        return False
+    tag = getattr(info, "st_reparse_tag", None)
+    if tag is None:
+        return True
+    return tag in (
+        getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
+        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
+    )
+
+
+def _path_is_link(path: Path) -> bool:
+    try:
+        return _is_link(os.lstat(fs_path(path)))
+    except OSError:
+        return False
+
+
+def _walk_files(root: Path, recursive: bool):
+    """(path, lstat) of every regular file under root, never entering or
+    returning a symlink/junction."""
+    pending = [root]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as scan:
+                entries = list(scan)
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if _is_link(info):
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                if recursive:
+                    pending.append(Path(entry.path))
+            elif stat.S_ISREG(info.st_mode):
+                yield Path(entry.path), info
 
 
 def _thumb_rel(relative: str) -> str:
@@ -60,21 +122,36 @@ class StabilityRecord:
 
 
 class StateStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, input_root: Path | None = None):
         self.path = path
+        # When this process read the journal: the line between "completed before
+        # this build reported" and "completed since" for a legacy journal.
+        self.loaded_at = datetime.now(timezone.utc)
         self.data = self._load()
         # Drop completions whose source folder no longer exists so state.json
         # can't grow unbounded as old day folders are cleared. A folder that
         # still exists is never pruned (pruning it would trigger a reprocess).
-        if self._prune_missing():
+        if input_root is not None and self._prune_missing(input_root):
             self._save()
 
-    def _prune_missing(self) -> bool:
+    def _prune_missing(self, input_root: Path) -> bool:
         completed = self.data.get("completed")
         if not isinstance(completed, dict):
             return False
+        # An unreachable root (share not connected yet at boot, server down)
+        # makes every folder look missing; pruning then would wipe the whole
+        # journal and reprocess everything - over QC's edits - when it returns.
+        try:
+            with os.scandir(fs_path(input_root)):
+                pass
+            root = input_root.resolve()
+        except OSError:
+            LOGGER.info("input root %s not readable; journal not pruned", input_root)
+            return False
         removed = False
         for folder_str in list(completed.keys()):
+            if not Path(folder_str).is_relative_to(root):
+                continue  # from another input root; can't judge it from this one
             try:
                 exists = fs_path(Path(folder_str)).exists()
             except OSError:
@@ -82,6 +159,12 @@ class StateStore:
             if not exists:
                 del completed[folder_str]
                 removed = True
+        failures = self.data.get("failures")
+        if isinstance(failures, dict):
+            for folder_str in list(failures):
+                if Path(folder_str).is_relative_to(root) and not fs_path(Path(folder_str)).exists():
+                    del failures[folder_str]
+                    removed = True
         return removed
 
     def completed_record(self, folder: Path) -> dict[str, object] | None:
@@ -101,6 +184,7 @@ class StateStore:
         manifest_checksum: str,
     ) -> None:
         now = time.time()
+        self._failures().pop(str(snapshot.folder.resolve()), None)
         self.data["completed"][str(snapshot.folder.resolve())] = {
             "fingerprint": snapshot.fingerprint,
             "image_count": snapshot.image_count,
@@ -138,6 +222,48 @@ class StateStore:
             item["reported_skip_reason"] = reason
         self._save()
 
+    # -- per-folder failure back-off (journal key "failures", inert to old builds)
+
+    def _failures(self) -> dict[str, dict[str, object]]:
+        table = self.data.get("failures")
+        if not isinstance(table, dict):
+            table = self.data["failures"] = {}
+        return table
+
+    def record_failure(self, snapshot: FileSnapshot, reason: str) -> dict[str, object]:
+        """Counts one more failure of this exact content and sets the next try."""
+        table = self._failures()
+        key = str(snapshot.folder.resolve())
+        item = table.get(key)
+        if not isinstance(item, dict) or item.get("fingerprint") != snapshot.fingerprint:
+            item = {"count": 0}
+        count = int(item.get("count") or 0) + 1
+        delay_minutes = min(BACKOFF_CAP_MINUTES, 2 ** (count - 1))
+        item.update(
+            fingerprint=snapshot.fingerprint,
+            count=count,
+            failed=count >= FAILED_AFTER,
+            error=reason[:300],
+            last_failed_at=datetime.now(timezone.utc).isoformat(),
+            next_retry_epoch=time.time() + delay_minutes * 60,
+        )
+        table[key] = item
+        self._save()
+        return item
+
+    def retry_blocked(self, folder: Path, fingerprint: str) -> bool:
+        """True while this folder is inside its back-off. Changed files start it afresh."""
+        table = self._failures()
+        key = str(folder.resolve())
+        item = table.get(key)
+        if not isinstance(item, dict):
+            return False
+        if item.get("fingerprint") != fingerprint:
+            del table[key]
+            self._save()
+            return False
+        return time.time() < float(item.get("next_retry_epoch") or 0)
+
     def mark_for_retry(self, folder: Path, reason: str) -> None:
         item = self.completed_record(folder)
         if item is None:
@@ -169,7 +295,14 @@ class StateStore:
             LOGGER.error(
                 "No valid integrity state remains; all source folders will be reprocessed"
             )
-        return {"version": 1, "completed": {}}
+        # A journal born here (fresh install, moved PC, lost state.json) has no
+        # older reporter to defer to: everything it ever completes or re-adopts
+        # must be reported, so reporting is "on" from the start.
+        return {
+            "version": 1,
+            "completed": {},
+            "cloud_report_since": self.loaded_at.isoformat(),
+        }
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -228,20 +361,43 @@ class FolderOrchestrator:
     # at q100 can take minutes. Generous, because giving up leaves image
     # processing dead until the next logon.
     LOCK_WAIT_SECONDS = 15 * 60
+    # The scheduler wakes at least this often, and gives up on an image job
+    # that has run this long (a hung decode, a share that stopped answering):
+    # the pool is killed and the supervisor restarts the worker.
+    WAIT_SLICE_SECONDS = 30.0
+    IMAGE_DEADLINE_SECONDS = 15 * 60
 
     def __init__(self, config: ToolConfig):
         self._bind(config)
 
     def _bind(self, config: ToolConfig) -> None:
         self.config = config
-        self.state = StateStore(config.state_file)
+        self.state = StateStore(config.state_file, config.input_root)
         self.stability: dict[Path, StabilityRecord] = {}
         # Seen but not admitted because it is not ready yet. With a completion
         # marker configured, _is_ready never records the folder in stability,
         # so without this set the console showed "0 waiting" while a folder sat
         # there for want of its marker - the one case an operator must see.
         self.not_ready: set[Path] = set()
+        self._short_logged: set[str] = set()
+        # Rework fallback for old LWCAM builds (no rework_in_progress key): when
+        # an already-completed folder's fingerprint changes, wait until it has
+        # been still for rework_settle_seconds. folder -> (fingerprint, since).
+        self._rework_seen: dict[Path, tuple[str, float]] = {}
+        # One plain sentence while the input root cannot be listed, else None;
+        # written to status.json, the supervisor puts it in the heartbeat.
+        self._input_error: str | None = None
+        self._list_thread: threading.Thread | None = None
+        # (count, oldest minutes) of finished folders not yet in the database.
+        self._unreported = (0, 0)
+        self._image_started: dict[Future[object], float] = {}
+        # Wall-clock time work last advanced; the supervisor restarts a worker
+        # that has queued work but has not moved for 30 minutes.
+        self._progress_at = time.time()
         self.stop_requested = False
+        # Entries already logged as waiting for their capture record, so a
+        # folder that waits for days writes one line, not one per poll.
+        self._waiting_logged: set[str] = set()
         # Resolved once. None means reporting is off for this run - either the
         # config says so, or the station has no credentials to offer - and the
         # sweep then costs nothing per poll.
@@ -420,7 +576,10 @@ class FolderOrchestrator:
                     if publish_future is not None:
                         futures.add(publish_future)
                     if futures:
-                        done, _pending = wait(futures, return_when=FIRST_COMPLETED)
+                        done, _pending = wait(
+                            futures, timeout=self.WAIT_SLICE_SECONDS, return_when=FIRST_COMPLETED
+                        )
+                        self._check_image_deadlines(image_futures, image_executor)
                         for future in done:
                             if future is publish_future:
                                 publish_future = None
@@ -430,6 +589,7 @@ class FolderOrchestrator:
                                     completed += self._finish_publish(item, future, active)
                                 continue
                             item = image_futures.pop(future)
+                            self._image_started.pop(future, None)
                             item.in_flight -= 1
                             self._finish_image_job(item, future, image_futures)
                         continue
@@ -464,6 +624,39 @@ class FolderOrchestrator:
                         shutil.rmtree(fs_path(item.work_folder), ignore_errors=True)
         return completed
 
+    def _check_image_deadlines(
+        self, futures: dict[Future[object], ActiveFolder], executor: ProcessPoolExecutor
+    ) -> None:
+        now = time.monotonic()
+        for future, item in futures.items():
+            started = self._image_started.get(future)
+            if future.done() or started is None or now - started <= self.IMAGE_DEADLINE_SECONDS:
+                continue
+            LOGGER.error(
+                "An image of %s has run for over %d s; restarting the worker",
+                item.snapshot.folder, self.IMAGE_DEADLINE_SECONDS,
+            )
+            self._record_failure(item.snapshot, "an image job stopped responding")
+            for process in list(getattr(executor, "_processes", {}).values()):
+                try:
+                    process.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise WorkerStalled("image job exceeded its deadline")
+
+    def _record_failure(self, snapshot: FileSnapshot, reason: str) -> None:
+        try:
+            item = self.state.record_failure(snapshot, reason)
+        except Exception:  # noqa: BLE001 - bookkeeping never breaks processing
+            LOGGER.exception("Could not journal the failure of %s", snapshot.folder)
+            return
+        LOGGER.warning(
+            "%s failed (%s time%s): %s%s",
+            snapshot.folder, item["count"], "" if item["count"] == 1 else "s", reason,
+            " - marked failed" if item["failed"] else "",
+        )
+
     def _admit_ready_folders(
         self, active: list[ActiveFolder], active_limit: int, attempted: set[Path]
     ) -> None:
@@ -481,6 +674,7 @@ class FolderOrchestrator:
             if any(item.snapshot.folder == folder for item in active):
                 continue
             attempted.add(folder)
+            snapshot = None
             try:
                 snapshot = build_snapshot(folder, self.config)
                 if snapshot is None:
@@ -494,6 +688,10 @@ class FolderOrchestrator:
                 if completed:
                     # RELEASED: journaled outputs are never re-examined. QC owns
                     # the output folder from here and edits it in place.
+                    self.stability.pop(folder, None)
+                    continue
+                if self.state.retry_blocked(folder, snapshot.fingerprint):
+                    # Failed recently: wait out the back-off (or a change to its files).
                     self.stability.pop(folder, None)
                     continue
                 force_retry = bool(
@@ -517,13 +715,16 @@ class FolderOrchestrator:
                     self._observe(confirmed)
                     continue
                 active.append(self._start_folder(snapshot))
+                self._progress_at = time.time()
                 self.stability.pop(folder, None)
             except FolderChangedError as exc:
                 LOGGER.warning("%s", exc)
                 self.stability.pop(folder, None)
-            except Exception:
+            except Exception as exc:
                 LOGGER.exception("Folder admission failed: %s", folder)
                 self.stability.pop(folder, None)
+                if snapshot is not None:
+                    self._record_failure(snapshot, f"{type(exc).__name__}: {exc}")
 
     def _write_status_snapshot(self, active: list[ActiveFolder]) -> None:
         """Cheapest possible progress snapshot for the console (service.py).
@@ -539,7 +740,11 @@ class FolderOrchestrator:
                 status_path,
                 {
                     "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "progress_at": self._progress_at,
                     "waiting": sorted(str(folder) for folder in set(self.stability) | self.not_ready),
+                    "input_error": self._input_error,
+                    "unreported": self._unreported[0],
+                    "oldest_unreported_minutes": self._unreported[1],
                     "processing": [str(item.snapshot.folder) for item in active],
                 },
             )
@@ -572,6 +777,7 @@ class FolderOrchestrator:
             future = executor.submit(*self._next_submission(item))
             item.in_flight += 1
             futures[future] = item
+            self._image_started[future] = time.monotonic()
         return round_robin
 
     def _can_submit(self, item: ActiveFolder) -> bool:
@@ -609,14 +815,17 @@ class FolderOrchestrator:
         future: Future[object],
         futures: dict[Future[object], ActiveFolder],
     ) -> None:
+        self._progress_at = time.time()
         try:
             result = future.result()
         except CancelledError:
             pass
         except BrokenExecutor:
             raise
-        except Exception:
+        except Exception as exc:
             LOGGER.exception("Folder processing failed: %s", item.snapshot.folder)
+            if not item.failed:
+                self._record_failure(item.snapshot, f"{type(exc).__name__}: {exc}")
             item.failed = True
             item.next_job = item.job_count
             self._cancel_folder_jobs(item, futures)
@@ -708,11 +917,14 @@ class FolderOrchestrator:
             output_folder, manifest_checksum = future.result()
             self.state.mark_completed(item.snapshot, output_folder, manifest_checksum)
             item.stage = "completed"
+            self._progress_at = time.time()
             LOGGER.info("Completed folder %s -> %s", item.snapshot.folder, output_folder)
             return 1
-        except Exception:
+        except Exception as exc:
             item.failed = True
             LOGGER.exception("Folder publishing failed: %s", item.snapshot.folder)
+            if not isinstance(exc, FolderChangedError):  # new files are not a failure
+                self._record_failure(item.snapshot, f"{type(exc).__name__}: {exc}")
             return 0
         finally:
             shutil.rmtree(fs_path(item.work_folder), ignore_errors=True)
@@ -914,9 +1126,29 @@ class FolderOrchestrator:
 
     def _is_ready(self, snapshot: FileSnapshot) -> bool:
         if self.config.completion_marker:
-            if not fs_path(snapshot.folder / self.config.completion_marker).is_file():
+            marker = fs_path(snapshot.folder / self.config.completion_marker)
+            if not marker.is_file():
                 return False
-            return True
+            expected = self._marker_image_count(marker)
+            key = str(snapshot.folder)
+            if self._marker_rework_in_progress(marker):
+                # LWCAM is replacing files in this completed folder (Submit Rework).
+                if key not in self._short_logged:
+                    self._short_logged.add(key)
+                    LOGGER.info("%s: rework in progress (marker says so); waiting", snapshot.folder)
+                return False
+            if expected is not None and snapshot.image_count < expected:
+                # The marker says how many images LWCAM copied; fewer here means
+                # the copy is still landing (or a file went missing).
+                if key not in self._short_logged:
+                    self._short_logged.add(key)
+                    LOGGER.info(
+                        "%s: marker expects %d images, %d present; waiting",
+                        snapshot.folder, expected, snapshot.image_count,
+                    )
+                return False
+            self._short_logged.discard(key)
+            return self._rework_settled(snapshot)
         record = self.stability.get(snapshot.folder)
         now = time.monotonic()
         if record is None or record.fingerprint != snapshot.fingerprint:
@@ -929,6 +1161,37 @@ class FolderOrchestrator:
             now - record.unchanged_since >= self.config.stable_seconds
             and self._old_enough(snapshot)
         )
+
+    @staticmethod
+    def _marker_rework_in_progress(marker: Path) -> bool:
+        try:
+            return json.loads(marker.read_text(encoding="utf-8")).get("rework_in_progress") is True
+        except Exception:  # noqa: BLE001 - unreadable/foreign marker behaves as before
+            return False
+
+    def _rework_settled(self, snapshot: FileSnapshot) -> bool:
+        """True unless this folder was completed before and its files have changed
+        less than rework_settle_seconds ago (old LWCAM builds set no marker key)."""
+        folder = snapshot.folder
+        done = self.state.completed_fingerprint(folder)
+        if done is None or done == snapshot.fingerprint:
+            self._rework_seen.pop(folder, None)
+            return True
+        seen = self._rework_seen.get(folder)
+        now = time.monotonic()
+        if seen is None or seen[0] != snapshot.fingerprint:
+            self._rework_seen[folder] = (snapshot.fingerprint, now)
+            return self.config.rework_settle_seconds <= 0
+        return now - seen[1] >= self.config.rework_settle_seconds
+
+    @staticmethod
+    def _marker_image_count(marker: Path) -> int | None:
+        """The marker's `image_count`, or None when it has none (old markers)."""
+        try:
+            value = json.loads(marker.read_text(encoding="utf-8")).get("image_count")
+        except Exception:  # noqa: BLE001 - unreadable/foreign marker behaves as before
+            return None
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
     def _old_enough(self, snapshot: FileSnapshot) -> bool:
         newest_seconds = snapshot.newest_mtime_ns / 1_000_000_000
@@ -949,21 +1212,60 @@ class FolderOrchestrator:
                 f"Input changed while processing; discarded staged output for {expected.folder}"
             )
 
+    INPUT_LIST_TIMEOUT = 10.0
+
     def _candidate_folders(self) -> list[Path]:
+        """Bounded, and reports an unreachable input root: a dead share must not
+        freeze the scheduler, and must be visible (heartbeat last_error).
+        ponytail: one stuck listing thread at a time; it is abandoned, not killed."""
+        root = self.config.input_root
+        box: list = []
+
+        def work() -> None:
+            try:
+                box.append(("ok", self._list_candidates()))
+            except BaseException as exc:  # noqa: BLE001 - handed to the caller
+                box.append(("err", exc))
+
+        stuck = self._list_thread is not None and self._list_thread.is_alive()
+        if not stuck:
+            self._list_thread = threading.Thread(target=work, daemon=True, name="lwip-list-input")
+            self._list_thread.start()
+            self._list_thread.join(self.INPUT_LIST_TIMEOUT)
+        if not box:
+            self._set_input_error(
+                f"Input folder {root} is unreachable (no answer in {int(self.INPUT_LIST_TIMEOUT)} seconds)"
+            )
+            return []
+        kind, value = box[0]
+        if kind == "ok":
+            self._set_input_error(None)
+            return value
+        if isinstance(value, FileNotFoundError):
+            self._set_input_error(f"Input folder {root} was not found")
+            LOGGER.warning("Input root does not exist: %s", root)
+        elif isinstance(value, OSError):
+            self._set_input_error(f"Input folder {root} is unreachable")
+        else:
+            raise value
+        return []
+
+    def _set_input_error(self, message: str | None) -> None:
+        if message != self._input_error:
+            (LOGGER.warning if message else LOGGER.info)("%s", message or "Input folder is reachable again")
+        self._input_error = message
+
+    def _list_candidates(self) -> list[Path]:
         # iterdir runs on the SHORT parent (the input root, then a YYYYMMDD day),
         # so enumeration itself is never near MAX_PATH and the names it yields
         # stay logical — which is what has to be returned, since these paths
         # become state.json keys and cloud_report rows. Only the per-child
         # is_dir() probe touches the long path, so only that takes fs_path.
-        try:
-            top = [
-                path
-                for path in self.config.input_root.iterdir()
-                if fs_path(path).is_dir()
-            ]
-        except FileNotFoundError:
-            LOGGER.warning("Input root does not exist: %s", self.config.input_root)
-            return []
+        top = [
+            path
+            for path in self.config.input_root.iterdir()
+            if fs_path(path).is_dir() and not _path_is_link(path)
+        ]
         if self.config.folder_depth == 1:
             folders = top
         else:
@@ -974,7 +1276,9 @@ class FolderOrchestrator:
             for day in top:
                 try:
                     folders.extend(
-                        child for child in day.iterdir() if fs_path(child).is_dir()
+                        child
+                        for child in day.iterdir()
+                        if fs_path(child).is_dir() and not _path_is_link(child)
                     )
                 except OSError:
                     continue
@@ -1059,6 +1363,10 @@ class FolderOrchestrator:
         completed = self.state.data.get("completed")
         if not isinstance(completed, dict):
             return
+        # Counted BEFORE any early return, so DB-down / schema-too-old show up.
+        self._unreported = self._count_unreported(completed)
+        if self._schema_too_old(cloud_report):
+            return
         self._settle_predating_entries(completed)
 
         for folder_str, item in list(completed.items()):
@@ -1079,13 +1387,26 @@ class FolderOrchestrator:
             # Guard against reporting output that belongs to an older run of the
             # same folder, the same check LWCAM's agent makes.
             if manifest.get("source_fingerprint") != item.get("fingerprint"):
+                # Usually a re-run still publishing. But when ANOTHER entry
+                # wrote this output and the manifest there is its run - the
+                # same folder processed again from a new input root - this
+                # entry can never report; settle it rather than retry forever.
+                if self._superseded(completed, folder_str, output_folder, manifest):
+                    self.state.mark_reported(Path(folder_str), reason="superseded")
+                    LOGGER.info(
+                        "Replaced by a later run of the same folder - not reporting %s "
+                        "for %s",
+                        output_folder, folder_str,
+                    )
                 continue
 
             result = cloud_report.report_folder(
                 self._pg, manifest, Path(output_folder)
             )
+            waiting_key = f"{folder_str}|{item.get('fingerprint')}"
             if result is cloud_report.ReportResult.REPORTED:
                 self.state.mark_reported(Path(folder_str))
+                self._waiting_logged.discard(waiting_key)
                 LOGGER.info("Reported to database: %s", output_folder)
             elif result is cloud_report.ReportResult.NO_IDENTITY:
                 # No marker, so no row can ever be resolved. Settle it or the
@@ -1102,24 +1423,97 @@ class FolderOrchestrator:
             else:
                 # NOT_YET: this folder's row has not synced. The next entry may
                 # have one, so keep going; one short round trip per stuck entry.
+                # Said once: silence here looked exactly like success.
+                if waiting_key not in self._waiting_logged:
+                    self._waiting_logged.add(waiting_key)
+                    identity = cloud_report.identity_of(manifest) or {}
+                    LOGGER.warning(
+                        "Not in the database yet, so not reported: %s (project %s, box %r, "
+                        "folder %s). The capture PC creates this record when it syncs its "
+                        "capture data; LWIP reports as soon as it exists.",
+                        output_folder, identity.get("project_key"),
+                        identity.get("box_name"), identity.get("folder_seq"),
+                    )
                 continue
             return
 
-    def _settle_predating_entries(self, completed: dict) -> None:
-        """Marks every entry completed before reporting was switched on as sent.
+    @staticmethod
+    def _count_unreported(completed: dict) -> tuple[int, int]:
+        count, oldest = 0, 0.0
+        now = datetime.now(timezone.utc)
+        for item in completed.values():
+            if not isinstance(item, dict) or item.get("reported_at") or item.get("retry_required"):
+                continue
+            if not item.get("output_folder"):
+                continue
+            count += 1
+            try:
+                done = datetime.fromisoformat(str(item.get("completed_at")))
+                if done.tzinfo is None:
+                    done = done.replace(tzinfo=timezone.utc)
+                oldest = max(oldest, (now - done).total_seconds())
+            except ValueError:
+                pass
+        return count, int(oldest // 60)
 
-        Until then LWCAM's agent was the only writer, so those folders have
-        already reached the database - and QC may since have moved them on to
-        PASS or REWORK. Replaying them through the unconditional UPDATE would
-        reset each one to PENDING. Runs once: the journal remembers the switch-on.
+    def _schema_too_old(self, cloud_report) -> bool:
+        """True while the database is older than this program: reporting pauses
+        (the journal keeps every folder, so nothing is lost) and is re-checked
+        once a minute. An unreachable database is not "too old"."""
+        now = time.monotonic()
+        if now - getattr(self, "_schema_checked_at", float("-inf")) >= 60.0:
+            self._schema_checked_at = now
+            level = cloud_report.check_schema(self._pg)
+            self._schema_level = level
+            if level is not None and level < cloud_report.REQUIRED_SCHEMA:
+                LOGGER.warning("Reporting paused. %s", cloud_report.schema_message(level))
+        level = getattr(self, "_schema_level", None)
+        return level is not None and level < cloud_report.REQUIRED_SCHEMA
+
+    @staticmethod
+    def _superseded(completed: dict, folder_str: str, output_folder: str, manifest: dict) -> bool:
+        """True when another completed entry published `output_folder` and the
+        manifest now in it is that entry's run - so it, not this one, reports."""
+        fingerprint = manifest.get("source_fingerprint")
+        if not fingerprint:
+            return False
+        return any(
+            key != folder_str
+            and isinstance(other, dict)
+            and other.get("output_folder") == output_folder
+            and other.get("fingerprint") == fingerprint
+            for key, other in completed.items()
+        )
+
+    def _settle_predating_entries(self, completed: dict) -> None:
+        """Marks entries a LEGACY journal completed before this build as sent.
+
+        Only a journal written by a pre-reporting LWIP (entries, no
+        cloud_report_since) gets here: LWCAM's agent was then the only writer,
+        so those folders already reached the database. A brand-new or recovered
+        journal has the switch set from birth (StateStore._load) and settles
+        nothing - a folder finished right after start must be reported.
+        Only entries completed before this process loaded the journal count as
+        old; anything finished since is left for the sweep. (The report UPDATE
+        only moves a pre-QC status to PENDING, so this is an optimisation, not
+        the guard.) Runs once: the journal remembers the switch-on.
         """
         if self.state.data.get("cloud_report_since"):
             return
+        cutoff = self.state.loaded_at
         for folder_str, item in completed.items():
-            if isinstance(item, dict) and not item.get("reported_at"):
+            if not isinstance(item, dict) or item.get("reported_at"):
+                continue
+            try:
+                done = datetime.fromisoformat(str(item.get("completed_at")))
+                if done.tzinfo is None:
+                    done = done.replace(tzinfo=timezone.utc)
+            except ValueError:
+                done = None  # no usable time: it is from an older build
+            if done is None or done < cutoff:
                 item["reported_at"] = datetime.now(timezone.utc).isoformat()
                 item["reported_skip_reason"] = "predates_reporting"
-        self.state.data["cloud_report_since"] = datetime.now(timezone.utc).isoformat()
+        self.state.data["cloud_report_since"] = cutoff.isoformat()
         self.state._save()
 
     def _sleep_interruptibly(self, seconds: float) -> None:
@@ -1129,19 +1523,17 @@ class FolderOrchestrator:
 
 
 def build_snapshot(folder: Path, config: ToolConfig) -> FileSnapshot | None:
-    pattern = "**/*" if config.recursive else "*"
     values: list[tuple[str, int, int]] = []
     # Enumerated through fs_path, relative_to the SAME prefixed root: a long
     # folder name would otherwise glob to nothing and the folder would look
     # empty, which build_snapshot reports as "no work here" rather than as an
     # error. The stored values stay relative, so no prefix is journalled.
     fs_folder = fs_path(folder)
-    for path in fs_folder.glob(pattern):
-        if not path.is_file() or path.suffix.lower() not in config.extensions:
+    for path, info in _walk_files(fs_folder, config.recursive):
+        if path.suffix.lower() not in config.extensions:
             continue
-        stat = path.stat()
         values.append(
-            (path.relative_to(fs_folder).as_posix(), stat.st_size, stat.st_mtime_ns)
+            (path.relative_to(fs_folder).as_posix(), info.st_size, info.st_mtime_ns)
         )
     if not values:
         return None
@@ -1333,7 +1725,10 @@ def configure_logging(config: ToolConfig, *, verbose: bool = False) -> None:
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level)
-    root.addHandler(console)
+    # The service's stderr is already redirected into service.log; a console
+    # handler there would write every line a second time.
+    if sys.stderr is not None and sys.stderr.isatty():
+        root.addHandler(console)
     root.addHandler(file_handler)
 
 

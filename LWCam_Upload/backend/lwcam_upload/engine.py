@@ -48,9 +48,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
+import stat
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -58,7 +61,7 @@ from typing import Any, Callable
 
 from . import log
 from .config import Config, parse_s3_path
-from .ledger import JsonLedger, atomic_json
+from .ledger import JsonLedger, LedgerCorrupt, LedgerUnavailable, atomic_json
 from .paths import fs_path
 from .summary import SUMMARY_FILE
 from . import summary as upload_summary
@@ -67,17 +70,118 @@ from . import summary as upload_summary
 RETRY_STEP = timedelta(minutes=5)
 RETRY_CAP = timedelta(hours=1)
 
+# A network share that stops answering must not freeze the sweep, the
+# heartbeat or the console: every check of it runs on a worker thread.
+WATCH_CHECK_SECONDS = 10.0
+# Windows errors that mean "the server answered and there is no such folder",
+# as opposed to the server not answering (53 network path not found, 64, 67, 1231...).
+_NOT_FOUND_WINERRORS = {2, 3}
+
+
+def _bounded(fn: Callable[[], Any], seconds: float | None = None) -> Any:
+    """Runs `fn` on a daemon thread; raises TimeoutError if it does not finish.
+    A wedged call leaks its (daemon) thread until the OS gives up - acceptable."""
+    seconds = WATCH_CHECK_SECONDS if seconds is None else seconds
+    box: dict[str, Any] = {}
+
+    def work() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as error:  # noqa: BLE001 - re-raised in the caller
+            box["error"] = error
+
+    thread = threading.Thread(target=work, name="lwcam-upload-fscheck", daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise TimeoutError(f"no answer within {seconds:g} s")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
+def watch_state(watch_root: Path, seconds: float | None = None) -> tuple[str, str | None]:
+    """("ok" | "missing" | "unreachable", plain-English problem or None)."""
+    try:
+        if _bounded(lambda: fs_path(watch_root).is_dir(), seconds):
+            return "ok", None
+        # is_dir() swallows most errors as False; stat() says which one it was.
+        _bounded(lambda: os.stat(fs_path(watch_root)), seconds)
+        return "missing", f"Watch folder {watch_root} is not a folder"
+    except FileNotFoundError as error:
+        if os.name != "nt" or getattr(error, "winerror", None) in _NOT_FOUND_WINERRORS:
+            return "missing", f"Watch folder {watch_root} does not exist"
+        return "unreachable", f"Watch folder {watch_root} is unreachable"
+    except Exception:  # noqa: BLE001 - timeout, access denied, network down...
+        return "unreachable", f"Watch folder {watch_root} is unreachable"
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _next_attempt(attempts: int) -> str:
-    return (utc_now() + min(RETRY_STEP * attempts, RETRY_CAP)).isoformat()
+def _next_attempt(attempts: int, *, permanent: bool = False) -> str:
+    # A permanent failure (keys or bucket rejected) skips the step-up: nothing
+    # changes until someone fixes Settings, so it waits the full cap at once.
+    delay = RETRY_CAP if permanent else min(RETRY_STEP * attempts, RETRY_CAP)
+    return (utc_now() + delay).isoformat()
+
+
+CREDENTIAL_CODES = {
+    "InvalidAccessKeyId", "SignatureDoesNotMatch", "ExpiredToken",
+    "InvalidClientTokenId", "AccessDenied", "403", "Forbidden",
+}
+BUCKET_CODES = {
+    "NoSuchBucket", "PermanentRedirect", "AuthorizationHeaderMalformed",
+    "IllegalLocationConstraintException",
+}
+NETWORK_CODES = {
+    "EndpointConnectionError", "ConnectTimeout", "ConnectTimeoutError",
+    "ReadTimeout", "ReadTimeoutError", "ConnectionClosedError",
+}
+
+
+def error_code(error: BaseException) -> str:
+    """The S3/botocore code behind an error: a ClientError's own code, the
+    code in boto3's S3UploadFailedError text ("An error occurred (X) ..."), or
+    the exception's class name (botocore's network errors)."""
+    for exc in (error, error.__cause__):
+        response = getattr(exc, "response", None)
+        if isinstance(response, dict) and response.get("Error", {}).get("Code"):
+            return str(response["Error"]["Code"])
+    match = re.search(r"An error occurred \((\w+)\)", str(error))
+    return match.group(1) if match else type(error).__name__
+
+
+def classify_error(error: BaseException) -> tuple[str, str]:
+    """(kind, code): kind is credentials / bucket / network / other."""
+    code = error_code(error)
+    if code in CREDENTIAL_CODES:
+        return "credentials", code
+    if code in BUCKET_CODES:
+        return "bucket", code
+    if code in NETWORK_CODES:
+        return "network", code
+    return "other", code
+
+
+def is_permanent(kind: str) -> bool:
+    return kind in ("credentials", "bucket")
 
 
 class UploadError(RuntimeError):
     """Transfer-time problems, worded for the operator."""
+
+
+class UploadStopped(Exception):
+    """A stop was requested between two files of a package. Not a failure: the
+    package stays as it was and resumes (finished files are skipped) later."""
+
+
+# A HEAD that S3 answers with these says nothing about the keys: many IAM
+# policies allow PutObject but not HeadObject/ListBucket, and S3 then answers
+# 403 for a missing key. Only the PUT itself decides "keys rejected".
+HEAD_DENIED_CODES = {"403", "AccessDenied", "Forbidden"}
 
 
 @dataclass(frozen=True)
@@ -90,6 +194,7 @@ class UploadTarget:
     watch_root: Path
     done_root: Path | None
     summary_db: Path | None
+    https_proxy: str = ""
 
     def key_for(self, *parts: str) -> str:
         return "/".join(part.strip("/") for part in (self.prefix, *parts) if part.strip("/"))
@@ -107,18 +212,52 @@ def upload_target(config: Config) -> UploadTarget:
         watch_root=config.watch_root,
         done_root=config.done_root,
         summary_db=summary_db,
+        https_proxy=config.https_proxy,
     )
+
+
+def _is_link(path: Path | str) -> bool:
+    """A symlink, junction or any other reparse point (OneDrive placeholder,
+    dedup stub...). Never followed: a link out of watch_root could pull in - and
+    upload - files that were never exported. Unreadable counts as a link."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return True
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
+
+
+def _iter_files(root: Path) -> list[Path]:
+    """Every regular file under `root`, links skipped, sorted. `root` is already
+    an fs_path."""
+    found: list[Path] = []
+    stack = [root]
+    while stack:
+        with os.scandir(stack.pop()) as entries:
+            for entry in entries:
+                if _is_link(entry.path):
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=False):
+                    found.append(Path(entry.path))
+    return sorted(found)
+
+
+def group_id_for(package: Path | str) -> str:
+    """The Group ID a package name stands for: a zip's stem, a folder's whole
+    name (a folder called `G1.2` must not lose its `.2`)."""
+    name = Path(package).name
+    return name[:-4] if name.lower().endswith(".zip") else name
 
 
 def _package_files(package: Path) -> dict[str, int]:
     """Relative path -> size for a folder package, or {name: size} for a ZIP."""
     if fs_path(package).is_dir():
         root = fs_path(package)
-        return {
-            p.relative_to(root).as_posix(): p.stat().st_size
-            for p in root.rglob("*")
-            if p.is_file()
-        }
+        return {p.relative_to(root).as_posix(): p.stat().st_size for p in _iter_files(root)}
     return {package.name: fs_path(package).stat().st_size}
 
 
@@ -152,8 +291,7 @@ def _fingerprint(package: Path) -> str:
     if root.is_dir():
         parts = sorted(
             f"{p.relative_to(root).as_posix()}|{p.stat().st_size}|{p.stat().st_mtime_ns}"
-            for p in root.rglob("*")
-            if p.is_file()
+            for p in _iter_files(root)
         )
         return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
     info = root.stat()
@@ -180,6 +318,10 @@ def _is_rework_package(package: Path) -> bool:
 def move_to_done(package: Path, done_dir: Path, *, replace: bool = False) -> Path:
     """Moves an uploaded package into the Uploaded folder. Idempotent.
 
+    With `replace` (a client rework) the previous copy is renamed aside first
+    and deleted only once the new one is in place, so a crash never leaves the
+    Uploaded folder without the package.
+
     Same volume: one atomic rename straight to the final name - a staging
     step in between would leave a crash-stranded dot-file that no sweep ever
     lists again. Other volume: copy into staging, verify every file's size,
@@ -189,12 +331,17 @@ def move_to_done(package: Path, done_dir: Path, *, replace: bool = False) -> Pat
     fs_path(done_dir).mkdir(parents=True, exist_ok=True)
     final = done_dir / package.name
     partial = done_dir / f".{package.name}.moving"
+    aside: Path | None = None
     if fs_path(final).exists():
         if replace:
             # A client rework republishes under the SAME Group ID, so what is
             # here is the version the client rejected and the bucket has just
-            # been overwritten with the corrected one.
-            _remove(final)
+            # been overwritten with the corrected one. It is renamed aside, not
+            # deleted first, so a crash before the corrected package is in
+            # place loses nothing; the move below puts it back if it fails.
+            _remove_old_asides(done_dir)
+            aside = done_dir / f".{package.name}.old-{int(time.time())}-{uuid.uuid4().hex}"
+            os.rename(fs_path(final), fs_path(aside))
         elif _package_files(final) != _package_files(package):
             raise UploadError(
                 f"{final} already exists with different contents; not overwriting"
@@ -202,12 +349,39 @@ def move_to_done(package: Path, done_dir: Path, *, replace: bool = False) -> Pat
         else:
             _remove(package)
             return final
+    try:
+        _move_in(package, final, partial, done_dir)
+    except BaseException:
+        if aside is not None:
+            _remove(final)
+            os.rename(fs_path(aside), fs_path(final))
+        raise
+    if aside is not None:
+        _remove(aside)
+        if fs_path(aside).exists():
+            log("upload", f"could not delete the replaced package {aside}; cleaned up later")
+    return final
+
+
+_slow_move_logged = False
+
+
+def _move_in(package: Path, final: Path, partial: Path, done_dir: Path) -> None:
     _remove(partial)  # staging a cross-volume copy left behind when it crashed
     try:
         os.rename(fs_path(package), fs_path(final))
-        return final
+        return
     except OSError:
         pass  # another volume: fall through to copy-verify-rename-delete
+    global _slow_move_logged
+    if not _slow_move_logged:
+        _slow_move_logged = True
+        log(
+            "SYSTEM",
+            f"{done_dir} is not on the same volume as the watch folder, so uploaded packages are "
+            "copied, size-checked and then deleted instead of renamed - slower, but a crash never "
+            "loses a package. Put the Uploaded folder on the same drive/share to make it instant.",
+        )
     if fs_path(package).is_dir():
         shutil.copytree(fs_path(package), fs_path(partial))
     else:
@@ -217,7 +391,17 @@ def move_to_done(package: Path, done_dir: Path, *, replace: bool = False) -> Pat
         raise UploadError(f"copy to {done_dir} did not match the source")
     os.replace(fs_path(partial), fs_path(final))
     _remove(package)
-    return final
+
+
+def _remove_old_asides(done_dir: Path) -> None:
+    """Deletes `.<name>.old-<epoch>-<hex>` leftovers (a crash or a locked file
+    between setting a rework's previous copy aside and deleting it) older than
+    a day. Dot-names are never listed as packages, so they are invisible."""
+    for entry in fs_path(done_dir).iterdir():
+        _, marker, tail = entry.name.rpartition(".old-")
+        stamp = tail.split("-", 1)[0]
+        if entry.name.startswith(".") and marker and stamp.isdigit() and time.time() - int(stamp) > 86400:
+            _remove(entry)
 
 
 def _remove(path: Path) -> None:
@@ -238,18 +422,27 @@ class S3Store:
     def __init__(self, target: UploadTarget) -> None:
         self._target = target
         self._client: Any = None
+        # Set when a HEAD came back 403: the size read-back is then impossible
+        # and the PUT's own success is the proof (see _upload_package).
+        self.head_denied = False
 
     def _s3(self) -> Any:
         if self._client is None:
             import boto3
             from botocore.config import Config as BotoConfig
 
+            proxy = self._target.https_proxy
             self._client = boto3.client(
                 "s3",
                 region_name=self._target.region,
                 aws_access_key_id=self._target.access_key,
                 aws_secret_access_key=self._target.secret_key,
-                config=BotoConfig(retries={"max_attempts": 5, "mode": "standard"}),
+                config=BotoConfig(
+                    retries={"max_attempts": 5, "mode": "standard"},
+                    connect_timeout=15,
+                    read_timeout=60,
+                    **({"proxies": {"https": proxy, "http": proxy}} if proxy else {}),
+                ),
             )
         return self._client
 
@@ -259,7 +452,8 @@ class S3Store:
 
     def remote_info(self, key: str) -> tuple[int, str] | None:
         """(size, ETag) of the object in the bucket, or None when it is not
-        there. One HEAD call serves both."""
+        there (or when HEAD is not permitted - see HEAD_DENIED_CODES). One HEAD
+        call serves both."""
         from botocore.exceptions import ClientError
 
         try:
@@ -267,6 +461,9 @@ class S3Store:
         except ClientError as error:
             code = str(error.response.get("Error", {}).get("Code", ""))
             if code in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            if code in HEAD_DENIED_CODES:
+                self.head_denied = True
                 return None
             raise
         return int(head["ContentLength"]), str(head.get("ETag") or "").strip('"')
@@ -286,6 +483,38 @@ class UploadCoordinator:
         self._lock = threading.RLock()
         self._current: dict[str, Any] | None = None
         self._last_scan_count: int | None = None
+        # `writer(group_id, error) -> bool`: the capture_folders write-back
+        # (error None = mark ingested). Set by the console; False/raise means
+        # "not written, try again on a later scan".
+        self.db_writer: Callable[[str, str | None], bool] | None = None
+        # Set by the HTTP thread, applied by the scan thread - the scan thread
+        # is the ONLY writer of the ledger, so a click can never race a save.
+        self._retry_requested = threading.Event()
+        # Why the ledger cannot be used right now (None = fine). Shown as a
+        # banner and sent in the heartbeat.
+        self.ledger_problem: str | None = None
+        # Why watch_root cannot be listed right now (None = fine), and which
+        # kind ("missing" / "unreachable"). Set by the sweep, read by the
+        # heartbeat and the console - they never touch the share themselves.
+        self.watch_problem: str | None = None
+        self.watch_kind: str | None = None
+        # Scan timing for the heartbeat (monotonic; created-at until the first scan).
+        self._created_at = time.monotonic()
+        self._scan_started_at: float | None = None
+        self._scan_done_at: float | None = None
+        self._scanning = False
+
+    def scan_age_minutes(self) -> float:
+        """Minutes since the last COMPLETED scan; while one is running, since it
+        started (a hung scan keeps growing; a long healthy scan is not hidden
+        because scan_once only counts as done when it returns)."""
+        with self._lock:
+            since = (
+                self._scan_started_at if self._scanning
+                else self._scan_done_at if self._scan_done_at is not None
+                else self._created_at
+            )
+        return round((time.monotonic() - since) / 60, 1)
 
     # Ledger
 
@@ -293,9 +522,22 @@ class UploadCoordinator:
     def ledger_path(config: Config) -> Path:
         return config.state_file
 
+    def _load(self, path: Path) -> dict[str, Any]:
+        """The ledger, or raises LedgerCorrupt / LedgerUnavailable (recorded in
+        `ledger_problem`). Damage is never read as "nothing uploaded yet"."""
+        try:
+            data = JsonLedger(path).load_strict()
+        except (LedgerCorrupt, LedgerUnavailable) as error:
+            if self.ledger_problem != str(error):
+                log("ERROR", str(error))
+            self.ledger_problem = str(error)
+            raise
+        self.ledger_problem = None
+        return data
+
     @staticmethod
-    def _load(path: Path) -> dict[str, Any]:
-        return JsonLedger(path).load()
+    def _save(path: Path, ledger: dict[str, Any]) -> None:
+        atomic_json(path, ledger, keep_backup=True)
 
     @staticmethod
     def packages(watch_root: Path) -> list[Path]:
@@ -310,6 +552,7 @@ class UploadCoordinator:
             path
             for path in fs_path(watch_root).iterdir()
             if not path.name.startswith(".")
+            and not _is_link(path)
             and (path.is_dir() or path.suffix.lower() == ".zip")
         ]
         return sorted(found, key=lambda path: path.name)
@@ -338,14 +581,25 @@ class UploadCoordinator:
             "failures": [],
             "recent": [],
             "uploadedCount": 0,
+            "permanentProblem": None,
+            "ledgerProblem": None,
+            "lastErrorKind": None,
             "lastScanAt": last_scan_at,
             "nextScanAt": next_scan_at,
+            "watchProblem": self.watch_problem,
+            "watchKind": self.watch_kind,
+            "dbPending": 0,
+            "scanIntervalMinutes": round(config.interval_seconds / 60, 1) if config else None,
         }
         if config is None or not config.enabled:
             return result
         target = upload_target(config)
         result.update(bucket=target.bucket, prefix=target.prefix)
-        ledger = self._load(self.ledger_path(config))
+        try:
+            ledger = self._load(self.ledger_path(config))
+        except (LedgerCorrupt, LedgerUnavailable) as error:
+            ledger = {}
+            result["ledgerProblem"] = str(error)
         uploaded = [e for e in ledger.values() if isinstance(e, dict) and e.get("status") == "UPLOADED"]
         # An uploaded package whose summary row or move keeps failing is a
         # failure the operator has to see, even though the bytes are safe.
@@ -354,18 +608,39 @@ class UploadCoordinator:
             for e in ledger.values()
             if isinstance(e, dict) and _needs_attention(e)
         ]
+        result["dbPending"] = sum(
+            1 for e in ledger.values() if isinstance(e, dict) and e.get("dbPending")
+        )
         uploaded.sort(key=lambda e: str(e.get("uploadedAt") or ""), reverse=True)
         failed.sort(key=lambda e: str(e.get("failedAt") or ""), reverse=True)
         listed = {str(e.get("package")) for e in (*uploaded, *failed)}
         with self._lock:
             current = dict(self._current) if self._current else None
+        try:
+            # Bounded, and skipped while the sweep knows the share is down.
+            waiting = (
+                [] if self.watch_problem
+                else _bounded(lambda: self.packages(config.watch_root))
+            )
+        except Exception:  # noqa: BLE001 - the status page must still answer
+            waiting = []
         result.update(
             uploadedCount=len(uploaded),
-            pending=[p.name for p in self.packages(config.watch_root) if p.name not in listed],
+            pending=[p.name for p in waiting if p.name not in listed],
             current=current,
             failures=failed,
             recent=uploaded[:10],
         )
+        rejected = next((e for e in failed if is_permanent(str(e.get("errorKind")))), None)
+        if rejected:
+            result["permanentProblem"] = (
+                f"The bucket or keys were rejected: {rejected.get('errorCode')}. "
+                "Fix them in Settings."
+            )
+        if failed:
+            result["lastErrorKind"] = failed[0].get("errorKind")
+        if result["ledgerProblem"]:
+            result["pending"] = []  # unknowable without the ledger
         return result
 
     # The sweep
@@ -380,10 +655,40 @@ class UploadCoordinator:
         happens once, in the console's own loop, at the point it actually
         honours the request).
         """
+        with self._lock:
+            self._scan_started_at = time.monotonic()
+            self._scanning = True
+        try:
+            return self._scan(config, stop_check)
+        finally:
+            with self._lock:
+                self._scanning = False
+                self._scan_done_at = time.monotonic()
+
+    def _scan(self, config: Config, stop_check: Callable[[], bool] | None) -> int:
         target = upload_target(config)
         ledger_path = self.ledger_path(config)
-        ledger = self._load(ledger_path)
+        kind, problem = watch_state(config.watch_root)
+        if problem != self.watch_problem:
+            log("ERROR" if problem else "SYSTEM", problem or f"Watch folder {config.watch_root} is reachable again")
+        self.watch_problem, self.watch_kind = problem, (None if kind == "ok" else kind)
+        try:
+            ledger = self._load(ledger_path)
+        except (LedgerCorrupt, LedgerUnavailable):
+            return 0  # refused, already logged; the banner and heartbeat say why
+        if self._retry_requested.is_set():
+            self._retry_requested.clear()
+            cleared = 0
+            for row in ledger.values():
+                if isinstance(row, dict) and row.get("nextAttemptAt") and _needs_attention(row):
+                    row["nextAttemptAt"] = None
+                    cleared += 1
+            if cleared:
+                self._save(ledger_path, ledger)
+                log("RETRY", f"cleared back-off on {cleared} failed package(s)")
+        use_db = self.db_writer is not None and bool(config.db_host)
         store = self._store_factory(target)
+        target_sig = _target_sig(target)
         now = utc_now()
         done = 0
         packages = self.packages(config.watch_root)
@@ -396,9 +701,22 @@ class UploadCoordinator:
                 break
             entry = ledger.get(package.name) if isinstance(ledger.get(package.name), dict) else {}
             next_at = entry.get("nextAttemptAt")
+            fingerprint = None
             if next_at and _parse_time(next_at) > now:
-                continue
-            fingerprint = _fingerprint(package)
+                if entry.get("status") != "FAILED":
+                    continue
+                # A failed package waits out its back-off only while nothing
+                # has changed: QC republishing it (client rework) or an
+                # operator fixing it, or fixed S3 settings, is tried at once.
+                fingerprint = _fingerprint(package)
+                if entry.get("fingerprint") != fingerprint:
+                    log("RETRY", f"{package.name}: package changed since the last failure, retrying now")
+                elif is_permanent(str(entry.get("errorKind"))) and entry.get("targetSig") != target_sig:
+                    log("RETRY", f"{package.name}: S3 settings changed since the last failure, retrying now")
+                else:
+                    continue
+            if fingerprint is None:
+                fingerprint = _fingerprint(package)
             reworked = False
             if entry.get("status") == "UPLOADED":
                 old_fingerprint = entry.get("fingerprint")
@@ -410,33 +728,47 @@ class UploadCoordinator:
                     # row or the move did not happen (not configured then, or
                     # a crash).
                     if self._after_upload(target, package, entry):
-                        atomic_json(ledger_path, ledger)
+                        self._save(ledger_path, ledger)
                     continue
             attempts = 1 if reworked else int(entry.get("attempts") or 0) + 1
             with self._lock:
                 self._current = {"package": package.name, "startedAt": utc_now().isoformat()}
             try:
                 started = time.perf_counter()
-                key, size, files = self._upload_package(store, target, package)
+                key, size, files = self._upload_package(
+                    store, target, package, stop_check=stop_check
+                )
                 duration = time.perf_counter() - started
+            except UploadStopped:
+                log("SYSTEM", f"stop requested; {package.name} will resume later")
+                break
             except Exception as error:  # noqa: BLE001 - every cause becomes a ledger row
+                kind, code = classify_error(error)
+                permanent = is_permanent(kind)
                 ledger[package.name] = {
                     "package": package.name,
-                    "groupId": package.stem,
+                    "groupId": group_id_for(package),
                     "status": "FAILED",
                     "error": str(error) or type(error).__name__,
                     "failedAt": utc_now().isoformat(),
-                    "nextAttemptAt": _next_attempt(attempts),
+                    "nextAttemptAt": _next_attempt(attempts, permanent=permanent),
                     "attempts": attempts,
-                    "fingerprint": entry.get("fingerprint"),
+                    "fingerprint": fingerprint,
+                    "targetSig": target_sig,
+                    "errorKind": kind,
+                    "errorCode": code,
                 }
+                if permanent and use_db:
+                    ledger[package.name]["dbPending"] = {
+                        "error": f"The bucket or keys were rejected: {code}"
+                    }
                 log("ERROR", f"upload of {package.name} failed (attempt {attempts}): {error}")
                 retry_at = _parse_time(ledger[package.name]["nextAttemptAt"]).astimezone()
                 log("RETRY", f"{package.name}: next try at {retry_at:%H:%M} (or press Retry failed)")
             else:
                 ledger[package.name] = {
                     "package": package.name,
-                    "groupId": package.stem,
+                    "groupId": group_id_for(package),
                     "status": "UPLOADED",
                     "key": key,
                     "size": size,
@@ -448,6 +780,8 @@ class UploadCoordinator:
                     "summaryAt": None,
                     "movedTo": None,
                 }
+                if use_db:
+                    ledger[package.name]["dbPending"] = {"ok": True}
                 done += 1
                 speed = round((size / 1_000_000) / duration, 2) if duration > 0 else 0
                 log(
@@ -456,15 +790,46 @@ class UploadCoordinator:
                 )
                 # UPLOADED is on disk before the summary and the move start, so
                 # a crash inside either can never cause a second upload.
-                atomic_json(ledger_path, ledger)
+                self._save(ledger_path, ledger)
                 self._after_upload(target, package, ledger[package.name])
             finally:
                 with self._lock:
                     self._current = None
             # Written per package, not per sweep: a crash mid-sweep keeps what
             # already finished instead of re-uploading it.
-            atomic_json(ledger_path, ledger)
+            self._save(ledger_path, ledger)
+        if use_db and self._flush_db(ledger):
+            self._save(ledger_path, ledger)
         return done
+
+    def _flush_db(self, ledger: dict[str, Any]) -> bool:
+        """Writes every pending capture_folders update (uploaded / permanent
+        error), keyed by Group ID. A failed write never fails an upload: the
+        `dbPending` mark stays in the ledger and the next scan retries. The
+        first failure ends the pass (the database is unreachable or slow: one
+        warning per scan, not one connect timeout per package). A writer that
+        answers False (no row matched) leaves the mark too.
+        Returns whether the ledger changed."""
+        writer = self.db_writer
+        if writer is None:
+            return False
+        changed = False
+        for entry in ledger.values():
+            pending = entry.get("dbPending") if isinstance(entry, dict) else None
+            if not pending:
+                continue
+            # From the package NAME, not the stored groupId: rows written by an
+            # older build cut a dotted folder name at its last dot.
+            group_id = group_id_for(str(entry.get("package")))
+            try:
+                written = writer(group_id, None if pending.get("ok") else pending.get("error"))
+            except Exception as error:  # noqa: BLE001 - retried next scan
+                log("WARN", f"database write-back failed ({error}); will retry on a later scan")
+                break
+            if written:
+                entry.pop("dbPending", None)
+                changed = True
+        return changed
 
     def _after_upload(
         self, target: UploadTarget, package: Path, entry: dict[str, Any]
@@ -540,7 +905,7 @@ class UploadCoordinator:
         meta = upload_summary.read_group_metadata(package)
         upload_summary.record_upload(
             summary_db,
-            capture_id=package.stem,
+            capture_id=group_id_for(package),
             title=meta.get("Title") or None,
             image_count=upload_summary.image_count_from(meta, package),
             rework=upload_summary.normalize_rework(meta.get("Rework")),
@@ -551,7 +916,11 @@ class UploadCoordinator:
         return utc_now().isoformat()
 
     def _upload_package(
-        self, store: Any, target: UploadTarget, package: Path
+        self,
+        store: Any,
+        target: UploadTarget,
+        package: Path,
+        stop_check: Callable[[], bool] | None = None,
     ) -> tuple[str, int, int]:
         """PUTs one package and proves every file arrived at its local size.
 
@@ -563,7 +932,7 @@ class UploadCoordinator:
         """
         if fs_path(package).is_dir():
             root = fs_path(package)
-            files = sorted(p for p in root.rglob("*") if p.is_file())
+            files = _iter_files(root)
             base = target.key_for(package.name)
             keys = [target.key_for(package.name, p.relative_to(root).as_posix()) for p in files]
         else:
@@ -576,6 +945,8 @@ class UploadCoordinator:
         log("UPLOAD", f"{package.name} ({total_size_mb} MB, {len(files)} file(s))")
         total = 0
         for path, key in zip(files, keys, strict=True):
+            if stop_check is not None and stop_check():
+                raise UploadStopped()
             size = path.stat().st_size
             total += size
             info = store.remote_info(key)
@@ -587,27 +958,30 @@ class UploadCoordinator:
                 continue
             store.put_file(path, key)
             remote = store.remote_size(key)
-            if remote != size:
+            if remote is None and getattr(store, "head_denied", False):
+                # No permission to HEAD: the PUT succeeded (boto3 checks the
+                # ETag/checksum), which is all the proof this account allows.
+                log("VERIFY", f"{key}: size read-back not permitted; trusting the upload")
+            elif remote != size:
                 log("VERIFY", f"{key}: bucket holds {remote} bytes, expected {size}")
                 raise UploadError(f"{key}: the bucket holds {remote} bytes, expected {size}")
         return base, total, len(files)
 
-    def retry_failed(self, config: Config) -> int:
-        """Clears the back-off on every FAILED entry so the next sweep retries
-        them. Returns how many were cleared."""
-        path = self.ledger_path(config)
-        ledger = self._load(path)
-        cleared = 0
-        for entry in ledger.values():
-            if not isinstance(entry, dict) or not entry.get("nextAttemptAt"):
-                continue
-            if _needs_attention(entry):
-                entry["nextAttemptAt"] = None
-                cleared += 1
-        if cleared:
-            atomic_json(path, ledger)
-            log("RETRY", f"cleared back-off on {cleared} failed package(s)")
-        return cleared
+    def retry_failed(self, config: Config | None = None) -> None:
+        """Asks the next sweep to clear the back-off on every FAILED entry.
+        Only sets a flag: the scan thread applies it, being the ledger's one
+        writer (an HTTP thread saving here could overwrite a scan's save)."""
+        self._retry_requested.set()
+
+
+def _target_sig(target: UploadTarget) -> str:
+    """Identifies the S3 destination and keys (hashed, so no secret is stored):
+    a permanent failure is retried at once when this no longer matches."""
+    text = "|".join(
+        (target.bucket, target.prefix, target.region or "", target.access_key,
+         target.secret_key, target.https_proxy)
+    )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _needs_attention(entry: dict[str, Any]) -> bool:
@@ -627,6 +1001,7 @@ def _parse_time(value: Any) -> datetime:
 
 
 __all__ = [
+    "classify_error",
     "S3Store",
     "UploadCoordinator",
     "UploadError",

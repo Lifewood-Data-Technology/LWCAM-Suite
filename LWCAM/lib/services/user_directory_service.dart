@@ -55,17 +55,28 @@ class UserDirectoryService {
     }
   }
 
-  /// Throws when PG is unreachable — a forced password change has no local
-  /// fallback (PostgreSQL IS the account record), so the caller must block
-  /// and tell the operator to reconnect rather than silently no-op.
-  Future<void> changePassword({required String username, required String bcryptHash}) async {
+  /// Calls `lwcam_change_own_password`. Returns false when the database refuses
+  /// (old password wrong / user inactive). Throws [StateError] when PG is
+  /// unreachable — there is no local fallback (PostgreSQL IS the account
+  /// record and the old plaintext is never stored), so the caller must tell
+  /// the operator to reconnect.
+  Future<bool> changePassword({
+    required String username,
+    required String oldPassword,
+    required String bcryptHash,
+  }) async {
     final conn = await _open();
     if (conn == null) {
-      throw StateError('Connect to the sync database to change your password.');
+      throw StateError('Connect to the database to change your password.');
     }
     try {
-      final stmt = st.updateOwnPasswordSql(username: username, bcryptHash: bcryptHash);
-      await conn.execute(Sql.named(stmt.sql), parameters: stmt.parameters);
+      final stmt = st.changeOwnPasswordSql(
+        username: username,
+        oldPassword: oldPassword,
+        bcryptHash: bcryptHash,
+      );
+      final result = await conn.execute(Sql.named(stmt.sql), parameters: stmt.parameters);
+      return result.isNotEmpty && result.first.first == true;
     } finally {
       try {
         await conn.close();

@@ -45,8 +45,48 @@ abstract class SyncSink {
   /// normally on success.
   Future<void> probe();
 
+  /// Upserts this PC's `service_heartbeat` row (part `capture`). Throws
+  /// [SchemaTooOldException] on an old schema, [SyncConnectException] when
+  /// unreachable. Callers must never let a failure here break capture.
+  Future<void> heartbeat({
+    required String host,
+    required String version,
+    required DateTime startedAt,
+    required Map<String, Object?> backlog,
+    DateTime? lastOk,
+    String? lastError,
+    DateTime? lastErrorAt,
+  });
+
   /// Releases any held connection. Safe to call multiple times.
   Future<void> close();
+}
+
+/// Failed attempts after which a row is HELD instead of retried further.
+const int kSyncAttemptCap = 20;
+
+/// The database schema level this program needs (`schema_migrations`).
+const int kRequiredSchema = 7;
+
+/// Thrown by a [SyncSink] for a row that has used up [kSyncAttemptCap]
+/// attempts. The service keeps the row (marked held), never deletes it.
+class SyncHoldException implements Exception {
+  final String reason;
+  const SyncHoldException(this.reason);
+  @override
+  String toString() => 'SyncHoldException: $reason';
+}
+
+/// Thrown by a [SyncSink] that connected to a database older than
+/// [kRequiredSchema]. Nothing was written.
+class SchemaTooOldException implements Exception {
+  final int level;
+  const SchemaTooOldException(this.level);
+  String get message =>
+      'The database is older than this program (needs level $kRequiredSchema, '
+      'has $level). Run LWCamDatabaseSetup on the database PC.';
+  @override
+  String toString() => message;
 }
 
 /// Thrown by a [SyncSink] when the sink could not be reached at all.

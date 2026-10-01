@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import '../auth/admin_auth_controller.dart';
 import '../services/admin_bootstrap.dart';
+import '../services/admin_login.dart';
 import '../services/admin_store_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/theme_controller.dart';
@@ -54,6 +55,7 @@ class HomePage extends StatelessWidget {
       body: Column(
         children: [
           const _StatusBar(),
+          const _LoginUnreadableBanner(),
           Expanded(
             child: Center(
               child: SingleChildScrollView(
@@ -105,6 +107,30 @@ class HomePage extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Shown while the saved LWCam Admin login cannot be decrypted (saved by a
+/// different Windows account/PC): the app is then running as the capture
+/// login, which an admin must not discover by accident.
+class _LoginUnreadableBanner extends StatelessWidget {
+  const _LoginUnreadableBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Obx(() {
+      // Rebuild after every bootstrap (which re-evaluates the login).
+      AdminBootstrap.generation.value;
+      if (!adminLoginUnreadable.value) return const SizedBox.shrink();
+      return Container(
+        width: double.infinity,
+        color: cs.error,
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        child: Text(adminLoginUnreadableMessage,
+            style: TextStyle(color: cs.onError, fontSize: 13)),
+      );
+    });
   }
 }
 

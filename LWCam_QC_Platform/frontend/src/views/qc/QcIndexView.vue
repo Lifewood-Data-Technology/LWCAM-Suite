@@ -1656,6 +1656,7 @@ onBeforeUnmount(() => {
         <section
           v-loading="detailLoading || previewLoading"
           class="qc-preview-stage"
+          :class="{ 'qc-preview-stage--cropping': cropMode }"
           tabindex="-1"
           @click="focusPagingRoot"
           @keydown="onPageNavKeydown"
@@ -2327,26 +2328,37 @@ onBeforeUnmount(() => {
 .crop-handle--sw { left: 0; top: 100%; cursor: nesw-resize; }
 .crop-handle--w  { left: 0; top: 50%; cursor: ew-resize; }
 
+/* While cropping, the bar is a strip ALONG THE TOP of the viewer, in the
+   layout rather than floating over it: it used to sit bottom-centre on top of
+   the image, exactly where the bottom edge of the crop frame is dragged. The
+   image shrinks to fit below it, and the ResizeObserver on the canvas
+   re-measures the crop overlay when it does. */
+.qc-preview-stage--cropping {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.qc-preview-stage--cropping .qc-preview-canvas {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
 .qc-crop-bar {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  z-index: 7;
+  order: -1;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: 8px 16px;
   background: rgba(16, 22, 18, 0.82);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
   white-space: nowrap;
 }
 
 .qc-crop-bar__hint {
   color: #D6DDD6;
   font-size: 16px;
-  margin-right: 4px;
+  margin-right: auto;
 }
 
 .pending-queue-panel {

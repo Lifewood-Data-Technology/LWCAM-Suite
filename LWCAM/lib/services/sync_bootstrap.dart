@@ -5,8 +5,10 @@ import '../auth/auth_controller.dart';
 import '../db/upload_stats_db.dart';
 import '../models/app_user.dart';
 import '../models/node_config.dart';
+import 'app_version.dart';
 import 'pg_sync_sink.dart';
 import 'sync_service.dart';
+import 'transfer_queue_service.dart' show TransferQueueService, transferWaitBacklog;
 import 'users_store_service.dart';
 
 /// Applies a [NodeConfig] to the running app: flips
@@ -54,6 +56,11 @@ class SyncBootstrap {
       deviceId: deviceId,
       drainEnabled: config.syncEnabled && deviceId.isNotEmpty,
       tickInterval: Duration(seconds: config.syncIntervalSeconds),
+      heartbeatEnabled: true,
+      extraBacklog: () => Get.isRegistered<TransferQueueService>()
+          ? Get.find<TransferQueueService>().heartbeatBacklog()
+          : transferWaitBacklog(const [], DateTime.now()),
+      version: appVersion,
       applyPulledStore: (store) => _applyPulledStore(store, config),
       activeProjectKey: () => Get.isRegistered<AuthController>()
           ? Get.find<AuthController>().activeProject.value?.key

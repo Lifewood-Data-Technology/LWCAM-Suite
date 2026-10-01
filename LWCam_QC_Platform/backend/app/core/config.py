@@ -16,6 +16,14 @@ def is_loopback_bind_host(host: str) -> bool:
     return host.strip().lower() in _LOOPBACK_HOSTS
 
 
+def db_sslmode(host: str, use_ssl: bool = False) -> str:
+    """TLS is required for every non-local database host (encrypted, certificate
+    not verified - the server's is self-signed). Only loopback may fall back to
+    plain text, and only when dbUseSsl is not true."""
+    local = str(host).strip().strip("[]").lower() in ("localhost", "127.0.0.1", "::1")
+    return "require" if use_ssl or not local else "prefer"
+
+
 class Settings(BaseSettings):
     # hide_input_in_errors: a jwtSecret that fails min_length would otherwise be
     # echoed verbatim in the startup error, SecretStr or not.
@@ -45,7 +53,7 @@ class Settings(BaseSettings):
     # sized for one operator logging in once a shift. Left as-is: shortening it
     # is a security/usability trade for a LAN deployment that belongs to
     # whoever runs the site, not a default to change silently.
-    jwt_expire_minutes: int = 480
+    jwt_expire_minutes: int = Field(default=480, ge=5, le=1440)
     preview_cache_dir: str = ".cache/previews"
     # The cache self-invalidates (the key includes source path/size/mtime AND
     # the pending-ops chain), so most of what accumulates here is already
@@ -203,6 +211,9 @@ class Settings(BaseSettings):
     # while jwt_secret is still the development default.
     bind_host: str = "127.0.0.1"
     port: int = 8080
+    # https: both set = serve https (run_server.py); blank = plain http.
+    tls_cert_file: str = ""
+    tls_key_file: str = ""
     # Comma-separated explicit origins. The console is same-origin (it calls
     # /api on the server that served it) and dev uses the Vite proxy, so this
     # is normally blank: loopback then keeps the localhost-any-port regex, and
@@ -223,7 +234,7 @@ class Settings(BaseSettings):
             host=self.db_host,
             port=self.db_port,
             database=self.db_name,
-            query={"sslmode": "require"} if self.db_use_ssl else {},
+            query={"sslmode": db_sslmode(self.db_host, self.db_use_ssl)},
         )
 
 

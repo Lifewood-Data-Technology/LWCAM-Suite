@@ -10,6 +10,36 @@
   its side of the same-day split.
 
 --------------------------------------------------------------------------------
+ 2026-09-28 - STATION SETUP: "LWIP FOLDERS" SECTION REMOVED
+--------------------------------------------------------------------------------
+
+- The "LWIP folders (as this PC sees them)" section is gone: LWCAM's rework
+  now finds a recapture's original under the image destination by itself
+  (see LWCAM's CHANGELOG, same date). The two values in an existing
+  lwcam_node_config.json are kept on save, unused. "Test folder access" now
+  checks the image destination only.
+
+--------------------------------------------------------------------------------
+ 2026-09-28 - STATION SETUP: TEST FOLDER ACCESS
+--------------------------------------------------------------------------------
+
+- New "Test folder access" button under the LWIP folders. It checks, as typed
+  and without saving, every folder LWCAM on this PC will use: WRITE to the
+  image destination and the LWIP input folder (a rework recapture overwrites
+  the original there), READ of the LWIP output folder — blanks resolved the
+  way LWCAM resolves them. Each failure is explained from the Windows error
+  code (lib/services/folder_access.dart): missing folder, no permission, PC
+  not found, no such share, a clashing session (1219), and — the case that
+  prompted it — a network PC refusing this account's login (1326), with the
+  `cmdkey /add:` line that saves a login for it. `Directory.exists` could not
+  have told these apart: it answers false to all of them.
+- The test runs as the Windows account running LWCam Admin, which is the
+  login Windows hands the other PC for LWCAM only if LWCAM runs under the same
+  account; the results dialog says so.
+- Tests: test/services/folder_access_test.dart (8). Codes 53, 67, 5 and 1326
+  were confirmed against real network paths on the dev PC.
+
+--------------------------------------------------------------------------------
  2026-09-25 - STOP CONFIGURING/STARTING LWIP AND PROVISIONING THE DATABASE
 --------------------------------------------------------------------------------
 

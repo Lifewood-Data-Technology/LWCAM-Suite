@@ -83,6 +83,33 @@ export interface ExportFolder extends ExportableFolder {
   exportedTime?: string
   groupId?: string
   exportable: boolean
+  uploadedTime?: string | null
+  uploadError?: string | null
+}
+
+export interface ServiceHeartbeat {
+  part: string
+  host: string | null
+  version: string | null
+  started_at: string | null
+  last_seen: string | null
+  last_ok: string | null
+  last_error: string | null
+  last_error_at: string | null
+  backlog: Record<string, unknown>
+  state: 'green' | 'red' | 'grey'
+  silent_seconds?: number | null
+  neverReported?: boolean
+}
+
+export interface SystemStatus {
+  services: ServiceHeartbeat[]
+  anyRed: boolean
+  databaseSchemaLevel: number | null
+  requiredSchemaLevel: number
+  serverVersion: string
+  backupLastOkAgeHours: number | null
+  uploadFailedFolders: number
 }
 
 export interface ExportPreflight {
@@ -350,6 +377,17 @@ export interface PathValidation {
   checks: PathCheckVO[]
   resolvedFolders: number
   totalFolders: number
+}
+
+// One PC this server reaches over the network (backend app/core/netlogin.py).
+// loginError/folders are present only after a check.
+export interface NetworkLogin {
+  host: string
+  username: string
+  saved: boolean
+  usedByThisService: boolean
+  loginError?: string | null
+  folders?: { path: string; error: string | null }[]
 }
 
 // --- AI review ---------------------------------------------------------

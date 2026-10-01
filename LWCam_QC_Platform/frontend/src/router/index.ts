@@ -38,6 +38,12 @@ const router = createRouter({
       meta: { requiresAuth: true, roles: ['admin', 'super_admin'] },
     },
     {
+      path: '/admin/status',
+      name: 'admin-status',
+      component: () => import('@/views/admin/SystemStatusView.vue'),
+      meta: { requiresAuth: true, roles: ['admin', 'super_admin'] },
+    },
+    {
       path: '/qc/tasks',
       name: 'qc-tasks',
       component: () => import('@/views/qc/QcIndexView.vue'),

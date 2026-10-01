@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../auth/auth_controller.dart';
+import '../services/app_version.dart';
 import '../theme/theme_controller.dart';
 
 /// The two controls that used to live on the Home screen's app bar: the
@@ -18,6 +19,9 @@ List<Widget> sessionAppBarActions(BuildContext context) {
   final fg = Theme.of(context).appBarTheme.foregroundColor ??
       Theme.of(context).colorScheme.onSurface;
   return [
+    Center(
+      child: Text('v$appVersion', style: TextStyle(color: fg, fontSize: 12)),
+    ),
     Obx(() {
       final theme = Get.find<ThemeController>();
       final dark = theme.isDarkResolved;

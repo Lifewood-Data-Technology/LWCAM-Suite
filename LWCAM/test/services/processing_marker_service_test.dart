@@ -135,6 +135,15 @@ void main() {
       expect(payload['box_name'], 'BOX-1');
       expect(payload['folder_name'], 'F-ONE');
       expect(payload['folder_seq'], isNotNull);
+      expect(payload['image_count'], 0, reason: 'no images in this folder');
+      expect(
+        Directory(p.join(dest, 'F-ONE'))
+            .listSync()
+            .map((e) => p.basename(e.path))
+            .toList(),
+        [kProcessingMarkerName],
+        reason: 'no temp file left behind',
+      );
 
       // Idempotent rewrite (the retry path re-runs markTransferred).
       expect(
@@ -147,6 +156,31 @@ void main() {
         isTrue,
       );
       expect(m1.existsSync(), isTrue);
+    });
+
+    test('image_count counts only image files LWIP would read', () async {
+      final (db, boxId) = await boxWithFolders('marker_count_', ['F-ONE']);
+      final root = await _tempDir('marker_count_dest_');
+      final dest = await db.markCaptureBoxTransferStarted(
+        deviceId: 'SAX01',
+        boxId: boxId,
+        destinationRoot: root.path,
+      );
+      final folder = Directory(p.join(dest, 'F-ONE'))..createSync(recursive: true);
+      for (final n in ['a.jpg', 'b.JPG', 'c.tif', 'd.jpg.part', 'e.json', 'f.txt']) {
+        File(p.join(folder.path, n)).writeAsStringSync('x');
+      }
+      final result = await writeBoxProcessingMarkers(
+        db: db,
+        deviceId: 'SAX01',
+        boxId: boxId,
+        legacyRoot: root.path,
+      );
+      expect(result.isSuccess, isTrue);
+      final payload = jsonDecode(
+        File(p.join(folder.path, kProcessingMarkerName)).readAsStringSync(),
+      ) as Map;
+      expect(payload['image_count'], 3);
     });
 
     test('refuses to overwrite a marker carrying another folder\'s identity '

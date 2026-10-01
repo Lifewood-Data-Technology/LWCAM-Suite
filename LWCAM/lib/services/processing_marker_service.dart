@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../db/upload_stats_db.dart';
+import 'fs_probe.dart';
+import 'safe_copy.dart';
 import 'transfer_destination_service.dart';
 
 /// The marker file LWCAM drops into each transferred folder once a box has
@@ -47,6 +49,7 @@ Map<String, dynamic> buildFolderMarkerPayload({
   required Map<String, dynamic> boxKeys,
   required int folderSeq,
   required String folderName,
+  int? imageCount,
   DateTime? now,
 }) {
   return {
@@ -58,6 +61,9 @@ Map<String, dynamic> buildFolderMarkerPayload({
     'device_id': boxKeys['device_id'],
     'folder_seq': folderSeq,
     'folder_name': folderName,
+    // Images LWCAM copied into the folder: LWIP waits until it sees this many
+    // (a share can list a folder before all its files are visible).
+    if (imageCount != null) 'image_count': imageCount,
     'created_at': (now ?? DateTime.now()).toIso8601String(),
   };
 }
@@ -127,17 +133,18 @@ Future<ProcessingMarkerResult> writeBoxProcessingMarkers({
         missing++;
         continue;
       }
-      final payload = buildFolderMarkerPayload(
-        boxKeys: boxKeys,
-        folderSeq: folder.folderSeq,
-        folderName: name,
-      );
       var found = false;
       for (final dayPath in dayDirs) {
-        final folderDir = Directory(p.join(dayPath, name));
+        final folderDir = Directory(longPath(p.join(dayPath, name)));
         if (!await folderDir.exists()) continue; // this folder didn't land here
         found = true;
         try {
+          final payload = buildFolderMarkerPayload(
+            boxKeys: boxKeys,
+            folderSeq: folder.folderSeq,
+            folderName: name,
+            imageCount: await countImageFiles(folderDir),
+          );
           await _writeMarkerAtomic(folderDir.path, payload);
           written++;
         } catch (e) {
@@ -173,7 +180,7 @@ Future<void> _writeMarkerAtomic(
   String folderPath,
   Map<String, dynamic> payload,
 ) async {
-  final target = File(p.join(folderPath, kProcessingMarkerName));
+  final target = File(longPath(p.join(folderPath, kProcessingMarkerName)));
   final existing = await _readMarkerIdentity(target);
   if (existing != null && !_sameFolderIdentity(existing, payload)) {
     throw StateError(
@@ -182,10 +189,24 @@ Future<void> _writeMarkerAtomic(
       'another group or PC landed in $folderPath',
     );
   }
-  final tmp = File('${target.path}.tmp');
-  await tmp.writeAsString(jsonEncode(payload), flush: true);
-  if (await target.exists()) await target.delete();
-  await tmp.rename(target.path);
+  // Temp file then replace: readers (LWIP, on another PC) never see a
+  // missing or half-written marker, and there is no delete-then-rename gap.
+  await writeStringAtomic(target.path, jsonEncode(payload));
+}
+
+/// LWIP's image extensions (`DEFAULT_EXTENSIONS`); `.part`/`.tmp`/`.json` never
+/// count.
+const _imageExts = {'.jpg', '.jpeg', '.png', '.tif', '.tiff'};
+
+/// Image files directly inside [dir] (the folder LWIP will fingerprint).
+Future<int> countImageFiles(Directory dir) async {
+  var n = 0;
+  await for (final e in dir.list(followLinks: false)) {
+    if (e is File && _imageExts.contains(p.extension(e.path).toLowerCase())) {
+      n++;
+    }
+  }
+  return n;
 }
 
 Future<Map<String, dynamic>?> _readMarkerIdentity(File marker) async {
@@ -202,3 +223,53 @@ bool _sameFolderIdentity(Map<String, dynamic> a, Map<String, dynamic> b) =>
     '${a['project_key']}' == '${b['project_key']}' &&
     '${a['box_name']}' == '${b['box_name']}' &&
     '${a['folder_seq']}' == '${b['folder_seq']}';
+
+/// Names (lower-cased) among [folders] whose destination folder under [dayDir]
+/// already holds a completion marker of a DIFFERENT project/box/folder_seq -
+/// another box or another capture PC landed there first. Copying into such a
+/// folder would merge two boxes' images under one identity, so the caller picks
+/// a suffixed name instead (computeFolderNames' ` - 0002` scheme). Each probe is
+/// time-bounded; an unreachable share reports nothing (the copy itself will
+/// queue and retry).
+Future<Set<String>> foreignMarkerFolderNames({
+  required String dayDir,
+  required Map<String, dynamic> boxKeys,
+  required Map<String, int> folderSeqByName,
+}) async {
+  final foreign = <String>{};
+  for (final e in folderSeqByName.entries) {
+    final marker = File(longPath(p.join(dayDir, e.key, kProcessingMarkerName)));
+    Map<String, dynamic>? existing;
+    try {
+      existing = await _readMarkerIdentity(marker).timeout(kFsProbeTimeout);
+    } catch (_) {
+      continue;
+    }
+    if (existing == null) continue;
+    final mine = {
+      'project_key': boxKeys['project_key'],
+      'box_name': boxKeys['box_name'],
+      'folder_seq': e.value,
+    };
+    if (!_sameFolderIdentity(existing, mine)) foreign.add(e.key.toLowerCase());
+  }
+  return foreign;
+}
+
+/// Flags a completed input folder as being reworked (or clears the flag).
+/// LWIP treats a marker with `rework_in_progress: true` as NOT ready, so it
+/// never fingerprints a half-replaced folder. Clearing also refreshes
+/// `image_count` from what is on disk now. A folder with no marker (an old
+/// capture) has nothing to gate and is left alone.
+Future<void> setReworkInProgress(String inputFolder, bool inProgress) async {
+  final target = File(longPath(p.join(inputFolder, kProcessingMarkerName)));
+  final data = await _readMarkerIdentity(target);
+  if (data == null) return;
+  if (inProgress) {
+    data['rework_in_progress'] = true;
+  } else {
+    data.remove('rework_in_progress');
+    data['image_count'] = await countImageFiles(Directory(longPath(inputFolder)));
+  }
+  await writeStringAtomic(target.path, jsonEncode(data));
+}

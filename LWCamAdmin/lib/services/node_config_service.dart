@@ -11,11 +11,13 @@ import '../models/node_config.dart';
 /// injected path function — NOT a GetX controller, since it must be
 /// constructible and loadable before Get/UI bootstrap.
 ///
-/// Deliberately simpler than UsersStoreService: this file has exactly ONE
-/// writer (an admin editing Settings on THIS machine, or IT provisioning it
-/// directly) — there is no concurrent-editor race to guard against, so no
-/// lock file is needed. Still uses tmp+rename so a crash mid-write can
-/// never leave a torn/partial file.
+/// The file is shared with LWCAM on a station, so a stale write-back would
+/// erase the other app's changes: callers that modify the config go through
+/// [update], which re-reads the file from disk immediately before applying
+/// the change. Unknown keys ride along in [NodeConfig.extras]. Writes are
+/// temp-file + atomic replace (never delete-then-rename, which leaves a
+/// window with no file at all), and the last good file is kept as `.bak` so
+/// a torn or corrupt file recovers on the next load.
 class NodeConfigService {
   static const String fileName = 'lwcam_node_config.json';
 
@@ -26,47 +28,74 @@ class NodeConfigService {
 
   NodeConfig? _cached;
 
-  /// The current config, loading it from disk on first access (generating
-  /// and persisting a fresh one if the file is missing/corrupt). Safe to
-  /// call repeatedly — subsequent calls return the in-memory copy.
+  static NodeConfig? _parse(String content) {
+    if (content.trim().isEmpty) return null;
+    final decoded = jsonDecode(content);
+    if (decoded is! Map) return null;
+    return NodeConfig.fromJson(decoded.cast<String, Object?>());
+  }
+
+  /// The parsed file at [path], or null when it is missing/empty/corrupt.
+  Future<NodeConfig?> _tryRead(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return null;
+      return _parse(await file.readAsString());
+    } catch (e) {
+      print('⚠️ Node config read failed ($path): $e');
+      return null;
+    }
+  }
+
+  /// The current config, loading it from disk on first access. A corrupt main
+  /// file falls back to `.bak`. A missing file yields (and persists) a fresh
+  /// config; a file that exists but cannot be read is NEVER overwritten by a
+  /// fresh one here - the in-memory default is used and the bad file is left
+  /// for a human. Safe to call repeatedly - later calls return the in-memory
+  /// copy.
   Future<NodeConfig> load() async {
     final cached = _cached;
     if (cached != null) return cached;
 
     final path = getConfigPath();
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        final content = await file.readAsString();
-        if (content.trim().isNotEmpty) {
-          final decoded = jsonDecode(content) as Map<String, dynamic>;
-          final config = NodeConfig.fromJson(decoded);
-          _cached = config;
-          return config;
-        }
-      }
-    } catch (e) {
-      print('⚠️ Node config read failed ($path): $e — using a fresh config.');
+    final config = await _tryRead(path);
+    if (config != null) return _cached = config;
+
+    final bak = await _tryRead('$path.bak');
+    if (bak != null) {
+      print('⚠️ Node config $path unreadable - recovered from $path.bak.');
+      return _cached = bak;
     }
 
     const fresh = NodeConfig();
     _cached = fresh;
-    await save(fresh);
+    if (!await File(path).exists()) {
+      try {
+        await save(fresh);
+      } catch (_) {} // read-only folder: still usable in memory
+    }
     return fresh;
   }
 
-  /// Re-reads the file from disk, bypassing the in-memory cache — for the
-  /// cross-app case: LWCAM and LWCam Admin share this file on a standard
-  /// station, so the OTHER app may have rewritten it since this process
-  /// first loaded it, and a settings screen about to edit-and-save must
-  /// start from the current disk state or it writes the stale copy back.
+  /// Re-reads the file from disk, bypassing the in-memory cache — the file is
+  /// shared with LWCAM, which may have rewritten it since this process first
+  /// loaded it.
   Future<NodeConfig> reload() async {
     _cached = null;
     return load();
   }
 
-  /// Persists [config] (tmp-file + rename so a crash mid-write can't leave a
-  /// torn file) and updates the in-memory cache.
+  /// Read-modify-save: reloads the file from disk, applies [change] to that
+  /// fresh copy and saves the result. Use this - not a config held since the
+  /// screen opened - for every edit, so nothing stale is written back.
+  Future<NodeConfig> update(NodeConfig Function(NodeConfig current) change) async {
+    final next = change(await reload());
+    await save(next);
+    return next;
+  }
+
+  /// Persists [config] (temp file, then an atomic replace) and updates the
+  /// in-memory cache. The previous good file is copied to `.bak` first.
   Future<void> save(NodeConfig config) async {
     final path = getConfigPath();
     try {
@@ -74,8 +103,14 @@ class NodeConfigService {
       if (!await file.parent.exists()) await file.parent.create(recursive: true);
       final tmp = File('${file.path}.tmp');
       await tmp.writeAsString(jsonEncode(config.toJson()), flush: true);
-      if (await file.exists()) await file.delete();
-      await tmp.rename(file.path);
+      // Keep only a file that parses as the backup, so a corrupt main file
+      // can never overwrite the last good copy.
+      if (await _tryRead(path) != null) {
+        try {
+          await file.copy('${file.path}.bak');
+        } catch (_) {} // ponytail: best-effort backup; the save itself must not fail on it
+      }
+      await tmp.rename(file.path); // replaces the target atomically on Windows
       _cached = config;
     } catch (e) {
       print('⚠️ Node config write failed ($path): $e');

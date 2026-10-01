@@ -27,5 +27,19 @@ rem The embeddable runtime's python313._pth already puts ..\..\backend (this
 rem folder) on sys.path, so deskew_crop_tool is importable without a cd - kept
 rem anyway to match every other .bat here and give relative work a sane cwd.
 cd /d "%ROOT%\backend"
+rem A crash (non-zero exit) is logged and restarted after 30 s; exit 0 is a
+rem deliberate stop and ends this script. ping, not timeout: timeout fails
+rem without a console, which a SYSTEM boot task never has. The installers end
+rem the task (killing this script) before they kill python, so an upgrade or
+rem uninstall cannot be undone by this loop. service.log is rolled to
+rem service.log.1 (replacing the old one) when it passes 10 MB, before each start.
+:run
+if exist "%LOG%" for %%F in ("%LOG%") do if %%~zF GTR 10485760 (del "%LOG%.1" 2>nul & ren "%LOG%" service.log.1)
 "%ROOT%\runtime\python\python.exe" -m deskew_crop_tool.service --config "%CONFIG%" >> "%LOG%" 2>&1
-endlocal & exit /b %ERRORLEVEL%
+set "RC=%ERRORLEVEL%"
+if "%RC%"=="0" goto :done
+>> "%LOG%" echo [%DATE% %TIME%] service exited with code %RC%, restarting in 30 s
+ping -n 31 127.0.0.1 >nul
+goto :run
+:done
+endlocal & exit /b 0

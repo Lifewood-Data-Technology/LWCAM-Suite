@@ -101,7 +101,7 @@ rem cd into backend so `import lwcam_upload` resolves the same way it will at
 rem runtime.
 echo [Upload] Verifying installation.
 cd /d "%ROOT%\backend"
-"%PY%" -c "import boto3, psycopg, bcrypt; import lwcam_upload; print('boto3', boto3.__version__, '| psycopg', psycopg.__version__, '| bcrypt', bcrypt.__version__)"
+"%PY%" -c "import boto3, psycopg, bcrypt, cryptography; import lwcam_upload; print('boto3', boto3.__version__, '| psycopg', psycopg.__version__, '| bcrypt', bcrypt.__version__)"
 if errorlevel 1 (
     echo [ERROR] Installation verification failed.
     exit /b 1

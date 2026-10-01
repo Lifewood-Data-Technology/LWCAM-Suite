@@ -3,11 +3,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:postgres/postgres.dart';
 
 import '../models/node_config.dart';
+import 'fs_probe.dart';
 import 'node_config_service.dart';
 import 'pg_client.dart';
 import 'pg_statements.dart' as st;
@@ -32,7 +34,9 @@ class ReworkItem {
   final String reason;
   final String reworkType;
   final DateTime? requestedAt;
-  final bool isCreatedThumbnail;
+  /// Whether LWIP made thumbnails for this folder; null when this PC cannot
+  /// read LWIP's manifest (then the PG column is left untouched).
+  final bool? isCreatedThumbnail;
 
   /// The folder's CURRENT cloud metadata, column name → value (see
   /// [st.kFolderMetadataColumns]). QC edits these same columns, so the operator's
@@ -66,7 +70,7 @@ class ReworkItem {
     required this.reason,
     required this.reworkType,
     this.requestedAt,
-    this.isCreatedThumbnail = false,
+    this.isCreatedThumbnail,
     this.folderMetadata = const {},
     this.pageNumber = 0,
     this.pageCount = 0,
@@ -127,6 +131,10 @@ class ReworkService {
         parameters: stmt.parameters,
       );
       final items = <ReworkItem>[];
+      NodeConfig? config;
+      try {
+        config = await Get.find<NodeConfigService>().load();
+      } catch (_) {}
       for (final row in result) {
         final folderPath = row[6]?.toString() ?? '';
         items.add(ReworkItem(
@@ -142,7 +150,7 @@ class ReworkService {
             reason: row[9]?.toString() ?? '',
             reworkType: row[10]?.toString() ?? '',
             requestedAt: row[11] is DateTime ? row[11] as DateTime : null,
-            isCreatedThumbnail: await _thumbnailCreated(folderPath),
+            isCreatedThumbnail: await _thumbnailCreated(config, folderPath),
             // The metadata columns trail the 12 fixed ones, in
             // kFolderMetadataColumns order — see selectOpenReworkSql.
             folderMetadata: {
@@ -167,59 +175,130 @@ class ReworkService {
     }
   }
 
-  Future<bool> _thumbnailCreated(String folderPath) async {
-    if (folderPath.trim().isEmpty) return false;
-    try {
-      final manifest = jsonDecode(
-          await File(p.join(folderPath, '.deskew_crop_manifest.json')).readAsString());
-      final thumbnails = manifest is Map ? manifest['thumbnails'] : null;
-      return thumbnails is Map && thumbnails['created'] == true;
-    } catch (_) {
-      return false;
+  /// LWIP's manifest says whether it made thumbnails. It lives in LWIP's OUTPUT
+  /// folder, which is only reachable here as [NodeConfig.processingOutputRoot]
+  /// + the folder's `<date>\<folder>` tail (the same tail-swap as
+  /// [inputFileFor]) or, on a one-PC station, LWIP's own path. Null when
+  /// neither can be read - the caller must then NOT write the column, because
+  /// false would wrongly claim "no thumbnails" for a folder that has them.
+  static Future<bool?> _thumbnailCreated(
+    NodeConfig? config,
+    String folderPath,
+  ) async {
+    if (folderPath.trim().isEmpty) return null;
+    final outputRoot = config?.processingOutputRoot?.trim() ?? '';
+    final tail = _dateTail(folderPath);
+    final candidates = [
+      if (outputRoot.isNotEmpty && tail != null) p.joinAll([outputRoot, ...tail]),
+      folderPath,
+    ];
+    for (final dir in candidates) {
+      final file = File(p.join(dir, '.deskew_crop_manifest.json'));
+      if (await probeExists(file) != FsProbe.found) continue;
+      try {
+        final manifest = jsonDecode(await file.readAsString().timeout(kFsProbeTimeout));
+        final thumbnails = manifest is Map ? manifest['thumbnails'] : null;
+        return thumbnails is Map && thumbnails['created'] == true;
+      } catch (_) {
+        continue;
+      }
     }
+    return null;
+  }
+
+  @visibleForTesting
+  static Future<bool?> thumbnailCreatedForTest(NodeConfig? c, String folderPath) =>
+      _thumbnailCreated(c, folderPath);
+
+  /// `<date>\<folder>` from LWIP's folder path, or null. The date is searched
+  /// from the END and must have a folder after it (a Volume can itself be
+  /// eight digits). Any `..`, drive letter or NUL in the tail refuses.
+  static List<String>? _dateTail(String folderPath) {
+    final segments = folderPath
+        .trim()
+        .split(RegExp(r'[\\/]+'))
+        .where((segment) => segment.isNotEmpty)
+        .toList();
+    for (var i = segments.length - 2; i >= 0; i--) {
+      if (_dateSegment.hasMatch(segments[i])) {
+        final tail = segments.sublist(i);
+        if (tail.any((s) => s == '..' || s.contains(':') || s.contains('\x00'))) {
+          return null;
+        }
+        return tail;
+      }
+    }
+    return null;
   }
 
   // ── Input-path resolution ────────────────────────────────────────────────
 
-  /// LWIP's input root, as this station sees it.
-  static String? effectiveInputRoot(NodeConfig config) {
-    final explicit = config.processingInputRoot?.trim() ?? '';
-    if (explicit.isNotEmpty) return explicit;
-    final destination = config.destinationPath?.trim() ?? '';
-    return destination.isEmpty ? null : destination;
-  }
-
-  /// LWIP's output root, as this station sees it.
-  static String effectiveOutputRoot(NodeConfig config, String inputRoot) {
-    final explicit = config.processingOutputRoot?.trim() ?? '';
-    return explicit.isNotEmpty ? explicit : '${inputRoot}_processed';
-  }
-
-  /// The INPUT file a recaptured image must overwrite, or null when it cannot be
-  /// resolved on this station.
+  /// The INPUT file a recaptured image must overwrite, or null when it is not
+  /// on this station. Overwriting it changes the folder's fingerprint, which is
+  /// what makes LWIP reprocess it and flips qc_status back to PENDING.
   ///
-  /// LWIP mirrors input to output, so the folder's path relative to the output
-  /// root is also its path relative to the input root. Overwriting this file
-  /// changes the folder's fingerprint, which is what makes LWIP reprocess it and
-  /// ultimately flips qc_status back to PENDING.
+  /// [folderPath] is where LWIP put the processed folder, spelt as LWIP's own
+  /// PC sees it (`C:\LWIP\2.Batches\20260924\<folder>`) - often not a path
+  /// this PC can open. What it shares with the original is its tail: LWIP
+  /// mirrors its input, so `<date>\<folder>` under its output is the same
+  /// under its input, and its input is this station's own image destination,
+  /// where the originals were copied. Keep the tail, swap the head - the rule
+  /// QC's `relocate_under` uses. (Until 2026-09-28 Station Setup asked for
+  /// both LWIP folders instead, and the output one had to be typed exactly as
+  /// LWIP spells it, which its label said the opposite of.)
   ///
-  /// Returns null when the station's roots are unconfigured or when
-  /// [folderPath] sits outside this station's output root — i.e. the folder was
-  /// captured elsewhere and cannot be reworked here.
-  static File? inputFileFor(
+  /// The date is searched from the END and must have a folder after it: a
+  /// Volume, and so a folder name, can itself be eight digits (`19450512`).
+  ///
+  /// [ReworkInput.status] keeps three cases apart: found, not found, and the
+  /// share could not be asked in time ([FsProbe.unreachable] - LWIP's input
+  /// share is down; the UI must not blame "another station" for that).
+  /// Async and time-bounded: this used to be a sync existsSync() on a UNC path
+  /// called from build code, freezing the window for the SMB timeout.
+  ///
+  /// The file is null unless it was found: a recapture REPLACES an original,
+  /// and a folder captured on a station with another destination is not here
+  /// to replace - writing to a guessed path could clobber an unrelated image.
+  static Future<ReworkInput> inputFileFor(
     NodeConfig config, {
     required String folderPath,
     required String imageName,
-  }) {
-    final inputRoot = effectiveInputRoot(config);
-    if (inputRoot == null || folderPath.trim().isEmpty || imageName.trim().isEmpty) {
-      return null;
+  }) async {
+    final destination = config.destinationPath?.trim() ?? '';
+    if (destination.isEmpty || imageName.trim().isEmpty) return ReworkInput.none;
+    // Both values come from the database (another PC wrote them): a plain
+    // file name only, and no `..` or drive letter anywhere in the tail.
+    if (imageName != p.basename(imageName) ||
+        imageName.contains(RegExp(r'[\\/:\x00-\x1f]')) ||
+        imageName.contains('..')) {
+      return ReworkInput.none;
     }
-    final outputRoot = effectiveOutputRoot(config, inputRoot);
-    final normalizedFolder = p.normalize(folderPath);
-    final normalizedOutput = p.normalize(outputRoot);
-    if (!p.isWithin(normalizedOutput, normalizedFolder)) return null;
-    final relative = p.relative(normalizedFolder, from: normalizedOutput);
-    return File(p.join(inputRoot, relative, imageName));
+    final tail = _dateTail(folderPath);
+    if (tail == null) return ReworkInput.none;
+    final path = p.joinAll([destination, ...tail, imageName]);
+    if (!p.isWithin(destination, path)) return ReworkInput.none;
+    final file = File(path);
+    switch (await probeExists(file)) {
+      case FsProbe.found:
+        return ReworkInput(FsProbe.found, file);
+      case FsProbe.notFound:
+        return ReworkInput.none;
+      case FsProbe.unreachable:
+        return const ReworkInput(FsProbe.unreachable, null);
+    }
   }
+
+  static final _dateSegment = RegExp(r'^\d{8}$');
+}
+
+/// Result of [ReworkService.inputFileFor].
+class ReworkInput {
+  final FsProbe status;
+  final File? file;
+  const ReworkInput(this.status, this.file);
+
+  /// Not resolvable here: no destination, a bad path, or the file is absent.
+  static const none = ReworkInput(FsProbe.notFound, null);
+
+  bool get unreachable => status == FsProbe.unreachable;
 }

@@ -21,7 +21,19 @@ class NodeConfig {
   final int pgPort;
   final String? pgDatabase;
   final String? pgUser;
+  /// Plaintext capture password: read only for OLD files. Station Setup now
+  /// writes [pgPasswordProtected] and blanks this field on save.
   final String? pgPassword;
+
+  /// The capture login's password as a base64 Windows DPAPI blob (CurrentUser
+  /// scope, entropy ASCII "LWCam"). LWCAM reads this first, else [pgPassword].
+  final String? pgPasswordProtected;
+
+  /// LWCam Admin's OWN database login (`lwcam_admin`). The password is a
+  /// base64 Windows DPAPI blob (CurrentUser scope), never plaintext. LWCAM
+  /// carries both fields through untouched. Empty = use pgUser/pgPassword.
+  final String? adminPgUser;
+  final String? adminPgPasswordProtected;
   final bool pgUseSsl;
 
   // ── Sync behaviour ───────────────────────────────────────────────────────
@@ -59,15 +71,13 @@ class NodeConfig {
   /// Kept so an older `lwcam_node_config.json` still round-trips.
   final bool processingEnabled;
 
-  /// Folder LWIP watches, AS THIS PC SEES IT — kept for REWORK, which needs a
-  /// folder's original images (see LWCAM's `rework_service.dart`). Null ⇒ use
-  /// [destinationPath]. Must be the same folder LWIP is configured with on the
-  /// LWIP PC's own installer; a UNC path keeps that true on a split site.
+  /// Round-trip only since 2026-09-28, like [processingEnabled]: Station Setup
+  /// no longer shows the two "LWIP folders" - LWCAM's rework finds a
+  /// recapture's original under [destinationPath] instead. Kept so an older
+  /// `lwcam_node_config.json` survives a save.
   final String? processingInputRoot;
 
-  /// Where LWIP writes processed output, AS THIS PC SEES IT — same rework use
-  /// as [processingInputRoot]. Null ⇒ sibling `<input>_processed`. Must match
-  /// LWIP's own `output_root`, set on the LWIP PC's own installer.
+  /// Round-trip only - see [processingInputRoot].
   final String? processingOutputRoot;
 
   /// Round-trip only: LWIP's own installer fixes `workers` (0, auto) in its
@@ -169,12 +179,21 @@ class NodeConfig {
   final String? openrouterExtractModel;
   final String? openrouterCompareModel;
 
+  /// Every key in the file this build does not know - LWCAM's own settings,
+  /// legacy `role`/`cloudUrl`, anything a newer build adds. Carried untouched
+  /// so a save from this app never drops another app's settings (the file is
+  /// shared with LWCAM on a station).
+  final Map<String, Object?> extras;
+
   const NodeConfig({
     this.pgHost,
     this.pgPort = 5432,
     this.pgDatabase,
     this.pgUser,
     this.pgPassword,
+    this.pgPasswordProtected,
+    this.adminPgUser,
+    this.adminPgPasswordProtected,
     this.pgUseSsl = false,
     this.syncEnabled = false,
     this.syncIntervalSeconds = 30,
@@ -211,6 +230,7 @@ class NodeConfig {
     this.openrouterApiKey,
     this.openrouterExtractModel,
     this.openrouterCompareModel,
+    this.extras = const {},
   });
 
   NodeConfig copyWith({
@@ -219,6 +239,9 @@ class NodeConfig {
     String? pgDatabase,
     String? pgUser,
     String? pgPassword,
+    String? pgPasswordProtected,
+    String? adminPgUser,
+    String? adminPgPasswordProtected,
     bool? pgUseSsl,
     bool? syncEnabled,
     int? syncIntervalSeconds,
@@ -255,6 +278,7 @@ class NodeConfig {
     String? openrouterApiKey,
     String? openrouterExtractModel,
     String? openrouterCompareModel,
+    Map<String, Object?>? extras,
   }) {
     return NodeConfig(
       pgHost: pgHost ?? this.pgHost,
@@ -262,6 +286,10 @@ class NodeConfig {
       pgDatabase: pgDatabase ?? this.pgDatabase,
       pgUser: pgUser ?? this.pgUser,
       pgPassword: pgPassword ?? this.pgPassword,
+      pgPasswordProtected: pgPasswordProtected ?? this.pgPasswordProtected,
+      adminPgUser: adminPgUser ?? this.adminPgUser,
+      adminPgPasswordProtected:
+          adminPgPasswordProtected ?? this.adminPgPasswordProtected,
       pgUseSsl: pgUseSsl ?? this.pgUseSsl,
       syncEnabled: syncEnabled ?? this.syncEnabled,
       syncIntervalSeconds: syncIntervalSeconds ?? this.syncIntervalSeconds,
@@ -304,15 +332,20 @@ class NodeConfig {
           openrouterExtractModel ?? this.openrouterExtractModel,
       openrouterCompareModel:
           openrouterCompareModel ?? this.openrouterCompareModel,
+      extras: extras ?? this.extras,
     );
   }
 
   Map<String, Object?> toJson() => {
+    ...extras,
     'pgHost': pgHost,
     'pgPort': pgPort,
     'pgDatabase': pgDatabase,
     'pgUser': pgUser,
     'pgPassword': pgPassword,
+    'pgPasswordProtected': pgPasswordProtected,
+    'adminPgUser': adminPgUser,
+    'adminPgPasswordProtected': adminPgPasswordProtected,
     'pgUseSsl': pgUseSsl,
     'syncEnabled': syncEnabled,
     'syncIntervalSeconds': syncIntervalSeconds,
@@ -352,12 +385,20 @@ class NodeConfig {
   };
 
   factory NodeConfig.fromJson(Map<String, Object?> json) {
+    final known = const NodeConfig().toJson().keys.toSet();
     return NodeConfig(
+      extras: {
+        for (final e in json.entries)
+          if (!known.contains(e.key)) e.key: e.value,
+      },
       pgHost: json['pgHost']?.toString(),
       pgPort: (json['pgPort'] as num?)?.toInt() ?? 5432,
       pgDatabase: json['pgDatabase']?.toString(),
       pgUser: json['pgUser']?.toString(),
       pgPassword: json['pgPassword']?.toString(),
+      pgPasswordProtected: json['pgPasswordProtected']?.toString(),
+      adminPgUser: json['adminPgUser']?.toString(),
+      adminPgPasswordProtected: json['adminPgPasswordProtected']?.toString(),
       pgUseSsl: json['pgUseSsl'] as bool? ?? false,
       syncEnabled: json['syncEnabled'] as bool? ?? false,
       syncIntervalSeconds: (json['syncIntervalSeconds'] as num?)?.toInt() ?? 30,

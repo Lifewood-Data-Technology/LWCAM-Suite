@@ -7,6 +7,8 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from '@/App.vue'
 import { i18n } from '@/i18n'
 import router from '@/router'
+import { authApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import '@/styles/lifewood.css'
 import '@/styles/auth.css'
 
@@ -25,4 +27,11 @@ app.use(router)
 app.use(ElementPlus, { size: 'large' })
 app.use(i18n)
 app.mount('#app')
+
+// Check in once a minute while signed in: the server treats a sign-in silent
+// for 3 minutes as a closed browser and lets the account sign in elsewhere
+// (app/core/security.py). Also how a signed-out tab finds out promptly.
+window.setInterval(() => {
+  if (useAuthStore().token) authApi.me().catch(() => undefined)
+}, 60_000)
 

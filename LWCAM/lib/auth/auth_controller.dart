@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lwcam/auth/offline_temp_password.dart';
 import 'package:lwcam/controllers/box_session_controller.dart';
 import 'package:lwcam/controllers/projects_controller.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
@@ -172,10 +173,6 @@ class AuthController extends GetxController {
           backgroundColor: _cs.error, colorText: _cs.onError);
       return;
     }
-
-    // Opportunistic retry of any password change queued locally during a
-    // prior offline session — best-effort, never blocks or slows login.
-    unawaited(usersStore?.flushPendingPasswordChanges() ?? Future.value());
 
     // Pick up a destination path LWCam Admin's Station Setup may have
     // (re)written since launch — best-effort, cheap local file read.
@@ -355,7 +352,9 @@ class AuthController extends GetxController {
         content: Text(
             'This device (${deviceId.value}) is assigned to project $bound. '
             'An administrator must reassign it from the Devices screen '
-            'before it can capture into "${project.name}".'),
+            'before it can capture into "${project.name}".'
+            '${gate.fromCache ? ' (This PC could not reach the database; '
+                'this is the last known assignment.)' : ''}'),
         actions: [
           TextButton(onPressed: () => Get.back(), child: const Text('OK')),
         ],
@@ -407,18 +406,19 @@ class AuthController extends GetxController {
             backgroundColor: _cs.error, colorText: _cs.onError);
         return false;
       case AuthStatus.mustChangePassword:
-        // A forced password change tries PostgreSQL first (it IS the
-        // account record) but no longer blocks offline — some sites are
-        // permanently offline, so an unreachable PG just queues the change
-        // locally (see UsersStoreService.changeOwnPassword) and lets the
-        // operator in immediately with their new password.
+        // A forced password change is done in PostgreSQL (it IS the account
+        // record; the function needs the typed password as the OLD one).
+        // Offline, nothing is changed or stored: the operator is let in for
+        // this session with the temporary password and is asked again at the
+        // next login (see _forcePasswordChange).
         //
         // CANONICAL username, not the typed one: local lookup is
         // case-insensitive but PG matches user_id exactly — a typed
         // 'ALICE' for record 'alice' would make the PG UPDATE a silent
         // 0-row no-op (and mark a queued change delivered when it wasn't).
         final canonical = outcome.user!.username;
-        final changed = await _forcePasswordChange(canonical, currentHash: outcome.user!.passwordHash);
+        final changed = await _forcePasswordChange(canonical,
+            currentHash: outcome.user!.passwordHash, oldPassword: password);
         if (!changed) return false;
         currentUser.value = usersStore!.lastLoaded?.findUser(canonical);
         return currentUser.value != null;
@@ -428,25 +428,48 @@ class AuthController extends GetxController {
     }
   }
 
-  Future<bool> _forcePasswordChange(String user, {required String currentHash}) async {
+  Future<bool> _forcePasswordChange(String user,
+      {required String currentHash, required String oldPassword}) async {
     final newPassword = await Get.dialog<String>(
       ChangePasswordDialog(currentPasswordHash: currentHash),
       barrierDismissible: false,
     );
     if (newPassword == null || newPassword.isEmpty) return false; // cancelled
     try {
-      // queuedOffline means the PG write failed and the hash was queued
-      // locally (changeOwnPassword queues on ANY failure, not just an
-      // unreachable host), so PG still holds the OLD hash — which is what the
-      // message below tells the operator.
-      final queuedOffline = await usersStore!.changeOwnPassword(user, newPassword);
-      await _auditOrNull?.log(AuditActions.passwordChanged, details: {'username': user});
-      if (queuedOffline) {
-        showAppSnackBar('Password changed',
-            'Saved on this device — it will sync to the server once reconnected.',
-            backgroundColor: _lw.warning, colorText: _lw.onWarning);
+      final result = await usersStore!.changeOwnPassword(user, oldPassword, newPassword);
+      switch (result) {
+        case PasswordChangeResult.wrongCurrent:
+          showAppSnackBar('Password not changed',
+              'The database did not accept your current password. Nothing was changed.',
+              backgroundColor: _cs.error, colorText: _cs.onError);
+          return false;
+        case PasswordChangeResult.offline:
+        case PasswordChangeResult.needsDbUpdate:
+          // Keep the operator able to capture offline, but only for a few
+          // sign-ins / days: no plaintext on disk, so the change waits for a
+          // login with the database reachable.
+          if (!await OfflineTempPassword.tryConsume(user)) {
+            showAppSnackBar('Password change required',
+                'Your temporary password can no longer be used offline. '
+                'Connect this PC to the database and sign in again to choose '
+                'a new password.',
+                backgroundColor: _cs.error, colorText: _cs.onError);
+            return false;
+          }
+          showAppSnackBar(
+              'Password not changed',
+              result == PasswordChangeResult.needsDbUpdate
+                  ? 'The database needs updating (run LWCamDatabaseSetup) - '
+                      'you can continue for now.'
+                  : 'Connect to the database to change your password. You can '
+                      'continue with your temporary password for now.',
+              backgroundColor: _lw.warning, colorText: _lw.onWarning);
+          return true;
+        case PasswordChangeResult.changed:
+          await OfflineTempPassword.clear(user);
+          await _auditOrNull?.log(AuditActions.passwordChanged, details: {'username': user});
+          return true;
       }
-      return true;
     } catch (e) {
       showAppSnackBar('Error', 'Could not update your password: $e',
           backgroundColor: _cs.error, colorText: _cs.onError);

@@ -430,6 +430,15 @@ watch(pageSize, () => {
         <el-table-column :label="t('admin.exports.exportedAt')" min-width="180">
           <template #default="{ row }">{{ formatTimestamp(row.exportedTime) }}</template>
         </el-table-column>
+        <el-table-column :label="t('admin.exports.uploadStatus')" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <template v-if="row.uploadError">
+              <el-tag type="danger">{{ t('admin.exports.uploadFailed') }}</el-tag> {{ row.uploadError }}
+            </template>
+            <span v-else-if="row.uploadedTime">{{ t('admin.exports.uploaded') }} · {{ formatTimestamp(row.uploadedTime) }}</span>
+            <span v-else>{{ t('admin.exports.notUploaded') }}</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('common.actions')" min-width="170" fixed="right">
           <template #default="{ row }">
             <el-button

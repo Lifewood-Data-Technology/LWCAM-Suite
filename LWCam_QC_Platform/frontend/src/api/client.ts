@@ -62,7 +62,14 @@ request.interceptors.response.use(
       const auth = useAuthStore()
       auth.clear()
       if (router.currentRoute.value.path !== '/login') {
-        router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
+        // Say WHY when this account signed in somewhere else: otherwise it
+        // looks like a random logout.
+        const detail = error.response.data?.data as { errorKey?: string } | null | undefined
+        const replaced = detail?.errorKey === 'auth.signedInElsewhere'
+        router.push({
+          path: '/login',
+          query: { redirect: router.currentRoute.value.fullPath, ...(replaced ? { reason: 'elsewhere' } : {}) },
+        })
       }
     }
     const apiError: ApiError = new Error(message)

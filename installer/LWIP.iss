@@ -4,7 +4,12 @@
 ; needs a login to a database LWCamDatabaseSetup already created.
 
 #define AppNameFull "LWCam LWIP"
-#define AppVer "1.0.0"
+#ifndef AppVer
+  #define AppVer "1.0.0"
+#endif
+#ifndef BuildId
+  #define BuildId "dev"
+#endif
 
 #ifndef AppsDir
   #define AppsDir ".."
@@ -39,6 +44,9 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+; Written by build-installer.ps1: "<version>+<commit>". Each part shows it and sends it in its heartbeat.
+Source: "vendor\VERSION.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Trust this LWCam server.cmd"; DestDir: "{app}"; Flags: ignoreversion
 ; LWIP source only, no tests/benchmark (siblings of this folder, so a Source
 ; rooted at deskew_crop_tool\* never picks them up) and no runtime bytecode.
 Source: "{#LwipDir}\backend\deskew_crop_tool\*"; DestDir: "{app}\backend\deskew_crop_tool"; Flags: ignoreversion recursesubdirs; Excludes: "*.pyc,__pycache__\*"
@@ -59,6 +67,8 @@ Source: "vendor\vcruntime\vcruntime140.dll"; DestDir: "{app}\tools"; Flags: igno
 [Dirs]
 Name: "{app}\runtime"
 Name: "{app}\logs"
+; No users-modify: only installers write lwip.stop here; LockProgramFolder
+; (post-install) also strips the write access an older install granted.
 Name: "{commonappdata}\LWCAM"
 
 #include "common.iss"
@@ -72,15 +82,27 @@ Filename: "{cmd}"; Parameters: "/C ""{app}\SETUP_DESKEW_CROP.bat"" <NUL"; Workin
 Name: "{autoprograms}\LWIP Console"; Filename: "{code:ConsoleUrl}"
 
 [UninstallRun]
+; End before delete: deleting a running task leaves its restart loop alive.
+Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""LWCam LWIP"""; Flags: runhidden waituntilterminated; RunOnceId: "EndLwipTask"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam LWIP"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLwipTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam LWIP"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLwipFirewallRule"
 
 [UninstallDelete]
 Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
-Type: filesandordirs; Name: "{app}\runtime"
+; runtime\ is NOT removed wholesale: state.json (+ .bak) is the journal of every
+; folder already processed, and without it a reinstall would reprocess them all
+; over QC's edits. Only what Setup or the service can rebuild goes.
+Type: filesandordirs; Name: "{app}\runtime\python"
+Type: filesandordirs; Name: "{app}\runtime\vc"
+Type: filesandordirs; Name: "{app}\runtime\work"
+Type: filesandordirs; Name: "{app}\runtime\logs"
+Type: files; Name: "{app}\runtime\.setup_ok"
+Type: files; Name: "{app}\runtime\status.json"
+Type: files; Name: "{app}\runtime\state.json.tmp"
 Type: filesandordirs; Name: "{app}\logs"
 ; The private config folder: deskew_crop_config.json holds the database password.
 Type: filesandordirs; Name: "{app}\config"
+Type: files; Name: "{app}\LWCam server certificate.crt"
 ; Never the input/output folders: those are the operator's data, outside {app}.
 
 [Code]
@@ -302,18 +324,21 @@ begin
     'PostgreSQL connection',
     'Connect LWIP to the PostgreSQL database',
     'LWIP reports each finished folder to the database itself, so a batch reaches the QC ' +
-    'queue even while LWCAM is closed. Enter the host this PC uses and the login created by ' +
-    'LWCamDatabaseSetup.');
+    'queue even while LWCAM is closed. Enter the host this PC uses and the one database login ' +
+    'LWCamDatabaseSetup''s finish page shows (database, user and password).');
   DatabasePage.Add('Host', False);
   DatabasePage.Add('Port', False);
+  DatabasePage.Add('Database', False);
   DatabasePage.Add('User', False);
   DatabasePage.Add('Password', True);
-  // Defaults come from the command line (/DBHOST=, /DBPORT=, /DBUSER=,
-  // /DBPASSWORD=), read here for the same reason.
+  // Defaults come from the command line (/DBHOST=, /DBPORT=, /DBNAME=,
+  // /DBUSER=, /DBPASSWORD=), read here for the same reason. The port is
+  // always filled in (5432) and can be edited.
   DatabasePage.Values[0] := ExpandConstant('{param:DBHOST|}');
   DatabasePage.Values[1] := ExpandConstant('{param:DBPORT|5432}');
-  DatabasePage.Values[2] := ExpandConstant('{param:DBUSER|postgres}');
-  DatabasePage.Values[3] := ExpandConstant('{param:DBPASSWORD|}');
+  DatabasePage.Values[2] := ExpandConstant('{param:DBNAME|lwcam}');
+  DatabasePage.Values[3] := ExpandConstant('{param:DBUSER|lwcam_user}');
+  DatabasePage.Values[4] := ExpandConstant('{param:DBPASSWORD|}');
 end;
 
 // config.json holds the database password, so it lives in its own folder,
@@ -369,9 +394,9 @@ begin
     '  "cloud_report": true,' + NL +
     '  "db_host": ' + JsonString(DatabasePage.Values[0]) + ',' + NL +
     '  "db_port": ' + IntToStr(StrToIntDef(DatabasePage.Values[1], 5432)) + ',' + NL +
-    '  "db_name": "lwcam",' + NL +
-    '  "db_user": ' + JsonString(DatabasePage.Values[2]) + ',' + NL +
-    '  "db_password": ' + JsonString(DatabasePage.Values[3]) + ',' + NL +
+    '  "db_name": ' + JsonString(DatabasePage.Values[2]) + ',' + NL +
+    '  "db_user": ' + JsonString(DatabasePage.Values[3]) + ',' + NL +
+    '  "db_password": ' + JsonString(DatabasePage.Values[4]) + ',' + NL +
     '  "db_use_ssl": false,' + NL +
     // The console's own port/bind - written once here so a fresh install has
     // a value to read back; ConfiguredUiPort() re-reads this on every upgrade
@@ -419,14 +444,14 @@ end;
 
 function ConsoleUrl(Param: String): String;
 begin
-  Result := 'http://localhost:' + ConfiguredUiPort() + '/';
+  Result := 'https://localhost:' + ConfiguredUiPort() + '/';
 end;
 
 // Runtime and task registration; problems are collected rather than raised so
 // one failure (e.g. a runtime that failed to build) does not hide another.
 procedure ConfigureLwip(var Issues: String);
 var
-  Params, StartCommand, Port: String;
+  Port: String;
   ResultCode: Integer;
 begin
   if not FileExists(ExpandConstant('{app}\runtime\.setup_ok')) then
@@ -441,17 +466,12 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   if not Exec(ExpandConstant('{sys}\netsh.exe'),
     'advfirewall firewall add rule name="LWCam LWIP" dir=in action=allow protocol=TCP localport=' +
-    Port + ' profile=domain,private',
+    Port + ' profile=any remoteip=localsubnet,100.64.0.0/10,fd7a:115c:a1e0::/48',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
     AppendIssue(Issues, 'The Windows Firewall rule for TCP ' + Port + ' could not be added.');
 
-  // /TR takes the whole command as ONE argument, and the path has spaces, so it
-  // is quoted inside the quoted argument: /TR "\"C:\...\START_LWIP.bat\"".
-  StartCommand := ExpandConstant('{app}\START_LWIP.bat');
-  Params := '/Create /TN "LWCam LWIP" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR "\"' +
-    StartCommand + '\"" /F';
-  if not Exec(ExpandConstant('{sys}\schtasks.exe'), Params, '',
-       SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  // No run-time limit, restart after a failure: see RegisterBootTask.
+  if not RegisterBootTask('LWCam LWIP', ExpandConstant('{app}\START_LWIP.bat')) then
     AppendIssue(Issues, 'The LWCam LWIP startup task could not be registered.')
   else if not Exec(ExpandConstant('{sys}\schtasks.exe'),
        '/Run /TN "LWCam LWIP"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or
@@ -468,6 +488,16 @@ begin
     Exit;
 
   NL := #13#10;
+  Issues := '';
+  // Program folders first, before the task exists: code that runs as SYSTEM
+  // must not be replaceable by an ordinary user, and the shared stop-file
+  // folder must not be writable by one (an old install made it users-modify).
+  // config\ and network-logins\ keep their own lists.
+  if not LockProgramFolder(ExpandConstant('{app}')) then
+    AppendIssue(Issues, 'The install folder could not be locked to Administrators; check its permissions.');
+  if not LockProgramFolder(ExpandConstant('{commonappdata}\LWCAM')) then
+    AppendIssue(Issues, 'The shared folder ' + ExpandConstant('{commonappdata}\LWCAM') +
+      ' could not be locked to Administrators.');
   // Private folder first, secrets second: the file inherits the folder's
   // restricted permissions when it is created, so there is no moment when it
   // is readable.
@@ -486,19 +516,19 @@ begin
     Exit;
   end;
 
-  Issues := '';
+  // https certificate for the web page; without it the page stays plain http.
+  if not SetUpTls(ExpandConstant('{app}\runtime\python\python.exe'), 'deskew_crop_tool.tls',
+       ExpandConstant('{app}\backend'), ExpandConstant('{app}\config\deskew_crop_config.json')) then
+    AppendIssue(Issues, 'The https certificate could not be created, so the page is plain http. Run setup again as Administrator.');
+
+  if not ProtectConfigSecrets(ExpandConstant('{app}\runtime\python\python.exe'), '-m deskew_crop_tool.lwcam_secrets',
+       ExpandConstant('{app}\backend'), ExpandConstant('{app}\config\deskew_crop_config.json'), 'db_password') then
+    AppendIssue(Issues, PlainSecretsWarning('config\deskew_crop_config.json') + ' LWIP encrypts them itself when it starts.');
+
   ConfigureLwip(Issues);
 
   Closing := 'LWCam LWIP is installed.' + NL + NL +
-    'Config : ' + ExpandConstant('{app}\config\deskew_crop_config.json') + NL +
-    'Logs   : ' + ExpandConstant('{app}\logs') +
-      ' (lwip.log from the tool itself, service.log from the task wrapper)' + NL + NL +
-    'Console: http://' + GetComputerNameString() + ':' + ConfiguredUiPort() +
-      '/ (sign in with an Admin or SuperAdmin account)' + NL + NL +
-    'LWIP watches the input folder for finished captures and writes deskewed, cropped' + NL +
-    'results to the output folder. Set that output folder as the QC server''s QC input' + NL +
-    'root. Both should be UNC paths, and this PC''s computer account needs access to' + NL +
-    'each share - SYSTEM cannot use a drive letter mapped in someone''s logon session.';
+    'Console: https://' + GetComputerNameString() + ':' + ConfiguredUiPort() + '/' + NL + NL + TlsClosingNote();
   if Issues <> '' then
     Closing := Closing + NL + NL + 'Setup needs attention:' + NL + Issues;
   Log('LWCam LWIP finished:' + NL + Closing);

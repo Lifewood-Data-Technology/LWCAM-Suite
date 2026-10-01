@@ -169,6 +169,34 @@ class OtherValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_config(self.config_path)
 
+    def test_interval_is_bounded_both_ways(self) -> None:
+        for value, ok in ((9, False), (10, True), (3600, True), (3601, False)):
+            _write(
+                self.config_path,
+                {"watch_root": str(self.watch_root), "enabled": False, "interval_seconds": value},
+            )
+            if ok:
+                self.assertEqual(load_config(self.config_path).interval_seconds, value)
+            else:
+                with self.assertRaises(ValueError):
+                    load_config(self.config_path)
+
+    def test_https_proxy_must_be_http_url_with_port(self) -> None:
+        for value, ok in (
+            ("", True), ("http://proxy.lan:3128", True), ("https://10.0.0.5:8080/", True),
+            ("proxy.lan:3128", False), ("http://proxy.lan", False), ("ftp://p:1", False),
+            ("http://user:pw@proxy.lan:3128", False), ("http://p:1/path", False),
+        ):
+            _write(
+                self.config_path,
+                {"watch_root": str(self.watch_root), "enabled": False, "https_proxy": value},
+            )
+            if ok:
+                self.assertEqual(load_config(self.config_path).https_proxy, value.rstrip("/"))
+            else:
+                with self.assertRaises(ValueError, msg=value):
+                    load_config(self.config_path)
+
     def test_enabled_must_be_a_bool(self) -> None:
         _write(
             self.config_path,

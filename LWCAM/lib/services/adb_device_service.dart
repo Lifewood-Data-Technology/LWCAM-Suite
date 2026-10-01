@@ -39,28 +39,33 @@ class AdbDeviceService {
 
   AdbDeviceService({String? adbPath}) : adbPath = adbPath ?? resolveAdbPath();
 
+  /// Only the adb the installer ships: beside this exe, else the install dir
+  /// under %ProgramFiles%. Never the working directory, C:\Android or PATH -
+  /// those are user-writable / plantable locations.
   static String resolveAdbPath() {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
-
+    final pf = Platform.environment['ProgramFiles'];
     final candidates = <String>[
       p.join(exeDir, 'adb.exe'),
-      p.join(Directory.current.path, 'adb.exe'),
-      r'C:\Android\platform-tools\adb.exe',
-      'adb',
+      if (pf != null && pf.isNotEmpty) p.join(pf, 'LWCam', 'LWCAM', 'adb.exe'),
     ];
-
     for (final candidate in candidates) {
-      if (candidate == 'adb') {
-        return candidate;
-      }
       if (File(candidate).existsSync()) {
         print('✅ Using adb at: $candidate');
         return candidate;
       }
     }
-
-    return 'adb';
+    // Not found: return the expected path so the failure names it.
+    return candidates.first;
   }
+
+  /// A device file name that is safe to join onto a local folder and a remote
+  /// path: a plain name, no separators, `..`, `:` or control characters.
+  static bool isSafeDeviceName(String name) =>
+      name.isNotEmpty &&
+      name == p.basename(name) &&
+      !name.contains(RegExp(r'[\\/:\x00-\x1f]')) &&
+      !name.contains('..');
 
   /// Stops the background adb server this app started.
   ///
@@ -168,6 +173,10 @@ class AdbDeviceService {
   }
 
   Future<File?> pullSingleFile(String name, {required Directory targetDir}) async {
+    if (!isSafeDeviceName(name)) {
+      print('⚠️ Refusing to pull unsafe device file name: $name');
+      return null;
+    }
     if ((_workingPath ?? '').isEmpty) {
       await listDeviceImageNames(); // resolves _workingPath as a side effect
       if ((_workingPath ?? '').isEmpty) {

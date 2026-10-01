@@ -3,13 +3,20 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { translateValue } from '@/i18n'
+import { authApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import logo from '@/assets/lifewood-logo.jpg'
+import { useSystemStatus } from '@/composables/useSystemStatus'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+
+// Admin pages only: the red banner and the version line share this poll.
+const held = auth.user?.roles?.length ? auth.user.roles : [auth.user?.role]
+const isAdmin = held.includes('admin') || held.includes('super_admin')
+const { status: systemStatus } = useSystemStatus(60_000, isAdmin)
 
 const navItems = computed(() => {
   // Same expression the router guard uses (router/index.ts) — a user can hold both
@@ -30,6 +37,7 @@ const navItems = computed(() => {
       { to: '/admin/qc-tasks', icon: 'Unlock', label: t('nav.qcTasks') },
       { to: '/admin/exports', icon: 'UploadFilled', label: t('nav.exports') },
       { to: '/admin/settings', icon: 'Setting', label: t('nav.settings') },
+      { to: '/admin/status', icon: 'Monitor', label: t('nav.status') },
     )
   }
   return items
@@ -44,7 +52,9 @@ const flushContent = computed(() =>
   ['qc-my-tasks', 'qc-review', 'qc-completed'].includes(String(route.name)),
 )
 
-function logout() {
+async function logout() {
+  // Frees the account for a sign-in elsewhere now, not after the idle wait.
+  await authApi.logout().catch(() => undefined)
   auth.clear()
   router.push('/login')
 }
@@ -62,6 +72,7 @@ function logout() {
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
+      <small v-if="systemStatus" class="sidebar-version">v{{ systemStatus.serverVersion }}</small>
     </aside>
 
     <main class="main">
@@ -75,9 +86,16 @@ function logout() {
           <el-button class="topbar-action-button" :icon="'SwitchButton'" @click="logout">{{ t('common.logout') }}</el-button>
         </div>
       </header>
+      <el-alert v-if="systemStatus?.anyRed" type="error" show-icon :closable="false">
+        <RouterLink to="/admin/status">{{ t('admin.status.banner') }}</RouterLink>
+      </el-alert>
       <section class="content" :class="{ 'content--flush': flushContent }">
         <slot />
       </section>
     </main>
   </div>
 </template>
+
+<style scoped>
+.sidebar-version { position: absolute; bottom: 12px; left: 16px; opacity: 0.6; }
+</style>

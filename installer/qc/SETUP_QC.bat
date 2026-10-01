@@ -72,7 +72,7 @@ if errorlevel 1 (
 
 echo [QC] Verifying the backend runtime.
 cd /d "%BACKEND%"
-"%PY%" -c "import fastapi, uvicorn, sqlalchemy, psycopg, jwt, bcrypt, PIL, numpy, multipart; print('QC backend runtime OK')"
+"%PY%" -c "import fastapi, uvicorn, sqlalchemy, psycopg, jwt, bcrypt, PIL, numpy, multipart, cryptography; print('QC backend runtime OK')"
 if errorlevel 1 (
     echo [ERROR] Backend verification failed.
     exit /b 1

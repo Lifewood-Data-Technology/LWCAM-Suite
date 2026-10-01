@@ -13,12 +13,23 @@ console reads the raised message straight into a `[CONFIG]` log line.
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import lwcam_secrets
+
 DEFAULT_STATE_FILE = "runtime/uploads.json"
 DEFAULT_LOG_FILE = "logs/upload.log"
+
+
+def db_sslmode(host: str, use_ssl: bool = False) -> str:
+    """TLS is required for every non-local database host (encrypted, certificate
+    not verified - the server's is self-signed). Only loopback may fall back to
+    plain text, and only when dbUseSsl is not true."""
+    local = str(host).strip().strip("[]").lower() in ("localhost", "127.0.0.1", "::1")
+    return "require" if use_ssl or not local else "prefer"
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,29 @@ class Config:
     db_use_ssl: bool
     ui_port: int
     ui_bind: str
+    tls_cert_file: str = ""
+    tls_key_file: str = ""
+    https_proxy: str = ""
+
+
+def parse_https_proxy(value: str) -> str:
+    """'' (none) or http(s)://host:port. No credentials in the URL: it is shown
+    in Settings and must never carry a secret."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    try:
+        parts = urlsplit(text)
+        ok = (
+            parts.scheme in ("http", "https") and bool(parts.hostname) and parts.port is not None
+            and not parts.username and not parts.password
+            and parts.path in ("", "/") and not parts.query and not parts.fragment
+        )
+    except ValueError:
+        ok = False
+    if not ok:
+        raise ValueError("https_proxy must look like http://host:port (no login, no path)")
+    return text.rstrip("/")
 
 
 def parse_s3_path(value: str) -> tuple[str, str]:
@@ -79,7 +113,8 @@ def load_config(path: Path | str) -> Config:
     s3_access_key = str(raw.get("s3_access_key", "")).strip()
     # Not stripped: like a database password, a secret's leading/trailing
     # characters may be significant.
-    s3_secret_key = str(raw.get("s3_secret_key", ""))
+    # Stored as dpapi:... (lwcam_secrets); a plain value is still accepted.
+    s3_secret_key = lwcam_secrets.unprotect(str(raw.get("s3_secret_key", "")), "s3_secret_key")
     if enabled:
         missing = [
             name
@@ -98,14 +133,15 @@ def load_config(path: Path | str) -> Config:
         parse_s3_path(s3_path)  # raises ValueError with a clear reason
 
     interval_seconds = int(raw.get("interval_seconds", 60))
-    if interval_seconds < 5:
-        raise ValueError("interval_seconds must be at least 5")
+    if not 10 <= interval_seconds <= 3600:
+        raise ValueError("interval_seconds must be between 10 and 3600")
+    https_proxy = parse_https_proxy(str(raw.get("https_proxy", "")))
 
     db_host = str(raw.get("db_host", "")).strip()
     db_port = int(raw.get("db_port", 5432))
     db_name = str(raw.get("db_name", "lwcam")).strip() or "lwcam"
     db_user = str(raw.get("db_user", "")).strip()
-    db_password = str(raw.get("db_password", ""))
+    db_password = lwcam_secrets.unprotect(str(raw.get("db_password", "")), "db_password")
     db_use_ssl = raw.get("db_use_ssl", False)
     if not isinstance(db_use_ssl, bool):
         raise ValueError("db_use_ssl must be true or false")
@@ -116,6 +152,10 @@ def load_config(path: Path | str) -> Config:
     if not 1 <= ui_port <= 65535:
         raise ValueError("ui_port must be between 1 and 65535")
     ui_bind = str(raw.get("ui_bind") or "0.0.0.0").strip() or "0.0.0.0"
+    tls_cert_file = str(raw.get("tls_cert_file", "")).strip()
+    tls_key_file = str(raw.get("tls_key_file", "")).strip()
+    if bool(tls_cert_file) != bool(tls_key_file):
+        raise ValueError("tls_cert_file and tls_key_file must be set together")
 
     _validate_roots(watch_root, done_root, summary_root)
 
@@ -139,6 +179,9 @@ def load_config(path: Path | str) -> Config:
         db_use_ssl=db_use_ssl,
         ui_port=ui_port,
         ui_bind=ui_bind,
+        tls_cert_file=tls_cert_file,
+        tls_key_file=tls_key_file,
+        https_proxy=https_proxy,
     )
 
 

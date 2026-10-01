@@ -30,7 +30,10 @@ void main() {
 
     expect(defaultPgHost, backendDefault('db_host'));
     expect(defaultPgDatabase, backendDefault('db_name'));
-    expect(defaultPgUser, backendDefault('db_user'));
+    // defaultPgUser is deliberately NOT compared: this app defaults to the
+    // suite's shared app login (lwcam_user), not the backend's postgres default.
+    expect(defaultPgUser, 'lwcam_user');
+    expect(StationSetupController().pgPort.value, 5432);
   });
 
   test('no default password is shipped', () {

@@ -103,6 +103,7 @@ class CaptureFolder(Base):
     exported_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_ingested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ingested_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    upload_error: Mapped[str | None] = mapped_column(Text)
 
     box: Mapped[CaptureBox] = relationship(back_populates="folders", lazy="joined")
     device = relationship("Device", lazy="joined")

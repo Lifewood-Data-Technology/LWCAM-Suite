@@ -72,9 +72,16 @@ class PeriodicSweep:
         """Runs the next tick now instead of after the interval."""
         self._wake.set()
 
+    def _schema_ok(self) -> bool:
+        """Skips the tick while the DB is older than this program (gate logs once
+        per 10 min). Late import: schema_check imports the engine."""
+        from app.services import schema_check
+
+        return schema_check.gate_ok(self.name)
+
     def _run(self) -> None:
         while not self._stop_event.is_set():
-            if self.enabled():
+            if self.enabled() and self._schema_ok():
                 try:
                     self._tick()
                 except self._expected as error:

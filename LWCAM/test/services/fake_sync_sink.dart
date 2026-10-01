@@ -70,5 +70,16 @@ class FakeSyncSink implements SyncSink {
   Future<void> probe() async {}
 
   @override
+  Future<void> heartbeat({
+    required String host,
+    required String version,
+    required DateTime startedAt,
+    required Map<String, Object?> backlog,
+    DateTime? lastOk,
+    String? lastError,
+    DateTime? lastErrorAt,
+  }) async {}
+
+  @override
   Future<void> close() async {}
 }

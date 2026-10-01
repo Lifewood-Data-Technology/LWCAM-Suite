@@ -5,6 +5,7 @@ import 'package:postgres/postgres.dart';
 
 import '../models/node_config.dart';
 import 'node_config_service.dart';
+import 'admin_login.dart';
 import 'pg_client.dart';
 
 /// Cloud device registry (`devices` in LWCam_database_20260720.sql): each
@@ -49,13 +50,14 @@ class DeviceRegistry {
   }
 
   Future<Connection?> _open(NodeConfig config) async {
+    final login = adminLoginFor(config);
     try {
       return await openPgConnection(
         host: config.pgHost!.trim(),
         port: config.pgPort,
         database: config.pgDatabase ?? '',
-        user: config.pgUser ?? '',
-        password: config.pgPassword ?? '',
+        user: login.user,
+        password: login.password,
         useSsl: config.pgUseSsl,
       );
     } catch (e) {

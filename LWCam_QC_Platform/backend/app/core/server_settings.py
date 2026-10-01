@@ -22,12 +22,28 @@ change set exists to remove.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
+import sys
+import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
 from pydantic import SecretStr
+
+from app.core import lwcam_secrets
+
+LOGGER = logging.getLogger("lwcam.secrets")
+
+# Stored as `dpapi:...` (machine-scope DPAPI, see lwcam_secrets.py). A plain
+# value is still read, and is rewritten protected when the server starts.
+SECRET_KEYS = ("dbPassword", "jwtSecret", "openrouterApiKey")
+# key -> message, for each secret that could not be decrypted on this PC (a
+# config copied from another PC). The value is left out of the settings, and
+# main.create_app refuses to run on a missing jwtSecret.
+SECRET_PROBLEMS: dict[str, str] = {}
 
 # The `Settings` field each file key maps onto. Operator-facing names on the
 # left, internal field names on the right. An explicit table - rather than
@@ -46,6 +62,8 @@ SETTINGS_BY_KEY: dict[str, str] = {
     "jwtSecret": "jwt_secret",
     "bindHost": "bind_host",
     "port": "port",
+    "tlsCertFile": "tls_cert_file",
+    "tlsKeyFile": "tls_key_file",
     "qcInputRoot": "qc_images_root",
     "exportWorkRoot": "export_temp_dir",
     "qcOutputRoot": "export_output_dir",
@@ -122,6 +140,10 @@ _HEADER = """\
 #   jwtExpireMinutes  How long a login lasts (default 480).
 #   bindHost          127.0.0.1 = this PC only. 0.0.0.0 = the whole LAN.
 #   port              Port the console is served on (default 8080).
+#   tlsCertFile, tlsKeyFile
+#                     Serve https with this certificate (the installer sets
+#                     them; the certificate is renewed at every start).
+#                     Blank = plain http.
 #
 # Review and export (the console's Admin > Settings page edits these live):
 #   qcInputRoot       Where LWIP's output (2.Batches) is - the folders QC
@@ -169,6 +191,9 @@ _HEADER = """\
 """
 
 
+_write_lock = threading.Lock()  # two console saves must not interleave their temp file
+
+
 def config_path() -> Path:
     r"""Where the file lives.
 
@@ -205,8 +230,12 @@ def _coerce(field: str, raw: str) -> Any:
     return raw
 
 
-def load_server_settings_overrides() -> dict[str, Any]:
+def load_server_settings_overrides(decrypt: bool = True) -> dict[str, Any]:
     """Read `config.txt`.
+
+    `decrypt=False` returns the secrets as stored (`dpapi:...`), which is what
+    the writer merges; a secret that cannot be decrypted is left out (and
+    recorded in SECRET_PROBLEMS) rather than crashing the load.
 
     A missing file reads as {} - a fresh install that has never saved anything
     is the normal state, not an error. An unreadable one IS an error: silently
@@ -241,8 +270,32 @@ def load_server_settings_overrides() -> dict[str, Any]:
         field = keys.get(key)
         if field is None or not value:
             continue
+        if decrypt and key in SECRET_KEYS:
+            try:
+                value = lwcam_secrets.unprotect(value, key)
+                SECRET_PROBLEMS.pop(key, None)
+            except lwcam_secrets.SecretError as error:
+                SECRET_PROBLEMS[key] = str(error)
+                LOGGER.error("%s", error)
+                continue
         values[field] = _coerce(field, value)
     return values
+
+
+def migrate_plain_secrets() -> bool:
+    """Rewrite config.txt with its secrets protected, if any is still plain.
+    Called when the server starts. Logs one line, never a value."""
+    path = config_path()
+    if not path.is_file():
+        return False
+    try:
+        changed = lwcam_secrets.protect_file(path, SECRET_KEYS)
+    except Exception as error:  # noqa: BLE001 - serve with the plain file rather than not at all
+        LOGGER.error("Could not protect the secrets in %s: %s", path, type(error).__name__)
+        return False
+    if changed:
+        LOGGER.info("Protected the stored secrets in %s", path)
+    return changed
 
 
 def write_server_settings(values: dict[str, Any]) -> None:
@@ -258,8 +311,13 @@ def write_server_settings(values: dict[str, Any]) -> None:
     file intact rather than a truncated one the engine would refuse to start
     on.
     """
+    with _write_lock:  # read-merge-write is one step
+        _write_server_settings_locked(values)
+
+
+def _write_server_settings_locked(values: dict[str, Any]) -> None:
     path = config_path()
-    merged = {**load_server_settings_overrides(), **{
+    merged = {**load_server_settings_overrides(decrypt=False), **{
         field: value for field, value in values.items() if field in SERVER_SETTINGS_KEYS
     }}
 
@@ -274,10 +332,18 @@ def write_server_settings(values: dict[str, Any]) -> None:
         if CONTROL_CHARACTERS.search(rendered):
             # Names the key, never the value: it may be a secret.
             raise RuntimeError(f"{key} contains a line break or control character")
+        if key in SECRET_KEYS and sys.platform == "win32":  # ponytail: no DPAPI elsewhere (dev only)
+            rendered = lwcam_secrets.protect(rendered)
         lines.append(f"{key} = {rendered}")
     body = "\n".join(lines) + "\n"
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.tmp")
-    temp_path.write_text(body, encoding="utf-8")
-    os.replace(temp_path, path)
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())  # data on disk before the rename makes it the config
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)

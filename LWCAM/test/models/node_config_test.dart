@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -182,6 +183,38 @@ void main() {
         expect(svc.cached, isNull);
         final config = await svc.load();
         expect(svc.cached?.syncIntervalSeconds, config.syncIntervalSeconds);
+      },
+    );
+
+    test(
+      'load -> copyWith -> save keeps the adminPg* fields LWCam Admin adds and other '
+      'unknown keys byte-for-byte',
+      () async {
+        final path = p.join(tempDir.path, NodeConfigService.fileName);
+        const blob = 'AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAA+/x1==';
+        await File(path).writeAsString(jsonEncode({
+          'pgHost': 'db',
+          'adminPgUser': 'lwcam_admin',
+          'adminPgPasswordProtected': blob,
+          'role': 'legacy',
+          'somethingNew': {'a': [1, 2]},
+        }));
+
+        final svc = makeService();
+        final config = await svc.load();
+        expect(config.extras['adminPgUser'], 'lwcam_admin');
+        await svc.save(config.copyWith(syncEnabled: true));
+
+        final saved =
+            jsonDecode(await File(path).readAsString()) as Map<String, dynamic>;
+        expect(saved['adminPgUser'], 'lwcam_admin');
+        expect(saved['adminPgPasswordProtected'], blob);
+        expect(saved['role'], 'legacy');
+        expect(saved['somethingNew'], {'a': [1, 2]});
+        expect(saved['syncEnabled'], true);
+        expect(saved['pgHost'], 'db');
+        // Known keys are never duplicated into extras.
+        expect(config.extras.containsKey('pgHost'), isFalse);
       },
     );
   });

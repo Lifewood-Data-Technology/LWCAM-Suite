@@ -113,7 +113,7 @@ def relocate_under(db_value: str, images_root: str) -> Path | None:
         C:\Program Files\...\2.Batches \ 20260909\9155 1234-5678 file no. 1234
         \\nas\LWCamCapture             \ 20260909\9155 1234-5678 file no. 1234
 
-    Anchoring on the date rather than counting segments from the right is what
+    Anchoring on the (last) date rather than counting segments from the right is what
     makes this work for thumbnail_path too, which carries one extra level
     (...\<folder>\thumbs) and would otherwise be re-rooted one directory short.
 
@@ -126,8 +126,11 @@ def relocate_under(db_value: str, images_root: str) -> Path | None:
     if not root:
         return None
     segments = db_value.replace("\\", "/").split("/")
-    for index, segment in enumerate(segments):
-        if _DATE_SEGMENT.match(segment):
+    # Search from the END and need a segment after the date: a root such as
+    # D:/20260101/Batches holds an 8-digit segment of its own (same rule as
+    # LWCAM's rework_service).
+    for index in range(len(segments) - 2, -1, -1):
+        if _DATE_SEGMENT.match(segments[index]) and segments[index + 1]:
             return Path(root).joinpath(*segments[index:])
     return None
 

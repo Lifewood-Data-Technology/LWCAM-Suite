@@ -36,9 +36,51 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .config import ToolConfig
+from .config import ToolConfig, db_sslmode
 
 LOGGER = logging.getLogger("deskew_crop_tool.cloud_report")
+
+# Phase 3 contract: every part needs schema level >= 7 (migration 007).
+REQUIRED_SCHEMA = 7
+
+
+def schema_message(level: int) -> str:
+    return (
+        f"The database is older than this program (needs level {REQUIRED_SCHEMA}, "
+        f"has {level}). Run LWCamDatabaseSetup on the database PC."
+    )
+
+
+def schema_level(cur) -> int:
+    """The applied migration level; a missing schema_migrations table is 0."""
+    cur.execute("SELECT to_regclass('schema_migrations') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return 0
+    cur.execute(
+        "SELECT coalesce(max(substring(version from '^[0-9]+')::int), 0) "
+        "FROM schema_migrations"
+    )
+    return int(cur.fetchone()[0])
+
+
+def check_schema(settings: "PgSettings", *, timeout: int = 5, connect=None) -> int | None:
+    """The schema level, or None when the database cannot be asked."""
+    try:
+        if connect is None:
+            import psycopg
+
+            connect = psycopg.connect
+        with connect(
+            host=settings.host, port=settings.port, dbname=settings.dbname,
+            user=settings.user, password=settings.password,
+            sslmode=db_sslmode(settings.host, settings.use_ssl),
+            connect_timeout=timeout,
+            options=f"-c statement_timeout={int(timeout) * 1000}",
+        ) as conn:
+            with conn.cursor() as cur:
+                return schema_level(cur)
+    except Exception:  # noqa: BLE001 - unknown level: let report_folder decide
+        return None
 
 
 class ReportResult(Enum):
@@ -165,7 +207,7 @@ def report_folder(
             dbname=settings.dbname,
             user=settings.user,
             password=settings.password,
-            sslmode="require" if settings.use_ssl else "prefer",
+            sslmode=db_sslmode(settings.host, settings.use_ssl),
             connect_timeout=timeout,
             # Bound the statements too, not just the connect: a reachable but
             # WEDGED server would otherwise stall the scheduler thread

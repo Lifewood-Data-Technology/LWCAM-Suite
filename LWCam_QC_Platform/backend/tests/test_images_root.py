@@ -90,3 +90,11 @@ class RelocateUnderTests(unittest.TestCase):
             relocate_under(FOLDER.replace("\\", "/"), LOCAL_ROOT),
             Path(LOCAL_ROOT) / "20260909" / "9155 1234-5678 file no. 1234",
         )
+    def test_a_capture_root_with_its_own_date_segment_uses_the_last_one(self) -> None:
+        stored = r"D:\20260101\2.Batches\20260909\name one"
+        self.assertEqual(relocate_under(stored, LOCAL_ROOT), Path(LOCAL_ROOT) / "20260909" / "name one")
+
+    def test_a_trailing_date_segment_with_nothing_after_it_is_not_an_anchor(self) -> None:
+        self.assertIsNone(relocate_under(r"C:\x\20260909", LOCAL_ROOT))
+        self.assertIsNone(relocate_under("C:/x/20260909/", LOCAL_ROOT))
+

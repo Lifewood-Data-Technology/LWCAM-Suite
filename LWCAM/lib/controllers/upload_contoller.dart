@@ -15,7 +15,9 @@ import 'package:lwcam/models/metadata_template.dart' show kFixedFieldCsvColumns;
 import 'package:lwcam/services/windows_notification_service.dart';
 import 'package:lwcam/services/audit_log_service.dart';
 import 'package:lwcam/services/file_lock_service.dart';
+import 'package:lwcam/services/safe_copy.dart';
 import 'package:lwcam/services/transfer_alert_presenter.dart';
+import 'package:lwcam/services/fs_probe.dart';
 import 'package:lwcam/services/transfer_destination_service.dart';
 import 'package:lwcam/theme/app_colors.dart';
 
@@ -360,7 +362,7 @@ class UploadController extends GetxController {
     _currentDestDir = destDir;
 
     final logsDir = Directory(p.join(destDir.path, 'logs'));
-    if (!logsDir.existsSync()) logsDir.createSync(recursive: true);
+    if (!await logsDir.exists()) await logsDir.create(recursive: true);
 
     // Box mode: images land in one subfolder per keyed folder (CSV + logs stay
     // at the date level, exactly like Normal Mode).
@@ -371,7 +373,7 @@ class UploadController extends GetxController {
       for (final sub in distinctSubdirs) {
         if (sub.isEmpty) continue;
         final d = Directory(p.join(destDir.path, sub));
-        if (!d.existsSync()) d.createSync(recursive: true);
+        if (!await d.exists()) await d.create(recursive: true);
       }
     }
 
@@ -466,10 +468,9 @@ class UploadController extends GetxController {
       final uploadedBaseNamesRaw = await UploadStatsDB().getUploadedBaseNames(
         auth.deviceId.value,
       );
-      // Full recorded filenames — a destination file NOT in this set is an
-      // orphan from an interrupted run (power loss/crash mid-copy: the copy
-      // died before its DB record was written) and gets overwritten instead
-      // of pushed to the next _NNN suffix.
+      // Full recorded filenames — a destination file NOT in this set is not
+      // ours to overwrite (another PC's image, or a pre-.part torn copy):
+      // the name allocator skips it to the next _NNN suffix and logs it.
       final recordedFilenames = await UploadStatsDB().getUploadedFilenames(
         auth.deviceId.value,
       );
@@ -1156,12 +1157,16 @@ class UploadController extends GetxController {
   // ---------------------- CONNECTION HELPERS --------------------------
   Future<bool> _checkConnectionAvailable(Directory destDir) async {
     try {
-      if (!destDir.existsSync()) {
+      // Async + bounded: existsSync() here blocked the UI isolate for the SMB
+      // timeout every 5 s while the LWIP share was down.
+      if (await probeExists(destDir) != FsProbe.found) {
         return false;
       }
       final testFile = File(p.join(destDir.path, '.connection_test'));
-      await testFile.writeAsString('ok', mode: FileMode.write);
-      await testFile.delete();
+      await () async {
+        await testFile.writeAsString('ok', mode: FileMode.write);
+        await testFile.delete();
+      }().timeout(kFsProbeTimeout);
       return true;
     } catch (_) {
       return false;
@@ -1234,13 +1239,12 @@ class UploadController extends GetxController {
   /// Allocates the destination filename `baseName_NNN.ext`. Static (no
   /// instance state) so tests can drive it against a temp dir directly.
   ///
-  /// With [recordedFilenames] (the device's full recorded filenames from
-  /// `UploadStatsDB.getUploadedFilenames`): a candidate that exists on disk
-  /// but is NOT recorded is an orphan from an interrupted run — the copy died
-  /// (power loss/crash) before its DB record was written — so it is returned
-  /// for overwrite instead of being suffix-skipped forever. A recorded
-  /// on-disk file keeps the original skip-to-next-suffix behavior. Passing
-  /// null disables the orphan check entirely (original behavior).
+  /// [recordedFilenames] is kept for callers/logging: a candidate that exists
+  /// on disk but is NOT recorded in this PC's DB is somebody else's file (or a
+  /// torn copy from a build before `.part` copies) - it is NEVER overwritten
+  /// (another PC on the same share, or a colliding device id, would lose an
+  /// image); the next suffix is taken and the skip is logged. Interrupted
+  /// copies of this build live at `<name>.part`, not under the final name.
   static Future<File> generateUniqueTargetFile(
     Directory destDir,
     String baseName, // e.g. "SAX03_IMG_20251028_125306"
@@ -1258,14 +1262,14 @@ class UploadController extends GetxController {
       final candidate = File(p.join(destDir.path, candidateName));
 
       if (!alreadyReserved) {
-        final existsOnDisk = await candidate.exists();
-        final isOrphan =
-            existsOnDisk &&
-            recordedFilenames != null &&
-            !recordedFilenames.contains(candidateName);
-        if (!existsOnDisk || isOrphan) {
+        if (!await File(longPath(candidate.path)).exists()) {
           reservedNames?.add(candidateName);
           return candidate;
+        }
+        if (recordedFilenames != null &&
+            !recordedFilenames.contains(candidateName)) {
+          debugPrint('ℹ️ $candidateName exists in ${destDir.path} but this PC '
+              'has no record of it - keeping it, using the next name.');
         }
       }
 
@@ -1274,13 +1278,36 @@ class UploadController extends GetxController {
   }
 
   // ---------------------- FILE COPY WITH PROGRESS (TIMEOUT AWARE) --------------------------
+  /// Copies to `<dest>.part` and renames it into place only when the copy and
+  /// the size check succeeded, so an interrupted copy never sits under the
+  /// final name (and never overwrites a file that is already there).
   Future<void> _copyFileWithProgress(
     File src,
     File dest,
     UploadStatus status,
   ) async {
+    final part = File(longPath('${dest.path}.part'));
+    try {
+      await _copyToFile(src, part, status);
+      if (await src.length() != await part.length()) {
+        throw Exception('Size mismatch after copy of ${p.basename(dest.path)}');
+      }
+      await part.rename(longPath(dest.path));
+    } catch (_) {
+      try {
+        if (await part.exists()) await part.delete();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<void> _copyToFile(
+    File src,
+    File dest,
+    UploadStatus status,
+  ) async {
     final totalBytes = await src.length();
-    final rafSrc = await src.open(mode: FileMode.read);
+    final rafSrc = await File(longPath(src.path)).open(mode: FileMode.read);
     final rafDest = await dest.open(mode: FileMode.write);
 
     const bufferSize = 4 * 1024 * 1024; // 4 MB chunks
@@ -1429,10 +1456,10 @@ class UploadController extends GetxController {
       artifacts.localInterruptionLogFile,
       artifacts.localTransferLogFile,
     ]) {
-      if (!file.parent.existsSync()) {
-        file.parent.createSync(recursive: true);
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
       }
-      if (!file.existsSync()) {
+      if (!await file.exists()) {
         await file.create(recursive: true);
       }
     }
@@ -1482,10 +1509,10 @@ class UploadController extends GetxController {
     String line, {
     bool overwrite = false,
   }) async {
-    if (!file.parent.existsSync()) {
+    if (!await file.parent.exists()) {
       await file.parent.create(recursive: true);
     }
-    if (!file.existsSync()) {
+    if (!await file.exists()) {
       await file.create(recursive: true);
     }
     await file.writeAsString(
@@ -1753,11 +1780,11 @@ class UploadController extends GetxController {
 
       // Box mode: the retried file goes back into its folder's subdir.
       final destFile = File(_destPathFor(destDir, srcFile, targetName));
-      if (!destFile.parent.existsSync()) {
-        destFile.parent.createSync(recursive: true);
+      if (!await destFile.parent.exists()) {
+        await destFile.parent.create(recursive: true);
       }
 
-      await srcFile.copy(destFile.path);
+      await safeCopy(srcFile, destFile.path);
 
       final srcLen = await srcFile.length();
       final destLen = await destFile.length();

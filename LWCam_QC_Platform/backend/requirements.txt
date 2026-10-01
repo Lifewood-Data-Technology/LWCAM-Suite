@@ -11,4 +11,5 @@ numpy>=1.26.0
 python-multipart>=0.0.9
 alembic>=1.13.0
 openai>=2.0.0
+cryptography>=42.0.0
 opencv-python-headless>=4.10.0

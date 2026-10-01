@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 
 import 'package:get/get.dart';
@@ -58,8 +59,31 @@ class SyncService extends GetxController {
   final RxInt pendingCount = 0.obs;
   final Rx<String?> lastError = Rx<String?>(null);
 
+  /// Rows past [kSyncAttemptCap] attempts: kept in the outbox, skipped by the
+  /// drain, waiting for [retryHeld]. Never deleted.
+  final RxInt heldCount = 0.obs;
+
+  /// Set (with the operator-facing sentence) while the database is older than
+  /// [kRequiredSchema]; the outbox stays queued and nothing is written.
+  final Rx<String?> schemaWarning = Rx<String?>(null);
+
+  /// Send a `service_heartbeat` row every [heartbeatInterval] (needs
+  /// [drainEnabled]). Off by default so tests only see it when they ask.
+  final bool heartbeatEnabled;
+
+  /// Extra keys merged into every heartbeat's backlog (the transfer-queue
+  /// wait, which this service cannot see itself).
+  final Map<String, Object?> Function()? extraBacklog;
+  final Duration heartbeatInterval;
+  final String version;
+  final String hostName;
+  final DateTime _startedAt = DateTime.now();
+
   bool _draining = false;
   Timer? _timer;
+  Timer? _heartbeatTimer;
+  DateTime? _lastOk;
+  DateTime? _lastHeartbeatLog;
 
   /// Suspends the tick without tearing the timer down or touching [state].
   /// Set while a device DB is being rebuilt: a tick's FIRST action enumerates
@@ -77,8 +101,14 @@ class SyncService extends GetxController {
     this.tickInterval = const Duration(seconds: 30),
     this.applyPulledStore,
     this.activeProjectKey,
+    this.heartbeatEnabled = false,
+    this.extraBacklog,
+    this.heartbeatInterval = const Duration(seconds: 60),
+    this.version = 'dev',
+    String? hostName,
   }) : _db = db,
-       _sink = sink;
+       _sink = sink,
+       hostName = hostName ?? Platform.localHostname;
 
   /// Starts the periodic tick timer. Idempotent — calling it again just
   /// resets the interval. [SyncBootstrap] only constructs/starts a
@@ -89,6 +119,10 @@ class SyncService extends GetxController {
     _timer?.cancel();
     state.value = SyncState.idle;
     _timer = Timer.periodic(tickInterval, (_) => syncNow());
+    _heartbeatTimer?.cancel();
+    if (heartbeatEnabled && drainEnabled) {
+      _heartbeatTimer = Timer.periodic(heartbeatInterval, (_) => heartbeatNow());
+    }
     // Kick off an immediate first tick rather than waiting a full interval.
     syncNow();
   }
@@ -96,6 +130,8 @@ class SyncService extends GetxController {
   void stop() {
     _timer?.cancel();
     _timer = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     state.value = SyncState.disabled;
   }
 
@@ -160,6 +196,7 @@ class SyncService extends GetxController {
 
     if (drainEnabled) {
       for (final source in sources) {
+        await _holdDependentsOfHeld(source);
         final rows = await _selectEligible(source);
         if (rows.isEmpty) continue;
 
@@ -174,11 +211,19 @@ class SyncService extends GetxController {
           // users/projects pull) just because this source's drain succeeded
           // — the tick as a whole still had a failure worth showing.
           if (!hadError) lastError.value = null;
+          schemaWarning.value = null;
         } on SyncConnectException catch (e) {
           // Transient and a property of the destination, not this source —
           // no point trying the remaining sources this tick.
           lastError.value = e.message;
           hadOffline = true;
+          break;
+        } on SchemaTooOldException catch (e) {
+          // Old database: nothing was written and no attempt is counted — the
+          // rows just stay queued and the next tick asks again.
+          schemaWarning.value = e.message;
+          lastError.value = e.message;
+          hadError = true;
           break;
         } catch (e) {
           // A per-source/per-batch failure — other sources may still
@@ -227,6 +272,7 @@ class SyncService extends GetxController {
     }
 
     if (drainEnabled) await _updatePendingCount(sources);
+    if (!hadOffline && !hadError) _lastOk = DateTime.now();
     if (hadOffline) {
       state.value = SyncState.offline;
     } else if (hadError) {
@@ -267,7 +313,7 @@ class SyncService extends GetxController {
     final nowIso = DateTime.now().toIso8601String();
     final rows = await source.query(
       'sync_outbox',
-      where: 'next_attempt_at IS NULL OR next_attempt_at <= ?',
+      where: 'held = 0 AND (next_attempt_at IS NULL OR next_attempt_at <= ?)',
       whereArgs: [nowIso],
       orderBy: 'id ASC',
       limit: batchSize,
@@ -311,6 +357,10 @@ class SyncService extends GetxController {
     final failed = <OutboxRecord>[];
     for (var i = 0; i < ordered.length; i++) {
       final record = ordered[i];
+      // A parent held earlier in this pass holds its children too: skip them.
+      final state = await source.query('sync_outbox',
+          columns: ['held'], where: 'id = ?', whereArgs: [record.id]);
+      if (state.isNotEmpty && state.first['held'] == 1) continue;
       try {
         await _sink.apply([record]);
         await _ack(source, [record]);
@@ -319,6 +369,8 @@ class SyncService extends GetxController {
         // the caller mark the whole pass offline instead of backoff-counting
         // them as ordinary bad data.
         rethrow;
+      } on SyncHoldException catch (e) {
+        await _hold(source, record, e.reason);
       } catch (e) {
         print(
           '⚠️ Outbox row ${record.entity}/${record.entityKey} failed alone: $e',
@@ -327,6 +379,163 @@ class SyncService extends GetxController {
       }
     }
     return failed;
+  }
+
+  /// Parks a row that used up its attempts: it stays in the outbox (nothing is
+  /// lost) but the drain skips it until [retryHeld].
+  Future<void> _hold(Database source, OutboxRecord record, String reason) async {
+    print(
+      '⚠️ Holding outbox row ${record.entity}/${record.entityKey} after '
+      '${record.attempts} attempts — $reason',
+    );
+    await source.update(
+      'sync_outbox',
+      {
+        'held': 1,
+        'last_error': reason,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [record.id],
+    );
+    await _holdDependentsOfHeld(source);
+  }
+
+  /// A held box/folder can never land, so the rows that hang off it (folders,
+  /// images, processing/rework updates, rework closures of that box/folder)
+  /// are held with it straight away instead of burning their own 20 attempts
+  /// and backoff. Matched on the natural keys every payload carries
+  /// (project_key + box_name [+ folder_seq]). [retryHeld] releases the whole
+  /// group together. Runs every tick so rows queued LATER under a held parent
+  /// are caught too; costs one indexed-free scan of a usually empty set.
+  Future<void> _holdDependentsOfHeld(Database source) async {
+    final parents = await source.query(
+      'sync_outbox',
+      where: "held = 1 AND entity IN ('capture_boxes', 'capture_folders')",
+    );
+    if (parents.isEmpty) return;
+    Map<String, dynamic>? decode(Object? raw) {
+      try {
+        return raw is String
+            ? Map<String, dynamic>.from(jsonDecode(raw) as Map)
+            : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final keys = <(String, String, Object?)>[]; // project, box, folder_seq|null
+    for (final r in parents) {
+      final payload = decode(r['payload']);
+      if (payload == null) continue;
+      keys.add((
+        '${payload['project_key']}',
+        '${payload['box_name']}',
+        r['entity'] == 'capture_folders' ? payload['folder_seq'] : null,
+      ));
+    }
+    if (keys.isEmpty) return;
+    final children = await source.query(
+      'sync_outbox',
+      where: 'held = 0',
+    );
+    final now = DateTime.now().toIso8601String();
+    for (final c in children) {
+      final payload = decode(c['payload']);
+      if (payload == null) continue;
+      final hit = keys.any((k) {
+        if ('${payload['project_key']}' != k.$1 ||
+            '${payload['box_name']}' != k.$2) {
+          return false;
+        }
+        if (k.$3 == null) return c['entity'] != 'capture_boxes'; // box parent
+        return c['entity'] != 'capture_boxes' &&
+            c['entity'] != 'capture_folders' &&
+            '${payload['folder_seq']}' == '${k.$3}';
+      });
+      if (!hit) continue;
+      await source.update(
+        'sync_outbox',
+        {
+          'held': 1,
+          'last_error': 'parent box/folder is held',
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [c['id']],
+      );
+    }
+  }
+
+  /// "Try again": un-holds every held row on this PC and resets its attempts,
+  /// so the next drain retries them. Returns how many were released.
+  Future<int> retryHeld() async {
+    var released = 0;
+    for (final source in await _db.getOutboxDatabases(deviceId)) {
+      released += await source.update('sync_outbox', {
+        'held': 0,
+        'attempts': 0,
+        'next_attempt_at': null,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, where: 'held = 1');
+    }
+    await _updatePendingCount(await _db.getOutboxDatabases(deviceId));
+    unawaited(syncNow());
+    return released;
+  }
+
+  /// One `service_heartbeat` upsert (part `capture`). Never throws: a failure
+  /// is logged at most once per 10 minutes and capture carries on.
+  Future<void> heartbeatNow() async {
+    if (!drainEnabled || paused) return;
+    try {
+      var unsent = 0, held = 0;
+      DateTime? oldest;
+      for (final source in await _db.getOutboxDatabases(deviceId)) {
+        final r = (await source.rawQuery(
+          'SELECT COUNT(*) AS c, MIN(created_at) AS oldest '
+          'FROM sync_outbox WHERE held = 0',
+        )).first;
+        unsent += (r['c'] as num).toInt();
+        final o = DateTime.tryParse((r['oldest'] as String?) ?? '');
+        if (o != null && (oldest == null || o.isBefore(oldest))) oldest = o;
+        held += Sqflite.firstIntValue(
+              await source.rawQuery(
+                'SELECT COUNT(*) FROM sync_outbox WHERE held = 1',
+              ),
+            ) ??
+            0;
+      }
+      final err = lastError.value;
+      await _sink.heartbeat(
+        host: hostName,
+        version: version,
+        startedAt: _startedAt,
+        backlog: {
+          'unsent': unsent,
+          'oldest_unsent_minutes': oldest == null
+              ? 0
+              : DateTime.now().difference(oldest).inMinutes,
+          'held': held,
+          ...?extraBacklog?.call(),
+        },
+        lastOk: _lastOk,
+        lastError: err == null
+            ? null
+            : (err.length > 500 ? err.substring(0, 500) : err),
+        lastErrorAt: err == null ? null : DateTime.now(),
+      );
+      schemaWarning.value = null;
+    } on SchemaTooOldException catch (e) {
+      schemaWarning.value = e.message;
+    } catch (e) {
+      final now = DateTime.now();
+      final last = _lastHeartbeatLog;
+      if (last == null || now.difference(last) >= const Duration(minutes: 10)) {
+        _lastHeartbeatLog = now;
+        print('⚠️ Heartbeat failed: $e');
+      }
+    }
   }
 
   Future<void> _ack(Database source, List<OutboxRecord> applied) async {
@@ -376,13 +585,16 @@ class SyncService extends GetxController {
   }
 
   Future<void> _updatePendingCount(List<Database> sources) async {
-    var total = 0;
+    var total = 0, held = 0;
     for (final source in sources) {
       final result = await source.rawQuery(
-        'SELECT COUNT(*) AS c FROM sync_outbox',
+        'SELECT COALESCE(SUM(held = 0), 0) AS c, '
+        'COALESCE(SUM(held = 1), 0) AS h FROM sync_outbox',
       );
       total += (result.first['c'] as num).toInt();
+      held += (result.first['h'] as num).toInt();
     }
     pendingCount.value = total;
+    heldCount.value = held;
   }
 }

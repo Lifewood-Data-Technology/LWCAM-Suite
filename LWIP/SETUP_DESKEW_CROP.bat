@@ -131,7 +131,7 @@ rem runtime. opencv under an embeddable interpreter is the one dependency with n
 rem precedent in this suite, so this import is the check that it actually loads.
 echo [DeskewCrop] Verifying installation.
 cd /d "%ROOT%\backend"
-"%PY%" -c "import cv2, numpy, PIL; import deskew_crop_tool; print('OpenCV', cv2.__version__, '| NumPy', numpy.__version__, '| Pillow', PIL.__version__)"
+"%PY%" -c "import cv2, numpy, PIL, cryptography; import deskew_crop_tool; print('OpenCV', cv2.__version__, '| NumPy', numpy.__version__, '| Pillow', PIL.__version__)"
 if errorlevel 1 (
     echo [ERROR] Installation verification failed.
     exit /b 1

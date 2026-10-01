@@ -142,8 +142,18 @@ whole suite with `TMP` on `\\localhost\C$\…` (202 pass), plus
 the installed server runs as SYSTEM, which never sees a user's mapped drives, so
 validation refuses a drive letter the server cannot see and says to use the UNC
 path. SYSTEM reaches a share as the PC's computer account (`DOMAIN\PC$`), so the
-share must grant that account — on a workgroup with no domain it gets no access,
-and the fix is running the task as a named account (not built).
+share must grant that account — on a workgroup with no domain it gets no access
+("Access is denied"). **Since 2026-09-28 the fix is a saved network login**
+(`app/core/netlogin.py`, Settings → "Network folder logins"): one list per PC
+in `%ProgramData%\LWCAM\network-logins\`, shared with LWIP and Upload on the
+same PC, because Windows gives all SYSTEM services on a PC one logon session
+and allows it one account per remote PC (a second is error 1219).
+`check_directory` signs in with it before probing, and a background keeper
+signs in again every 120 s. The module is byte-identical in LWIP and Upload;
+`test_netlogin_copies_match` fails when they drift. Also on Python 3.13 (the
+shipped runtime) `Path.is_dir()` RAISES for WinError 5/1326 where 3.14
+answers False — `directory_state` exists because that was a 500 on Validate
+paths.
 | `exportZipOutput` | true = a `.zip`, false = a folder. |
 | `exportTiffOutput` | true = lossless TIFF. false re-encodes edited pages as q100 4:4:4 JPEG and byte-copies untouched ones. |
 | `luminanceEnabled` | Allows luminance correction in review — the one tool that bakes pixels. Off by default. |
@@ -177,6 +187,14 @@ collected by pytest but **runnable without it** — pytest is in neither
 rises.
 
 ## Decisions worth not re-litigating
+
+**One live sign-in per account, the FIRST wins** (2026-09-29, asked for after a
+newest-wins version was built the same day). A second sign-in gets 409 while the
+first is in use; "in use" = a request in the last 3 minutes, and the console
+checks in every minute (`main.ts`), so a browser closed without signing out
+frees the account in 3 minutes rather than when its 8-hour token expires. Sign
+out (`POST /auth/logout`) frees it at once. In memory (`security.py`), one
+process; the LWIP and Upload consoles' `SessionStore.create` do the same.
 
 **Geometry is DATA until export.** LWIP crops in coded JPEG blocks and only
 *measures* tilt; the engine layers LWIP baseline + committed QC ops
@@ -441,3 +459,30 @@ half of the contract the console mirrors.
 any role filter — same comma-joined-column bug `reviewer_workload` already had.
 Now filters on `role_set` in Python, with paging moved alongside it so `total`
 and the window agree (`8bf1673`, `tests/test_user_role_filter.py`).
+
+## Multi-PC hardening (2026-09-30)
+
+The QC server is assumed to be a different PC from the database, LWIP, Upload
+and the capture PCs (LAN or Tailscale, differing clocks, a slow or absent
+peer). What that changed here:
+
+- **Schema level 8.** `REQUIRED_SCHEMA = 8` (`services/schema_check.py`); every
+  other part stays at 7. Migration `008_hardening.sql` adds
+  `public.lwcam_next_export_number(bigint)` (SECURITY DEFINER, EXECUTE for
+  `lwcam_qc` only) and takes CREATE on `public` away from `lwcam_qc`. Export
+  keeps its advisory lock and calls the function instead of CREATE SEQUENCE +
+  nextval. An old database answers "The database is older than this program
+  (needs level 8, has N). Run LWCamDatabaseSetup on the database PC." on the
+  status page and blocks work; it re-checks by itself.
+- **System status** (`services/heartbeat.py`, the status page): the parts that
+  must exist are `qc`, `qc-export`, `lwip`, `upload`, `backup` (a missing row is
+  a red "never reported"); `capture` rows are informational (grey when off);
+  ages are computed in SQL from the DB's `now()`; rows silent for over 7 days
+  are hidden unless asked for; `DELETE /api/admin/system-status/{part}/{host}`
+  ("Forget this PC", Admin) needs the DELETE grant migration 008 gives
+  `lwcam_qc`.
+- **Console** is https only (`core/tls.py` is byte-identical in QC, LWIP and
+  Upload - edit LWIP's, copy the others). Installer docs:
+  `installer\README.txt`.
+
+Note (round 3): `setup_qc_db.py --open-lan` also sets `tcp_keepalives_idle=60`, `_interval=10`, `_count=6` (ALTER SYSTEM, reloadable) so a dead client PC's session, and the advisory locks it holds (an export lock), is dropped in about 2 minutes instead of hours.

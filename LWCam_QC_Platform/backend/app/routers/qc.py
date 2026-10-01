@@ -1093,18 +1093,34 @@ def replacement_image_name(existing_name: str, upload_name: str) -> str:
     return f"{Path(existing_name).stem}{upload_suffix}"
 
 
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_UPLOAD_PIXELS = 300_000_000  # a 600 dpi A0 scan is ~ 250 MP; above this is a bomb
+
+
 def save_upload_to_temp(folder_id: int, user_id: str, file: UploadFile, filename: str) -> Path:
     upload_dir = draft_dir(folder_id, user_id) / "uploads"
     fs_path(upload_dir).mkdir(parents=True, exist_ok=True)
     target = (upload_dir / f"{int(now().timestamp() * 1000000)}_{safe_filename(filename)}").resolve()
     target.relative_to(draft_dir(folder_id, user_id).resolve())
+    written = 0
     with fs_path(target).open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        while chunk := file.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                buffer.close()
+                fs_path(target).unlink(missing_ok=True)
+                raise BusinessError(
+                    ApiCodes.BAD_REQUEST,
+                    f"The uploaded image is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+                    413,
+                )
+            buffer.write(chunk)
     # The extension is caller-supplied, so it proves nothing about the bytes.
     # Every later step (rotate, crop, thumbnail, commit) assumes a real image,
     # so reject anything Pillow can't parse here rather than letting a corrupt
     # file reach the official folder.
     try:
+        Image.MAX_IMAGE_PIXELS = MAX_UPLOAD_PIXELS  # explicit bound; Pillow raises past 2x
         with Image.open(fs_path(target)) as probe:
             probe.verify()
     except Exception as error:

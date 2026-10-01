@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:postgres/postgres.dart' show ServerException;
 
 import '../models/app_user.dart';
 import '../models/project.dart';
@@ -29,6 +30,10 @@ class UsersStoreLoadResult {
   const UsersStoreLoadResult(this.store, this.source);
 }
 
+/// [needsDbUpdate]: the database answered but lacks the function or the right
+/// to call it (LWCamDatabaseSetup has not been re-run) - not the user's fault.
+enum PasswordChangeResult { changed, wrongCurrent, offline, needsDbUpdate }
+
 enum AuthStatus { ok, mustChangePassword, wrongPassword, unknownUser, inactive, noStore }
 
 class AuthOutcome {
@@ -37,107 +42,31 @@ class AuthOutcome {
   const AuthOutcome(this.status, [this.user]);
 }
 
-// ── Pending password changes (offline queue) ────────────────────────────────
+// ── Retired offline password queue ──────────────────────────────────────────
 //
-// changeOwnPassword is PG-first, but a permanently-offline site can never
-// wait for a connection — so an unreachable PG queues the change here
-// (username → new bcrypt hash, a sibling file next to the snapshot) instead
-// of blocking the operator. Top-level (not instance methods) so the static
-// writeSnapshotFile variant — the pre-login startup tick, before any
-// UsersStoreService instance exists — can reconcile them too.
+// Password changes used to be queued here (username → new bcrypt hash) when
+// PostgreSQL was unreachable. The database function needs the OLD plaintext
+// password, which must never be stored, so a change is done online or not at
+// all. A queue file left by an older version is read once, logged, and
+// deleted — its entries are dropped, never applied.
 
 String _pendingPathFor(String storePath) =>
     p.join(p.dirname(storePath), 'lwcam_pending_password_changes.json');
 
-Future<Map<String, String>> _readPendingAt(String pendingPath) async {
+Future<void> _dropLegacyPendingQueue(String storePath) async {
+  final file = File(_pendingPathFor(storePath));
   try {
-    final content = await File(pendingPath).readAsString();
-    if (content.trim().isEmpty) return {};
-    final decoded = jsonDecode(content) as Map;
-    return decoded.map((k, v) => MapEntry(k.toString(), v.toString()));
-  } catch (_) {
-    return {};
-  }
-}
-
-Future<void> _writePendingAtomicAt(String pendingPath, Map<String, String> pending) async {
-  final file = File(pendingPath);
-  if (pending.isEmpty) {
-    if (await file.exists()) await file.delete();
-    return;
-  }
-  final tmp = File('$pendingPath.tmp');
-  await tmp.writeAsString(jsonEncode(pending), flush: true);
-  if (await file.exists()) await file.delete();
-  await tmp.rename(pendingPath);
-}
-
-UsersStore _replaceUserIn(UsersStore store, AppUser updated) {
-  final key = updated.username.toLowerCase();
-  return store.copyWith(
-    users: store.users.map((u) => u.username.toLowerCase() == key ? updated : u).toList(),
-  );
-}
-
-/// SLOW PHASE — must run OUTSIDE the `lwcam_users.json` lock.
-///
-/// Retries every locally-queued password change against PostgreSQL directly,
-/// clearing each on success, and rewrites the queue file with whatever still
-/// hasn't landed. A site that never reconnects simply stays queued.
-///
-/// This is deliberately separate from [_splicePending] because each entry costs
-/// up to a 5s connect timeout (and DNS isn't even covered by that), while the
-/// shared lock's stale grace is only 30s with no heartbeat. Running ~7 queued
-/// entries under the lock pushed the hold past the grace period, at which point
-/// LWCam Admin deletes it as stale and both processes write the same file —
-/// exactly the interleaving the lock exists to prevent.
-///
-/// The queue file is LWCAM's own sibling (`lwcam_pending_password_changes.json`),
-/// not the shared store, so rewriting it here needs no cross-process lock; the
-/// instance mutex already serializes it.
-///
-/// Returns EVERY hash that was queued — including those just pushed — because
-/// all of them still have to be spliced onto the store.
-Future<Map<String, String>> _pushPendingToPg(
-  String storePath,
-  UserDirectoryService directory,
-) async {
-  final pendingPath = _pendingPathFor(storePath);
-  final pending = await _readPendingAt(pendingPath);
-  if (pending.isEmpty) return const {};
-
-  final remaining = Map<String, String>.from(pending);
-  for (final entry in pending.entries) {
+    if (!await file.exists()) return;
+    var names = <String>[];
     try {
-      await directory.changePassword(
-        username: entry.key,
-        bcryptHash: entry.value,
-      );
-      remaining.remove(entry.key); // reached PG — no longer pending
-    } catch (_) {
-      // Still offline (or another transient failure) — stays queued.
-    }
+      names = (jsonDecode(await file.readAsString()) as Map).keys.map((k) => '$k').toList();
+    } catch (_) {}
+    print('ℹ️ Dropping retired pending password queue (${names.length} entries: '
+        '${names.join(', ')}) — password changes now require the database.');
+    await file.delete();
+  } catch (e) {
+    print('ℹ️ Could not remove the retired pending password queue: $e');
   }
-  await _writePendingAtomicAt(pendingPath, remaining);
-  return pending;
-}
-
-/// FAST PHASE — safe to run inside the lock. Splices whichever hash is now
-/// correct (freshly pushed, or still only-local) onto [store], so a pull can
-/// never silently revert an offline password change. Pure and synchronous:
-/// no I/O, so it adds nothing measurable to the lock hold.
-UsersStore _splicePending(UsersStore store, Map<String, String> pending) {
-  var next = store;
-  for (final entry in pending.entries) {
-    final user = next.findUser(entry.key);
-    if (user != null) {
-      next = _replaceUserIn(
-        next,
-        user.copyWith(passwordHash: entry.value, mustChangePassword: false),
-      );
-    }
-  }
-  return next;
 }
 
 /// Reads the local read-only snapshot of users/projects/app-settings
@@ -200,13 +129,8 @@ class UsersStoreService {
   UsersStore? _lastLoaded;
   UsersStoreSource _lastSource = UsersStoreSource.none;
 
-  /// Serializes every read-modify-write of the pending-changes file /
-  /// `_lastLoaded` / the snapshot file. None of those have their own
-  /// locking, and the login-time [flushPendingPasswordChanges] is
-  /// deliberately unawaited — without this, a slow offline flush (5s
-  /// connect timeout per queued entry) racing a [changeOwnPassword] from
-  /// the forced-change dialog could overwrite the just-queued hash with
-  /// its stale pre-dialog copy, silently dropping a confirmed change.
+  /// Serializes every read-modify-write of `_lastLoaded` / the snapshot
+  /// file, which have no locking of their own.
   Future<void> _serial = Future.value();
 
   Future<T> _serialized<T>(Future<T> Function() action) {
@@ -268,9 +192,7 @@ class UsersStoreService {
 
   /// Overwrites the local snapshot with a freshly pulled [store] and swaps
   /// it in as the live copy — called by SyncBootstrap's `applyPulledStore`
-  /// after every successful sync-tick pull. Reconciles any locally-queued
-  /// password change first (see [changeOwnPassword]) so this pull can never
-  /// revert one that hasn't reached PG yet.
+  /// after every successful sync-tick pull.
   ///
   /// EXCEPT when LWCam Admin has unpushed offline edits queued in the
   /// on-disk file (`dirty: true` — both apps share this file on a standard
@@ -281,9 +203,7 @@ class UsersStoreService {
   /// next time LWCam Admin reconciles.
   Future<void> applySnapshot(UsersStore store) => _serialized(() async {
         final path = getStorePath();
-        // PG retries BEFORE the lock — see _pushPendingToPg for why holding it
-        // across them let LWCam Admin steal the lock as stale.
-        final pending = await _pushPendingToPg(path, directory);
+        await _dropLegacyPendingQueue(path);
         final lock = File('$path.lock');
         await _acquireLock(lock);
         try {
@@ -302,9 +222,8 @@ class UsersStoreService {
             _lastSource = UsersStoreSource.snapshot;
             return;
           }
-          final reconciled = _splicePending(store, pending);
-          await _writeJsonAtomic(File(path), reconciled.toJson());
-          _lastLoaded = reconciled;
+          await _writeJsonAtomic(File(path), store.toJson());
+          _lastLoaded = store;
           _lastSource = UsersStoreSource.snapshot;
         } finally {
           await _releaseLock(lock);
@@ -315,19 +234,11 @@ class UsersStoreService {
   /// runs before any `AuthController`/`UsersStoreService` instance exists)
   /// — writes the file so the login screen sees a fresh snapshot on next
   /// read, without needing a live instance to swap into. Applies the same
-  /// two guards as [applySnapshot] (dirty-file protection, pending
-  /// password reconcile); it cannot share the instance mutex, but it only
+  /// guards as [applySnapshot] (dirty-file protection, empty-pull
+  /// protection); it cannot share the instance mutex, but it only
   /// ever runs pre-login, when no instance writer exists to race.
-  static Future<void> writeSnapshotFile(
-    UsersStore store,
-    String path, {
-    UserDirectoryService? directory,
-  }) async {
-    // PG retries BEFORE the lock — see _pushPendingToPg.
-    final pending = await _pushPendingToPg(
-      path,
-      directory ?? UserDirectoryService(),
-    );
+  static Future<void> writeSnapshotFile(UsersStore store, String path) async {
+    await _dropLegacyPendingQueue(path);
     final lock = File('$path.lock');
     await _acquireLock(lock);
     try {
@@ -342,9 +253,8 @@ class UsersStoreService {
             'Keeping existing snapshot at $path.');
         return;
       }
-      final reconciled = _splicePending(store, pending);
       final tmp = File('$path.tmp');
-      await tmp.writeAsString(jsonEncode(reconciled.toJson()), flush: true);
+      await tmp.writeAsString(jsonEncode(store.toJson()), flush: true);
       final target = File(path);
       if (await target.exists()) await target.delete();
       await tmp.rename(path);
@@ -370,45 +280,36 @@ class UsersStoreService {
     );
   }
 
-  /// Forced first-login/reset password change. PG-first: PostgreSQL IS the
-  /// account record, so this tries it there first. When PG is unreachable —
-  /// some sites are permanently offline and can never "just reconnect" —
-  /// the change is queued locally instead of blocking the operator: applied
-  /// to the local snapshot immediately (this session's login works right
-  /// now) and retried against PG on every sync tick ([applySnapshot]) and
-  /// opportunistically on every subsequent login attempt
-  /// ([flushPendingPasswordChanges]). Returns true when the change had to
-  /// be queued, so the caller can tell the operator it hasn't reached the
-  /// server yet. A genuine write failure — PG reachable but the write
-  /// itself rejected, as opposed to unreachable — still propagates
-  /// untouched: retrying a query PostgreSQL already refused would never help.
-  Future<bool> changeOwnPassword(String username, String newPassword) =>
+  /// Forced first-login/reset password change, done in PostgreSQL via
+  /// `lwcam_change_own_password` (it checks [oldPassword] itself). Nothing is
+  /// queued and no plaintext is stored: unreachable database ->
+  /// [PasswordChangeResult.offline], database refused (old password not
+  /// accepted / user inactive) -> [PasswordChangeResult.wrongCurrent]; in both
+  /// cases the local snapshot is left untouched. Any other failure propagates.
+  Future<PasswordChangeResult> changeOwnPassword(
+    String username,
+    String oldPassword,
+    String newPassword,
+  ) =>
       _serialized(() async {
         final hash = PasswordHasher.hash(newPassword);
-        var queuedOffline = false;
+        final bool accepted;
         try {
-          await directory.changePassword(username: username, bcryptHash: hash);
-          // Direct write landed — an older hash queued from a PRIOR offline
-          // attempt must not later replay over this one via _reconcilePending.
-          final pendingPath = _pendingPathFor(getStorePath());
-          final pending = await _readPendingAt(pendingPath);
-          if (pending.remove(username) != null) {
-            await _writePendingAtomicAt(pendingPath, pending);
+          accepted = await directory.changePassword(
+            username: username,
+            oldPassword: oldPassword,
+            bcryptHash: hash,
+          );
+        } on StateError {
+          return PasswordChangeResult.offline;
+        } on ServerException catch (e) {
+          // 42501 insufficient_privilege, 42883 undefined_function
+          if (e.code == '42501' || e.code == '42883') {
+            return PasswordChangeResult.needsDbUpdate;
           }
-        } catch (e) {
-          // ANY failure queues — not just the explicit unreachable
-          // StateError. This UPDATE touches nothing constrained, so a
-          // failure is connectivity in some costume (incl. a connection
-          // that opened but died mid-execute); retrying it from the queue
-          // is idempotent even if the write actually committed before the
-          // response was lost.
-          print('ℹ️ Password change queued locally ($e).');
-          final pendingPath = _pendingPathFor(getStorePath());
-          final pending = await _readPendingAt(pendingPath);
-          pending[username] = hash;
-          await _writePendingAtomicAt(pendingPath, pending);
-          queuedOffline = true;
+          rethrow;
         }
+        if (!accepted) return PasswordChangeResult.wrongCurrent;
 
         final path = getStorePath();
         final lock = File('$path.lock');
@@ -428,10 +329,9 @@ class UsersStoreService {
               try {
                 await _writeJsonAtomic(File(path), next.toJson());
               } catch (e) {
-                // Either the PG write already succeeded, or it's now queued — a
-                // failed local mirror write just means this session's in-memory
-                // copy (already updated above) is ahead of disk until the next
-                // pull overwrites it anyway.
+                // PG already has the change; a failed local mirror write just
+                // means this session's in-memory copy is ahead of disk until
+                // the next pull overwrites it anyway.
                 print('ℹ️ Local snapshot update after password change skipped: $e');
               }
             }
@@ -439,44 +339,7 @@ class UsersStoreService {
         } finally {
           await _releaseLock(lock);
         }
-        return queuedOffline;
-      });
-
-  /// Best-effort retry of every locally-queued password change — called
-  /// opportunistically at the start of every login attempt, in addition to
-  /// every sync tick via [applySnapshot], so a permanently-offline site
-  /// still catches up the moment connectivity returns rather than waiting
-  /// for the next scheduled tick. Never throws.
-  Future<void> flushPendingPasswordChanges() => _serialized(() async {
-        if (_lastLoaded == null) return;
-        final path = getStorePath();
-        // PG retries BEFORE the lock — see _pushPendingToPg. This method is
-        // fired unawaited on EVERY login attempt, so on a backlogged offline
-        // station it was the most frequent over-long lock hold of the three.
-        final Map<String, String> pending;
-        try {
-          pending = await _pushPendingToPg(path, directory);
-        } catch (e) {
-          print('⚠️ Pending password flush failed: $e');
-          return;
-        }
-        if (pending.isEmpty) return;
-
-        final lock = File('$path.lock');
-        await _acquireLock(lock);
-        try {
-          // Same re-read-then-write discipline as changeOwnPassword — never
-          // reconcile onto a stale in-memory copy.
-          final base = await _readStore(File(path), attempts: 1) ?? _lastLoaded;
-          if (base == null) return;
-          final reconciled = _splicePending(base, pending);
-          _lastLoaded = reconciled;
-          await _writeJsonAtomic(File(path), reconciled.toJson());
-        } catch (e) {
-          print('⚠️ Pending password flush failed: $e');
-        } finally {
-          await _releaseLock(lock);
-        }
+        return PasswordChangeResult.changed;
       });
 
   /// Best-effort last-login stamp — never blocks login on failure. No local

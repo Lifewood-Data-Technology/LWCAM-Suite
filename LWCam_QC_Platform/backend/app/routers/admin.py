@@ -1,5 +1,6 @@
 import logging
 import os
+import stat
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -9,12 +10,12 @@ from pydantic import SecretStr
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, lazyload, selectinload
 
-from app.core import runtime_settings
+from app.core import netlogin, runtime_settings
 from app.core.config import Settings, settings
 from app.core.errors import ApiCodes, BusinessError
 from app.core.paths import fs_path, relocate_under, resolve_with
 from app.core.responses import ApiResponse, PageResult, ok
-from app.core.security import hash_password
+from app.core.security import end_user_sessions, hash_password
 from app.core.server_settings import CONTROL_CHARACTERS, write_server_settings
 from app.dependencies import AdminUser, DbSession, SuperAdminUser
 from app.models.capture import CaptureBox, CaptureFolder, CaptureImage
@@ -25,6 +26,7 @@ from app.schemas.admin import (
     AiSettingVO,
     AiScannerSettingVO,
     CreateUserRequest,
+    NetworkLoginRequest,
     PathCheckVO,
     PathSettingsVO,
     PathSettingVO,
@@ -39,6 +41,7 @@ from app.schemas.admin import (
 )
 from app.services.ai_preanalysis import ai_preanalysis_scheduler
 from app.services.ai_review import api_key_configured
+from app.services.heartbeat import forget_host, system_status
 from app.services.export import directory_write_error
 from app.services.qc_drafts import discard_draft
 from app.services.serializers import to_user_admin_vo
@@ -227,6 +230,7 @@ def update_user(
     replace_user_projects(db, user, role, projects)
     user.updated_by = current_user.id
     db.commit()
+    end_user_sessions(user.id)  # new role/status applies to a fresh sign-in
     db.expire(user, ["projects"])
     return ok(to_user_admin_vo(user_or_404(db, user.id)))
 
@@ -244,6 +248,7 @@ def delete_user(user_id: int, current_user: SuperAdminUser, db: DbSession) -> Ap
     user.updated_by = current_user.id
     db.execute(delete(UserProject).where(UserProject.user_id == user.id))
     db.commit()
+    end_user_sessions(user.id)
     return ok(None)
 
 
@@ -259,6 +264,7 @@ def reset_password(
     user.must_change_password = True
     user.updated_by = current_user.id
     db.commit()
+    end_user_sessions(user.id)
     return ok(None)
 
 
@@ -440,6 +446,19 @@ def reviewer_workload(db: Session) -> list[dict[str, Any]]:
     ]
 
 
+@router.get("/system-status", response_model=ApiResponse[dict[str, Any]])
+def system_status_route(_: AdminUser, db: DbSession, all: int = 0) -> ApiResponse[dict[str, Any]]:
+    return ok(system_status(db, show_all=bool(all)))
+
+
+@router.delete("/system-status/{part}/{host}", response_model=ApiResponse[dict])
+def forget_pc_route(part: str, host: str, _: AdminUser, db: DbSession) -> ApiResponse[dict]:
+    """Forget a PC that was retired: its row would otherwise sit there for a week."""
+    if not forget_host(db, part, host):
+        raise BusinessError(ApiCodes.NOT_FOUND, "That PC is not on the status page.", 404)
+    return ok({})
+
+
 @router.get("/stats/overview", response_model=ApiResponse[StatsOverviewVO])
 def stats_overview(_: AdminUser, db: DbSession) -> ApiResponse[StatsOverviewVO]:
     today_start = datetime.combine(date.today(), time.min, tzinfo=timezone.utc)
@@ -588,6 +607,42 @@ def unavailable_drive_message(value: str) -> str | None:
     )
 
 
+def directory_state(directory: Path) -> tuple[bool, OSError | None]:
+    """Whether `directory` is a folder, or the error that stopped us finding out.
+
+    Not `Path.is_dir()`: on Python 3.13 - the shipped runtime - it RAISES for a
+    network error it does not recognise, such as a PC refusing the login
+    (WinError 1326), where 3.14 answers False. One returned a 500 from Validate
+    paths, the other would call a refused login "does not exist". Both are
+    wrong; the admin needs the reason.
+    """
+    try:
+        return stat.S_ISDIR(os.stat(fs_path(directory)).st_mode), None
+    except OSError as error:
+        winerror = getattr(error, "winerror", None)
+        if winerror in (2, 3) or (
+            winerror is None and isinstance(error, (FileNotFoundError, NotADirectoryError))
+        ):
+            return False, None
+        return False, error
+
+
+def unreachable_message(value: str, error: OSError) -> str:
+    reason = f"This folder could not be reached: {error.strerror or error}."
+    host = netlogin.host_of(value)
+    if host and getattr(error, "winerror", None) in (5, 86, 1326):
+        # The installed server is a SYSTEM task: without a saved login it
+        # signs in to another PC as this PC's computer account, which a PC
+        # outside a domain refuses.
+        saved = any(row["saved"] and row["host"].lower() == host.lower()
+                    for row in netlogin.list_logins())
+        reason += (
+            f" The login saved for {host} has no permission on this folder." if saved else
+            f" Add a login for {host} under Network folder logins below."
+        )
+    return reason
+
+
 def check_directory(
     key: str, raw_value: str, *, require_writable: bool, must_exist: bool = False
 ) -> PathCheckVO:
@@ -598,7 +653,17 @@ def check_directory(
     drive_message = unavailable_drive_message(value)
     if drive_message:
         return PathCheckVO(key=key, path=str(directory), exists=False, writable=False, message=drive_message)
-    exists = fs_path(directory).is_dir()
+    # Sign in first with this PC's saved network login, if the folder is on a
+    # PC that has one - a refused login is the answer, not a folder error.
+    login_error = netlogin.connect_for_path(value)
+    if login_error:
+        return PathCheckVO(key=key, path=str(directory), exists=False, writable=False, message=login_error)
+    exists, error = directory_state(directory)
+    if error is not None:
+        return PathCheckVO(
+            key=key, path=str(directory), exists=False, writable=False,
+            message=unreachable_message(value, error),
+        )
     if not exists and (must_exist or not require_writable):
         # Never created here: a typo in a share name must be reported, not
         # made into a new empty folder QC then finds nothing in.
@@ -612,7 +677,7 @@ def check_directory(
     return PathCheckVO(
         key=key,
         path=str(directory),
-        exists=fs_path(directory).is_dir(),
+        exists=directory_state(directory)[0],
         writable=error is None,
         message=None if error is None else f"This folder could not be written to: {error.strerror or error}.",
     )
@@ -736,6 +801,42 @@ def check_path_settings(
 ) -> ApiResponse[PathValidationVO]:
     """Probe candidate paths without saving them."""
     return ok(validate_path_settings(db, request))
+
+
+def _server_folder_paths() -> list[str]:
+    return [settings.qc_images_root, settings.export_temp_dir, settings.export_output_dir]
+
+
+# Network folder logins: one list per PC, shared with LWIP and Upload on the
+# same PC (app/core/netlogin.py says why). Passwords go in, never out.
+@router.get("/settings/network-logins", response_model=ApiResponse[dict[str, Any]])
+def list_network_logins(_: AdminUser) -> ApiResponse[dict[str, Any]]:
+    return ok({"logins": netlogin.list_logins(_server_folder_paths())})
+
+
+@router.post("/settings/network-logins/check", response_model=ApiResponse[dict[str, Any]])
+def check_network_logins(_: AdminUser) -> ApiResponse[dict[str, Any]]:
+    return ok({"logins": netlogin.check_all(_server_folder_paths())})
+
+
+@router.post("/settings/network-logins", response_model=ApiResponse[dict[str, Any]])
+def save_network_login(request: NetworkLoginRequest, _: AdminUser) -> ApiResponse[dict[str, Any]]:
+    try:
+        error = netlogin.save_login(request.host, request.username, request.password or None)
+    except ValueError as exc:
+        raise BusinessError(ApiCodes.BAD_REQUEST, str(exc)) from exc
+    except OSError as exc:
+        raise BusinessError(ApiCodes.BAD_REQUEST, f"The login could not be saved: {exc}") from exc
+    return ok({"error": error})
+
+
+@router.post("/settings/network-logins/remove", response_model=ApiResponse[dict[str, Any]])
+def remove_network_login(request: NetworkLoginRequest, _: AdminUser) -> ApiResponse[dict[str, Any]]:
+    try:
+        netlogin.delete_login(request.host)
+    except ValueError as exc:
+        raise BusinessError(ApiCodes.BAD_REQUEST, str(exc)) from exc
+    return ok({})
 
 
 @router.put("/settings", response_model=ApiResponse[PathSettingsVO])

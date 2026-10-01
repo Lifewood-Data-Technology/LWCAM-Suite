@@ -9,3 +9,5 @@ Pillow==11.3.0
 psycopg[binary]==3.3.4
 # The console (deskew_crop_tool.service) hashes/verifies sign-in passwords the same way QC does.
 bcrypt==5.0.0
+# Certificates for the https console pages (tls.py); the wheels (cryptography, cffi, pycparser) are staged in wheels/.
+cryptography==50.0.1

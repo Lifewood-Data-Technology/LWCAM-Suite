@@ -35,8 +35,6 @@ class _StationSetupPageState extends State<StationSetupPage> {
   // the saved config by then).
   TextEditingController? _destCtl;
   TextEditingController? _storeCtl;
-  TextEditingController? _procInputCtl;
-  TextEditingController? _procOutputCtl;
 
   @override
   void initState() {
@@ -54,8 +52,6 @@ class _StationSetupPageState extends State<StationSetupPage> {
   void dispose() {
     _destCtl?.dispose();
     _storeCtl?.dispose();
-    _procInputCtl?.dispose();
-    _procOutputCtl?.dispose();
     super.dispose();
   }
 
@@ -72,12 +68,6 @@ class _StationSetupPageState extends State<StationSetupPage> {
         }
         _destCtl ??= TextEditingController(text: _c.destinationPath.value);
         _storeCtl ??= TextEditingController(text: _c.usersStorePath.value);
-        _procInputCtl ??= TextEditingController(
-          text: _c.processingInputRoot.value,
-        );
-        _procOutputCtl ??= TextEditingController(
-          text: _c.processingOutputRoot.value,
-        );
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -125,6 +115,9 @@ class _StationSetupPageState extends State<StationSetupPage> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            const Text('Database login (used by LWCAM and LWCam Admin)',
+                style: TextStyle(fontWeight: FontWeight.w600)),
             Row(
               children: [
                 Expanded(
@@ -145,6 +138,17 @@ class _StationSetupPageState extends State<StationSetupPage> {
                 ),
               ],
             ),
+            if (_c.capturePasswordUnreadable.value && _c.pgPassword.value.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'The saved database login password cannot be read on this Windows account — re-enter it. Saving without typing one keeps the stored value.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
@@ -197,6 +201,15 @@ class _StationSetupPageState extends State<StationSetupPage> {
                 onPressed: () => _rotatePgPasswordDialog(context),
                 icon: const Icon(Icons.key, size: 18),
                 label: const Text('Change password on server'),
+              ),
+            ),
+            Text(
+              'Changes the password of this one database login. Enter the new '
+              'password in every other part that uses it (QC, LWIP, Upload, '
+              'other capture PCs).',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 24),
@@ -287,94 +300,20 @@ class _StationSetupPageState extends State<StationSetupPage> {
               value: _c.lwcamSyncEnabled.value,
               onChanged: (v) => _c.lwcamSyncEnabled.value = v,
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'LWIP folders (as this PC sees them)',
-              style: _sectionTitleStyle,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Used by rework to find a folder\'s original images — must be the '
-              'same folders LWIP is configured with on the LWIP PC (a UNC path '
-              'is recommended).',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+            const SizedBox(height: 12),
+            // A network destination fails on the other PC's login, which
+            // nothing else reports until the first capture does.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _testFolderAccess(context),
+                icon: const Icon(Icons.folder_shared, size: 18),
+                label: const Text('Test folder access'),
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _controllerField(
-                    'Processing input folder (blank = destination)',
-                    _procInputCtl!,
-                    (v) => _c.processingInputRoot.value = v,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'Choose folder',
-                  icon: const Icon(Icons.folder_open),
-                  onPressed: () async {
-                    final path = await FilePicker.platform.getDirectoryPath(
-                      dialogTitle: 'Select the processing input folder',
-                    );
-                    if (path != null) {
-                      _procInputCtl!.text = path;
-                      _c.processingInputRoot.value = path;
-                    }
-                  },
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: _controllerField(
-                    'Processing output folder (blank = <input>_processed)',
-                    _procOutputCtl!,
-                    (v) => _c.processingOutputRoot.value = v,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'Choose folder',
-                  icon: const Icon(Icons.folder_open),
-                  onPressed: () async {
-                    final path = await FilePicker.platform.getDirectoryPath(
-                      dialogTitle: 'Select the processing output folder',
-                    );
-                    if (path != null) {
-                      _procOutputCtl!.text = path;
-                      _c.processingOutputRoot.value = path;
-                    }
-                  },
-                ),
-              ],
-            ),
             const SizedBox(height: 24),
-            // First run: setup left a connection behind and this screen used it to
-            // provision the station. Only failures are reported - success needs no
-            // banner, since the filled-in settings above are the proof.
-            if (_c.isProvisioning.value)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: const [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Setting this station up automatically...',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
+            // Only failures are reported - success needs no banner, since the
+            // filled-in settings above are the proof.
             if (_c.firstRunStatus.value.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -457,7 +396,7 @@ class _StationSetupPageState extends State<StationSetupPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Changes the password of the "${_c.pgUser.value}" account in '
+                  'Changes the password of the "${_c.rotateTargetUser}" account in '
                   'PostgreSQL itself, then saves it here. The current password '
                   'above is used to authenticate the change.',
                   style: TextStyle(
@@ -526,6 +465,89 @@ class _StationSetupPageState extends State<StationSetupPage> {
         colorText: Get.theme.colorScheme.onError,
       );
     }
+  }
+
+  Future<void> _testFolderAccess(BuildContext context) async {
+    final List<FolderAccessResult> results;
+    try {
+      results = await _c.testFolderAccess();
+    } catch (e) {
+      showAppSnackBar(
+        'Folder test',
+        '$e',
+        backgroundColor: Get.theme.colorScheme.error,
+        colorText: Get.theme.colorScheme.onError,
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    final scheme = Theme.of(context).colorScheme;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          results.every((r) => r.error == null)
+              ? 'All folders work'
+              : 'Some folders cannot be used',
+        ),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tested as the Windows account running LWCam Admin. LWCAM '
+                  'must run under the same account.',
+                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+                for (final r in results) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        r.error == null ? Icons.check_circle : Icons.error,
+                        size: 18,
+                        color: r.error == null ? Colors.green : scheme.error,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              r.label,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            SelectableText(
+                              r.path,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            if (r.error != null)
+                              SelectableText(
+                                r.error!,
+                                style: TextStyle(color: scheme.error),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// A controller-backed path field lets a folder picker update the displayed

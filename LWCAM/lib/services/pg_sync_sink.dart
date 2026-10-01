@@ -1,5 +1,6 @@
 // ignore_for_file: avoid_print
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:postgres/postgres.dart';
 
 import '../models/app_user.dart';
@@ -27,6 +28,11 @@ class PgSyncSink implements SyncSink {
 
   Connection? _conn;
 
+  /// True once the schema level has been verified >= [kRequiredSchema] on the
+  /// held connection. Reset whenever a fresh connection opens, so a database
+  /// upgraded while we were queued is noticed on the next connect.
+  bool _schemaOk = false;
+
   PgSyncSink({
     required this.host,
     required this.port,
@@ -40,6 +46,7 @@ class PgSyncSink implements SyncSink {
     final existing = _conn;
     if (existing != null && existing.isOpen) return existing;
     _conn = null;
+    _schemaOk = false;
     return _conn = await openPgConnection(
       host: host,
       port: port,
@@ -68,6 +75,91 @@ class PgSyncSink implements SyncSink {
     return (result.first[0] as num?)?.toInt();
   }
 
+  /// Test seam: adopt an already-open (fake) connection.
+  @visibleForTesting
+  // ignore: use_setters_to_change_properties
+  void useConnection(Connection conn) => _conn = conn;
+
+  /// Reads the schema level (`schema_migrations`; a missing table is level 0)
+  /// and throws [SchemaTooOldException] when it is below [kRequiredSchema].
+  /// Cheap after the first success on a connection.
+  Future<void> _requireSchema(Connection conn) async {
+    if (_schemaOk) return;
+    int level;
+    try {
+      final result = await _exec(conn, st.schemaLevelSql());
+      level = result.isEmpty ? 0 : ((result.first[0] as num?)?.toInt() ?? 0);
+    } on ServerException catch (e) {
+      if (e.code != '42P01') rethrow; // undefined_table
+      level = 0;
+    }
+    if (level < kRequiredSchema) throw SchemaTooOldException(level);
+    _schemaOk = true;
+  }
+
+  /// Runs [body]; a link failure (timeout, socket, closed connection) drops
+  /// the held connection and surfaces as [SyncConnectException], so SyncService
+  /// treats it as "offline" and never counts it as a failed attempt.
+  Future<T> _guard<T>(Future<T> Function() body) async {
+    try {
+      return await mapPgConnectivity(body);
+    } on SyncConnectException {
+      final dead = _conn;
+      _conn = null;
+      _schemaOk = false;
+      try {
+        await dead?.close();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> heartbeat({
+    required String host,
+    required String version,
+    required DateTime startedAt,
+    required Map<String, Object?> backlog,
+    DateTime? lastOk,
+    String? lastError,
+    DateTime? lastErrorAt,
+  }) => _guard(
+    () => _heartbeat(
+      host: host,
+      version: version,
+      startedAt: startedAt,
+      backlog: backlog,
+      lastOk: lastOk,
+      lastError: lastError,
+      lastErrorAt: lastErrorAt,
+    ),
+  );
+
+  Future<void> _heartbeat({
+    required String host,
+    required String version,
+    required DateTime startedAt,
+    required Map<String, Object?> backlog,
+    DateTime? lastOk,
+    String? lastError,
+    DateTime? lastErrorAt,
+  }) async {
+    final conn = await _connect();
+    await _requireSchema(conn);
+    await _exec(
+      conn,
+      st.heartbeatUpsertSql(
+        host: host,
+        version: version,
+        startedAt: startedAt,
+        backlog: backlog,
+        lastOk: lastOk,
+        lastError: lastError,
+        lastErrorAt: lastErrorAt,
+      ),
+    );
+  }
+
   @override
   Future<void> probe() async {
     final conn = await _connect();
@@ -81,9 +173,14 @@ class PgSyncSink implements SyncSink {
   // ── Outbox drain ──────────────────────────────────────────────────────────
 
   @override
-  Future<void> apply(List<OutboxRecord> batch) async {
+  Future<void> apply(List<OutboxRecord> batch) => _guard(() => _apply(batch));
+
+  Future<void> _apply(List<OutboxRecord> batch) async {
     if (batch.isEmpty) return;
     final conn = await _connect();
+    // Old schema: write NOTHING; the rows stay queued (SyncService does not
+    // count this as a failed attempt).
+    await _requireSchema(conn);
 
     await conn.runTx((session) async {
       // Per-batch id caches, keyed by natural key.
@@ -190,19 +287,21 @@ class PgSyncSink implements SyncSink {
       for (final record in batch) {
         final payload = record.payload;
 
-        // Caps a resolver's StateError at 20 attempts — the same cap the
-        // empty-RETURNING branches below already enforce — so an
+        // Caps a resolver's StateError at kSyncAttemptCap attempts — the same
+        // cap the empty-RETURNING branches below enforce — so an
         // unresolvable project/user/device (a code-less legacy project, a
         // deleted user) can't wedge a station's outbox forever. Rethrows
-        // while retries remain (normal backoff applies); past the cap,
-        // drops with a loud print and returns null for the caller to `break`.
+        // while retries remain (normal backoff applies); past the cap it
+        // throws SyncHoldException: SyncService HOLDS the row (kept, skipped
+        // by the drain, shown to the operator) — nothing is ever dropped.
         Future<T?> capped<T>(String label, Future<T> Function() resolve) async {
           try {
             return await resolve();
           } on StateError catch (e) {
-            if (record.attempts < 20) rethrow;
-            print('⚠️ Dropping $label after ${record.attempts} attempts — $e');
-            return null;
+            if (record.attempts < kSyncAttemptCap) rethrow;
+            throw SyncHoldException(
+              '$label after ${record.attempts} attempts — $e',
+            );
           }
         }
 
@@ -280,16 +379,16 @@ class PgSyncSink implements SyncSink {
             // Empty RETURNING with a name present means the ownership WHERE
             // on boxUpsertSql's DO UPDATE rejected it — the box name belongs
             // to another device. Retry on the normal backoff (covers a
-            // stale/renamed row), then skip-ack so it can't wedge forever.
+            // stale/renamed row), then HOLD it so it can't wedge forever.
             if (name != null) {
-              if (record.attempts < 20) {
+              if (record.attempts < kSyncAttemptCap) {
                 throw StateError(
                   'box "${payload['box_name']}" belongs to another device — '
                   'rename required (attempt ${record.attempts})',
                 );
               }
-              print(
-                '⚠️ Dropping box upsert after ${record.attempts} attempts — '
+              throw SyncHoldException(
+                'box upsert after ${record.attempts} attempts — '
                 'box "${payload['box_name']}" belongs to another device: '
                 'project_key=${payload['project_key']}',
               );
@@ -325,19 +424,18 @@ class PgSyncSink implements SyncSink {
             if (pgBox == null) {
               // Either the parent box hasn't synced yet, or it belongs to
               // another device (Fix 2's ownership guard) — either way retry
-              // on the normal backoff, then skip-ack.
-              if (record.attempts < 20) {
+              // on the normal backoff, then HOLD.
+              if (record.attempts < kSyncAttemptCap) {
                 throw StateError(
                   'box "${payload['box_name']}" not owned by this device in '
                   'PG yet for folder upsert (attempt ${record.attempts})',
                 );
               }
-              print(
-                '⚠️ Dropping folder upsert after ${record.attempts} '
+              throw SyncHoldException(
+                'folder upsert after ${record.attempts} '
                 'attempts — owning box never appeared in PG: '
                 'box="${payload['box_name']}" folder_seq=${payload['folder_seq']}',
               );
-              break;
             }
             final pgFolderDevice = await capped(
               'folder upsert',
@@ -359,19 +457,18 @@ class PgSyncSink implements SyncSink {
             }
             // Empty RETURNING: the folder's ownership WHERE rejected this
             // device (a foreign device somehow holds this box_id/folder_seq
-            // — e.g. after a box-id reuse). Same skip-ack discipline.
-            if (record.attempts < 20) {
+            // — e.g. after a box-id reuse). Same hold discipline.
+            if (record.attempts < kSyncAttemptCap) {
               throw StateError(
                 'folder box_id=$pgBox folder_seq=${payload['folder_seq']} '
                 'belongs to another device (attempt ${record.attempts})',
               );
             }
-            print(
-              '⚠️ Dropping folder upsert after ${record.attempts} attempts '
+            throw SyncHoldException(
+              'folder upsert after ${record.attempts} attempts '
               '— folder belongs to another device: box_id=$pgBox '
               'folder_seq=${payload['folder_seq']}',
             );
-            break;
 
           case 'capture_images':
             if (payload == null) break;
@@ -472,21 +569,21 @@ class PgSyncSink implements SyncSink {
               // Same-PC: the folder upsert is earlier in this ordered batch,
               // so this rarely fires. Split-PC: the capture station's folder
               // may not have synced yet — retry on the normal backoff. After
-              // ~20 attempts (hours) give up and ack, so one decommissioned
-              // capture PC can't wedge a processing station's reports forever.
-              if (record.attempts < 20) {
+              // ~20 attempts (hours) give up and HOLD the row, so one
+              // decommissioned capture PC can't wedge a processing station's
+              // reports forever.
+              if (record.attempts < kSyncAttemptCap) {
                 throw StateError(
                   'folder seq $seq of box "${payload['box_name']}" not in PG '
                   'yet for processing update (attempt ${record.attempts})',
                 );
               }
-              print(
-                '⚠️ Dropping processing update after ${record.attempts} '
+              throw SyncHoldException(
+                'processing update after ${record.attempts} '
                 'attempts — folder never appeared in PG: '
                 'project_key=${payload['project_key']} '
                 'box="${payload['box_name']}" folder_seq=$seq',
               );
-              break;
             }
             await _exec(
               session,
@@ -518,21 +615,20 @@ class PgSyncSink implements SyncSink {
               if (pgFolder != null) folderIds['$pgBox|$seq'] = pgFolder;
             }
             if (pgFolder == null) {
-              // Same skip-ack discipline as the closure below: retry on the
+              // Same hold discipline as the closure below: retry on the
               // normal backoff, then give up rather than wedge the queue. The
               // folder simply keeps its old metadata and stays in REWORK.
-              if (record.attempts < 20) {
+              if (record.attempts < kSyncAttemptCap) {
                 throw StateError(
                   'rework folder not in PG yet: box "${payload['box_name']}" '
                   'folder_seq=$seq (attempt ${record.attempts})',
                 );
               }
-              print(
-                '⚠️ Dropping rework folder update after ${record.attempts} '
+              throw SyncHoldException(
+                'rework folder update after ${record.attempts} '
                 'attempts — folder never appeared in PG: '
                 'box="${payload['box_name']}" folder_seq=$seq',
               );
-              break;
             }
             final metadata =
                 (payload['metadata'] as Map?)?.cast<String, Object?>() ??
@@ -548,7 +644,7 @@ class PgSyncSink implements SyncSink {
                 session,
                 st.folderQcStatusPendingSql(
                   pgFolderId: pgFolder,
-                  isCreatedThumbnail: payload['is_created_thumbnail'] == true,
+                  isCreatedThumbnail: payload['is_created_thumbnail'] as bool?,
                 ),
               );
             }
@@ -590,22 +686,21 @@ class PgSyncSink implements SyncSink {
             if (pgFolder == null || pgImage == null) {
               // The image is normally already in PG (QC rejected it, so it
               // exists there), but a separation/rename can move it. Retry on
-              // the normal backoff, then skip-ack so one stale closure can't
+              // the normal backoff, then HOLD so one stale closure can't
               // wedge the queue — the worklist item simply stays visible.
-              if (record.attempts < 20) {
+              if (record.attempts < kSyncAttemptCap) {
                 throw StateError(
                   'rework target not in PG yet: box "${payload['box_name']}" '
                   'folder_seq=$seq image="$imageName" '
                   '(attempt ${record.attempts})',
                 );
               }
-              print(
-                '⚠️ Dropping rework closure after ${record.attempts} '
+              throw SyncHoldException(
+                'rework closure after ${record.attempts} '
                 'attempts — target never appeared in PG: '
                 'box="${payload['box_name']}" folder_seq=$seq '
                 'image="$imageName"',
               );
-              break;
             }
             final pgReworkUser = await capped(
               'rework closure',
@@ -634,7 +729,9 @@ class PgSyncSink implements SyncSink {
   // ── Users-store pull ───────────────────────────────────────────────────────
 
   @override
-  Future<UsersStore> pullStore() async {
+  Future<UsersStore> pullStore() => _guard(_pullStore);
+
+  Future<UsersStore> _pullStore() async {
     final conn = await _connect();
     final users = await _exec(conn, st.selectUsersSql());
     final projects = await _exec(conn, st.selectProjectsSql());
@@ -651,6 +748,20 @@ class PgSyncSink implements SyncSink {
 
   @override
   Future<CaptureSnapshotCounts> pullCaptureSnapshot(
+    String deviceId, {
+    required CaptureBoxPageWriter onBoxes,
+    required CaptureFolderPageWriter onFolders,
+    required CaptureImagePageWriter onImages,
+  }) => _guard(
+    () => _pullCaptureSnapshot(
+      deviceId,
+      onBoxes: onBoxes,
+      onFolders: onFolders,
+      onImages: onImages,
+    ),
+  );
+
+  Future<CaptureSnapshotCounts> _pullCaptureSnapshot(
     String deviceId, {
     required CaptureBoxPageWriter onBoxes,
     required CaptureFolderPageWriter onFolders,
@@ -851,7 +962,10 @@ class PgSyncSink implements SyncSink {
   // ── Box-name uniqueness pull ──────────────────────────────────────────────
 
   @override
-  Future<Set<String>> fetchBoxNames(String projectKey) async {
+  Future<Set<String>> fetchBoxNames(String projectKey) =>
+      _guard(() => _fetchBoxNames(projectKey));
+
+  Future<Set<String>> _fetchBoxNames(String projectKey) async {
     final conn = await _connect();
     final result = await _exec(conn, st.fetchBoxNamesSql(projectKey));
     return {for (final row in result) row[0] as String};

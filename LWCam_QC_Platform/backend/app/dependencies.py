@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiCodes, BusinessError
-from app.core.security import decode_access_token
+from app.core.security import SIGNED_IN_ELSEWHERE_KEY, decode_access_token, is_current_session, is_revoked, issued_before_reset, was_displaced
 from app.db.session import get_db
 from app.models.user import User
 
@@ -13,7 +13,20 @@ bearer_scheme = HTTPBearer(auto_error=False)
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-def get_current_user(
+def _signed_in_elsewhere() -> BusinessError:
+    return BusinessError(
+        ApiCodes.UNAUTHORIZED,
+        "This account signed in on another browser or PC while this one was idle, "
+        "so you were signed out here.",
+        401,
+        data={"errorKey": SIGNED_IN_ELSEWHERE_KEY},
+    )
+
+
+MUST_CHANGE_PASSWORD_KEY = "auth.mustChangePassword"
+
+
+def _authenticate(
     db: DbSession,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> User:
@@ -30,10 +43,43 @@ def get_current_user(
         raise BusinessError(ApiCodes.UNAUTHORIZED, "The user does not exist.", 401)
     if user.status != "active":
         raise BusinessError(ApiCodes.FORBIDDEN, "This account is disabled. Contact an administrator.", 403)
+    if is_revoked(payload.get("sid")) and was_displaced(payload.get("sid")):
+        raise _signed_in_elsewhere()
+    if is_revoked(payload.get("sid")) or issued_before_reset(user.id, payload.get("iat")):
+        raise BusinessError(ApiCodes.UNAUTHORIZED, "You were signed out. Sign in again.", 401)
+    if not is_current_session(user.id, payload.get("sid")):
+        raise _signed_in_elsewhere()
+    return user
+
+
+def get_current_user_any_state(
+    db: DbSession,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> User:
+    """Signed in, whether or not a password change is still owed. Only
+    /auth/me and /auth/password use this."""
+    return _authenticate(db, credentials)
+
+
+def get_current_user(
+    db: DbSession,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> User:
+    user = _authenticate(db, credentials)
+    # Server-side, not just the console's redirect: a reset or new account must
+    # not be usable through the API until its initial password is replaced.
+    if getattr(user, "must_change_password", False):
+        raise BusinessError(
+            ApiCodes.FORBIDDEN,
+            "You must change your password before using the platform.",
+            403,
+            data={"errorKey": MUST_CHANGE_PASSWORD_KEY},
+        )
     return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUserAnyState = Annotated[User, Depends(get_current_user_any_state)]
 
 
 def require_roles(*roles: str):

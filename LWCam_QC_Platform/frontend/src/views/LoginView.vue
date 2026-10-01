@@ -45,6 +45,14 @@ async function submit() {
       <!-- The brand sheet's accent rule. 56x5 with a 3px radius, as in Flutter. -->
       <span class="auth-accent" aria-hidden="true" />
       <img class="auth-logo" :src="logo" :alt="t('common.logoAlt')" />
+      <el-alert
+        v-if="route.query.reason === 'elsewhere'"
+        type="warning"
+        :title="t('auth.signedInElsewhere')"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+      />
       <el-form-item :label="t('auth.username')">
         <el-input v-model="form.username" size="large" autocomplete="username" />
       </el-form-item>

@@ -24,6 +24,7 @@ import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from lwcam_upload.config import Config
 from lwcam_upload.engine import UploadCoordinator, UploadTarget, move_to_done
@@ -283,6 +284,44 @@ class FingerprintReworkTests(unittest.TestCase):
 
             with self.assertRaises(UploadError):
                 move_to_done(package, done, replace=False)
+
+
+    def test_move_to_done_failure_keeps_the_previous_copy_on_rework(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done = root / "done"
+            (done / "G1").mkdir(parents=True)
+            (done / "G1" / "page1.tif").write_bytes(b"previous")
+            corrected = root / "G1"
+            corrected.mkdir()
+            (corrected / "page1.tif").write_bytes(b"corrected")
+
+            with patch("lwcam_upload.engine._move_in", side_effect=OSError("boom")):
+                with self.assertRaises(OSError):
+                    move_to_done(corrected, done, replace=True)
+
+            self.assertEqual((done / "G1" / "page1.tif").read_bytes(), b"previous")
+            self.assertEqual([p.name for p in done.iterdir()], ["G1"])
+            self.assertTrue(corrected.exists())
+
+    def test_move_to_done_sweeps_only_stale_asides(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done = root / "done"
+            (done / "G1").mkdir(parents=True)
+            stale = done / f".G0.old-{int(time.time()) - 2 * 86400}-abc"
+            fresh = done / f".G0.old-{int(time.time())}-def"
+            stale.mkdir()
+            fresh.mkdir()
+            corrected = root / "G1"
+            corrected.mkdir()
+            (corrected / "page1.tif").write_bytes(b"corrected")
+
+            move_to_done(corrected, done, replace=True)
+
+            self.assertFalse(stale.exists())
+            self.assertTrue(fresh.exists())
+            self.assertEqual(sorted(p.name for p in done.iterdir()), sorted(["G1", fresh.name]))
 
 
 if __name__ == "__main__":

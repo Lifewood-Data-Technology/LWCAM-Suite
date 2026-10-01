@@ -640,7 +640,8 @@ class UploadStatsDB {
               updated_at TEXT NOT NULL,
               attempts INTEGER NOT NULL DEFAULT 0,
               last_error TEXT,
-              next_attempt_at TEXT
+              next_attempt_at TEXT,
+              held INTEGER NOT NULL DEFAULT 0
             )
           ''');
           await db.execute(
@@ -946,9 +947,18 @@ class UploadStatsDB {
         updated_at TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         last_error TEXT,
-        next_attempt_at TEXT
+        next_attempt_at TEXT,
+        held INTEGER NOT NULL DEFAULT 0
       )
     ''');
+    // held = 1: past the retry cap. Kept, never deleted; the drain skips it
+    // until the operator presses "Try again" (SyncService.retryHeld).
+    await _addColumnIfMissing(
+      db,
+      'sync_outbox',
+      'held',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
     await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_entity_key ON sync_outbox(entity, entity_key)',
     );
@@ -2445,7 +2455,7 @@ class UploadStatsDB {
     required String folderName,
     required Map<String, Object?> changedMetadata,
     required bool resetQcStatus,
-    required bool isCreatedThumbnail,
+    bool? isCreatedThumbnail, // null = unknown, PG column left untouched
   }) async {
     if (!syncEnabled) return;
     if (changedMetadata.isEmpty && !resetQcStatus) return;

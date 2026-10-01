@@ -13,6 +13,7 @@ import '../services/snackbar_service.dart';
 import '../services/transfer_queue_service.dart';
 import '../services/sync_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/sync_warning_banner.dart';
 import '../widgets/transfer_queue_banner.dart';
 import 'box_transfer_flow.dart';
 import 'folder_metadata_form_page.dart';
@@ -500,6 +501,7 @@ class _CaptureBoxListPageState extends State<CaptureBoxListPage> {
       ),
       body: Column(
         children: [
+          const SyncWarningBanner(),
           const TransferQueueBanner(),
           // "New Group" lives in the body Stack (not the Scaffold FAB slot) so
           // the compact snackbar — which Flutter otherwise lifts to clear a

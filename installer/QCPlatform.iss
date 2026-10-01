@@ -1,7 +1,12 @@
 ; LWCam QC Platform installer: standalone LAN server and Vue console.
 
 #define AppNameFull "LWCam QC Platform"
-#define AppVer "1.0.0"
+#ifndef AppVer
+  #define AppVer "1.0.0"
+#endif
+#ifndef BuildId
+  #define BuildId "dev"
+#endif
 
 #ifndef AppsDir
   #define AppsDir ".."
@@ -44,6 +49,9 @@ Type: filesandordirs; Name: "{app}\scripts"
 Type: filesandordirs; Name: "{app}\database"
 
 [Files]
+; Written by build-installer.ps1: "<version>+<commit>". Each part shows it and sends it in its heartbeat.
+Source: "vendor\VERSION.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Trust this LWCam server.cmd"; DestDir: "{app}"; Flags: ignoreversion
 ; Ship runtime code and the offline wheelhouse, but no development state.
 Source: "{#QcBackend}\*"; DestDir: "{app}\backend"; Flags: ignoreversion recursesubdirs; Excludes: ".venv\*,.cache\*,*.pyc,__pycache__\*,.pytest_cache\*,.env,tests\*,conftest.py,Dockerfile,.dockerignore,.gitignore,pyproject.toml,.env.example,requirements-dev.txt,app\Luminance Correction\README.txt,app\Luminance Correction\requirements.txt"
 Source: "{#QcDist}\*"; DestDir: "{app}\frontend\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -79,6 +87,8 @@ Name: "{autoprograms}\LWCam QC Platform\QC Console"; Filename: "{code:ConsoleUrl
 Name: "{autoprograms}\LWCam QC Platform\QC server log"; Filename: "{app}\logs\OPEN_QC_LOG.bat"
 
 [UninstallRun]
+; End before delete: deleting a running task leaves its restart loop alive.
+Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""LWCam QC Server"""; Flags: runhidden waituntilterminated; RunOnceId: "EndQcServerTask"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam QC Server"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveQcServerTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam QC Server"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveQcFirewallRule"
 
@@ -92,6 +102,7 @@ Type: filesandordirs; Name: "{app}\backend\.cache"
 ; skipped as not empty, which left them behind as empty shells.
 ; The private config folder: config.txt holds the database password.
 Type: filesandordirs; Name: "{app}\config"
+Type: files; Name: "{app}\LWCam server certificate.crt"
 
 [Code]
 var
@@ -133,7 +144,7 @@ end;
 
 function ConsoleUrl(Param: String): String;
 begin
-  Result := 'http://localhost:' + ConfiguredPort() + '/';
+  Result := 'https://localhost:' + ConfiguredPort() + '/';
 end;
 
 // Shown on every fresh install: the QC server always needs SOME connection,
@@ -193,18 +204,22 @@ begin
     'PostgreSQL connection',
     'Connect this QC server to the PostgreSQL database',
     'The database must already exist - run LWCamDatabaseSetup once on the database PC, ' +
-    'then enter the host, port, user and password it shows.');
+    'then enter the host, port, database, user and password its finish page shows ' +
+    '(the same login every LWCam part uses).');
   DatabasePage.Add('Host', False);
   DatabasePage.Add('Port', False);
+  DatabasePage.Add('Database', False);
   DatabasePage.Add('User', False);
   DatabasePage.Add('Password', True);
-  // Defaults come from the command line (/DBHOST=, /DBPORT=, /DBUSER=,
-  // /DBPASSWORD=), read here so a silent install picks them up even though
-  // nothing ever shows this page.
+  // Defaults come from the command line (/DBHOST=, /DBPORT=, /DBNAME=,
+  // /DBUSER=, /DBPASSWORD=), read here so a silent install picks them up even
+  // though nothing ever shows this page. The port is always filled in (5432)
+  // and can be edited.
   DatabasePage.Values[0] := ExpandConstant('{param:DBHOST|localhost}');
   DatabasePage.Values[1] := ExpandConstant('{param:DBPORT|5432}');
-  DatabasePage.Values[2] := ExpandConstant('{param:DBUSER|postgres}');
-  DatabasePage.Values[3] := ExpandConstant('{param:DBPASSWORD|}');
+  DatabasePage.Values[2] := ExpandConstant('{param:DBNAME|lwcam}');
+  DatabasePage.Values[3] := ExpandConstant('{param:DBUSER|lwcam_user}');
+  DatabasePage.Values[4] := ExpandConstant('{param:DBPASSWORD|}');
 end;
 
 // config.txt holds the database password and the login secret, so it lives in
@@ -271,7 +286,7 @@ end;
 
 function WriteConfigIfMissing(): Boolean;
 var
-  ConfigPath, Host, PortText, UserName, Password, Jwt, ConfigText, NL: String;
+  ConfigPath, Host, PortText, DbName, UserName, Password, Jwt, ConfigText, NL: String;
 begin
   ConfigPath := ExpandConstant('{app}\config\config.txt');
   ForceDirectories(ExtractFileDir(ConfigPath));
@@ -284,8 +299,9 @@ begin
   // Already validated on the page: no surrounding spaces, no line breaks.
   Host := DatabasePage.Values[0];
   PortText := DatabasePage.Values[1];
-  UserName := DatabasePage.Values[2];
-  Password := DatabasePage.Values[3];
+  DbName := DatabasePage.Values[2];
+  UserName := DatabasePage.Values[3];
+  Password := DatabasePage.Values[4];
   if Password = '' then begin
     Result := False;
     Exit;
@@ -297,7 +313,7 @@ begin
     '# Keep this file private; it contains the PostgreSQL password and login secret.' + NL +
     'dbHost = ' + Host + NL +
     'dbPort = ' + PortText + NL +
-    'dbName = lwcam' + NL +
+    'dbName = ' + DbName + NL +
     'dbUser = ' + UserName + NL +
     'dbPassword = ' + Password + NL +
     'dbUseSsl = false' + NL +
@@ -336,7 +352,7 @@ end;
 
 procedure ConfigureQcServer(var Issues: String);
 var
-  Params, StartCommand, Port: String;
+  Port: String;
   ResultCode: Integer;
 begin
   if not FileExists(ExpandConstant('{app}\runtime\.setup_ok')) then
@@ -351,17 +367,12 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   if not Exec(ExpandConstant('{sys}\netsh.exe'),
     'advfirewall firewall add rule name="LWCam QC Server" dir=in action=allow protocol=TCP localport=' +
-    Port + ' profile=domain,private',
+    Port + ' profile=any remoteip=localsubnet,100.64.0.0/10,fd7a:115c:a1e0::/48',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
     AppendIssue(Issues, 'The Windows Firewall rule for TCP ' + Port + ' could not be added.');
 
-  // /TR takes the whole command as ONE argument, and the path has spaces, so it
-  // is quoted inside the quoted argument: /TR "\"C:\...\START_QC_SERVER.bat\"".
-  StartCommand := ExpandConstant('{app}\START_QC_SERVER.bat');
-  Params := '/Create /TN "LWCam QC Server" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR "\"' +
-    StartCommand + '\"" /F';
-  if not Exec(ExpandConstant('{sys}\schtasks.exe'), Params, '',
-       SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+  // No run-time limit, restart after a failure: see RegisterBootTask.
+  if not RegisterBootTask('LWCam QC Server', ExpandConstant('{app}\START_QC_SERVER.bat')) then
     AppendIssue(Issues, 'The LWCam QC Server startup task could not be registered.')
   else if not Exec(ExpandConstant('{sys}\schtasks.exe'),
        '/Run /TN "LWCam QC Server"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or
@@ -378,6 +389,11 @@ begin
     Exit;
 
   NL := #13#10;
+  Issues := '';
+  // Program folder first, before the task exists: code that runs as SYSTEM
+  // must not be replaceable by an ordinary user. config\ keeps its own list.
+  if not LockProgramFolder(ExpandConstant('{app}')) then
+    AppendIssue(Issues, 'The install folder could not be locked to Administrators; check its permissions.');
   // Private folder first, secrets second: the file inherits the folder's
   // restricted permissions when it is created, so there is no moment when it
   // is readable. If the folder cannot be secured, nothing is written.
@@ -396,17 +412,21 @@ begin
     Exit;
   end;
 
-  Issues := '';
+  // https certificate for the web page; without it the page stays plain http.
+  if not SetUpTls(ExpandConstant('{app}\runtime\python\python.exe'), 'app.core.tls',
+       ExpandConstant('{app}\backend'), ExpandConstant('{app}\config\config.txt')) then
+    AppendIssue(Issues, 'The https certificate could not be created, so the page is plain http. Run setup again as Administrator.');
+
+  // Encrypt the passwords/keys just written (or left by an older version). The
+  // server also does this itself when it starts, so a failure here is not fatal.
+  if not ProtectConfigSecrets(ExpandConstant('{app}\runtime\python\python.exe'), '-m app.core.lwcam_secrets',
+       ExpandConstant('{app}\backend'), ExpandConstant('{app}\config\config.txt'),
+       'dbPassword,jwtSecret,openrouterApiKey') then
+    AppendIssue(Issues, PlainSecretsWarning('config\config.txt') + ' The server encrypts them itself when it starts.');
+
   ConfigureQcServer(Issues);
-  Closing := 'QC Platform is installed.' + #13#10 + #13#10 +
-    'Console: ' + ConsoleUrl('') + '  (from other PCs: http://' +
-    GetComputerNameString() + ':' + ConfiguredPort() + '/)' + #13#10 +
-    'The firewall rule covers Domain and Private networks, not Public ones.' + #13#10 +
-    'Create the first account in LWCam Admin User Management.' + #13#10 +
-    'The database must already exist, installed by LWCamDatabaseSetup; the connection is' +
-    NL + 'stored in config\config.txt - correct dbHost/dbPassword there if it ever changes.' +
-    NL + 'On a split site, set the QC input root in the console (a \\server\share path, the ' +
-    NL + 'same one LWIPSetup writes to) and grant this PC''s computer account access to it.';
+  Closing := 'QC Platform is installed.' + NL + NL +
+    'Console: https://' + GetComputerNameString() + ':' + ConfiguredPort() + '/' + NL + NL + TlsClosingNote();
   if Issues <> '' then
     Closing := Closing + #13#10 + #13#10 + 'Setup needs attention:' + #13#10 + Issues;
   Log('LWCam QC Platform finished:' + #13#10 + Closing);

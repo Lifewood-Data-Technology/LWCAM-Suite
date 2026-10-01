@@ -438,14 +438,22 @@ PgStatement folderMetadataPatchSql(
 /// fact, processed — observed live 2026-07-31 on a separation child that went
 /// reject -> metadata fix -> approve and ended PASS with is_deskewed=false.
 /// Restoring them is factually correct: the fix changed metadata, not files.
+///
+/// [isCreatedThumbnail] is null when this PC could not read LWIP's manifest
+/// (LWIP is on another PC and its path is not reachable here): the column is
+/// then left UNTOUCHED rather than overwritten with a guessed false.
 PgStatement folderQcStatusPendingSql({
   required int pgFolderId,
-  required bool isCreatedThumbnail,
+  bool? isCreatedThumbnail,
 }) => PgStatement(
   "UPDATE capture_folders SET qc_status = 'PENDING', "
-  'is_deskewed = TRUE, is_cropped = TRUE, is_created_thumbnail = @is_created_thumbnail '
+  'is_deskewed = TRUE, is_cropped = TRUE'
+  '${isCreatedThumbnail == null ? '' : ', is_created_thumbnail = @is_created_thumbnail'} '
   'WHERE id = @folder_id',
-  {'folder_id': pgFolderId, 'is_created_thumbnail': isCreatedThumbnail},
+  {
+    'folder_id': pgFolderId,
+    if (isCreatedThumbnail != null) 'is_created_thumbnail': isCreatedThumbnail,
+  },
 );
 
 /// The operator's OPEN recapture requests.
@@ -728,16 +736,16 @@ MetadataTemplate? _templateFromColumn(Object? value) {
 // — capture-side events that must land in PG directly, never routed through
 // the NAS/local-JSON write path LWCam Admin owns.
 
-/// A forced first-login/reset password change. Only `password` +
-/// `must_change_password` — never touches `roles`/`device_id`/anything else
-/// LWCam Admin owns, so this can never race a snapshot push destructively.
-PgStatement updateOwnPasswordSql({
+/// A forced first-login/reset password change. `lwcam_capture` has no UPDATE
+/// on `users.password`; it calls the database function (migration 006), which
+/// checks the OLD password itself and returns true only if the row changed.
+PgStatement changeOwnPasswordSql({
   required String username,
+  required String oldPassword,
   required String bcryptHash,
 }) => PgStatement(
-  'UPDATE users SET password = @password, must_change_password = FALSE '
-  'WHERE user_id = @user_id',
-  {'user_id': username, 'password': bcryptHash},
+  'SELECT lwcam_change_own_password(@user_id, @old_password, @new_hash) AS ok',
+  {'user_id': username, 'old_password': oldPassword, 'new_hash': bcryptHash},
 );
 
 /// Best-effort last-login stamp — never blocks login on failure.
@@ -761,4 +769,54 @@ PgStatement fetchBoxNamesSql(String projectKey) => PgStatement(
   'JOIN projects p ON p.id = b.project_id '
   'WHERE p.project_key = @project_key AND b.is_deleted = FALSE',
   {'project_key': projectKey},
+);
+
+// ── Schema level + service heartbeat (migration 007) ────────────────────────
+
+/// The database's schema level: the highest numeric prefix in
+/// `schema_migrations` (0 when empty; a missing table raises 42P01, which the
+/// sink also reads as level 0).
+PgStatement schemaLevelSql() => const PgStatement(
+  "SELECT coalesce(max(substring(version from '^[0-9]+')::int), 0) "
+  'FROM schema_migrations',
+  {},
+);
+
+/// Upserts this PC's `capture` heartbeat. `last_ok` keeps the old value when
+/// the new one is null (a failing beat never erases the last success);
+/// `last_error*` take the new value as-is, so a healthy beat CLEARS a
+/// recovered error - the status page must not stay red for a fixed problem
+/// (same rule as the Python parts).
+PgStatement heartbeatUpsertSql({
+  required String host,
+  required String version,
+  required DateTime startedAt,
+  required Map<String, Object?> backlog,
+  DateTime? lastOk,
+  String? lastError,
+  DateTime? lastErrorAt,
+}) => PgStatement(
+  'INSERT INTO service_heartbeat '
+  '(part, host, version, started_at, last_seen, last_ok, last_error, '
+  'last_error_at, backlog) '
+  "VALUES ('capture', @host, @version, CAST(@started_at AS timestamptz), now(), "
+  'CAST(@last_ok AS timestamptz), @last_error, '
+  'CAST(@last_error_at AS timestamptz), CAST(@backlog AS jsonb)) '
+  'ON CONFLICT (part, host) DO UPDATE SET version = EXCLUDED.version, '
+  'started_at = EXCLUDED.started_at, last_seen = now(), '
+  'last_ok = COALESCE(EXCLUDED.last_ok, service_heartbeat.last_ok), '
+  'last_error = EXCLUDED.last_error, '
+  'last_error_at = EXCLUDED.last_error_at, '
+  'backlog = EXCLUDED.backlog',
+  {
+    'host': host,
+    'version': version,
+    'started_at': tsOrNull(startedAt.toIso8601String()),
+    'last_ok': lastOk == null ? null : tsOrNull(lastOk.toIso8601String()),
+    'last_error': lastError,
+    'last_error_at': lastErrorAt == null
+        ? null
+        : tsOrNull(lastErrorAt.toIso8601String()),
+    'backlog': jsonEncode(backlog),
+  },
 );

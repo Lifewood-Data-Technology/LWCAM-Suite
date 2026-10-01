@@ -59,7 +59,7 @@ if not defined PIP_WHL (
 )
 
 echo [DB] Installing psycopg from the offline wheelhouse.
-"%PY%" "%PIP_WHL%\pip" install --disable-pip-version-check --no-index --find-links "%WHEELS%" "psycopg[binary]==3.3.4"
+"%PY%" "%PIP_WHL%\pip" install --disable-pip-version-check --no-index --find-links "%WHEELS%" "psycopg[binary]==3.3.4" "cryptography==50.0.1"
 if errorlevel 1 (
     echo [ERROR] Dependency installation failed.
     exit /b 1
@@ -67,7 +67,7 @@ if errorlevel 1 (
 
 echo [DB] Verifying the runtime.
 cd /d "%ROOT%"
-"%PY%" -c "import psycopg; print('Database setup runtime OK')"
+"%PY%" -c "import psycopg, cryptography; print('Database setup runtime OK')"
 if errorlevel 1 (
     echo [ERROR] Runtime verification failed.
     exit /b 1

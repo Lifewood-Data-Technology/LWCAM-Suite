@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
+import 'package:postgres/postgres.dart' show Connection;
 
 import '../models/node_config.dart';
 import '../services/admin_bootstrap.dart';
+import '../services/admin_login.dart';
+import '../services/dpapi.dart';
 import '../services/admin_pg_gateway.dart';
-import '../services/station_seed.dart';
+import '../services/folder_access.dart';
 import '../services/node_config_service.dart';
 import '../services/pg_client.dart';
 
@@ -14,8 +18,9 @@ import '../services/pg_client.dart';
 /// use `<install>\LWCAM`, with `%ProgramFiles%\LWCam\LWCAM` as the fallback.
 /// Source/portable builds can override the default through the saved field.
 ///
-/// The installer creates these folders with users-modify rights because LWCAM
-/// and LWIP write to them as a normal user, while Program Files is admin-only.
+/// Only a fallback: Program Files is not writable by a normal user, and on a
+/// multi-PC site the images usually belong on a share, so set the field
+/// (Test folder access checks it).
 String defaultCaptureRoot({
   String? executablePath,
   Map<String, String>? environment,
@@ -55,12 +60,45 @@ const String captureExportFolder = '3.Export';
 /// and one that silently "works" is worse than a connection error saying so.
 const String defaultPgHost = 'localhost';
 const String defaultPgDatabase = 'lwcam';
-const String defaultPgUser = 'postgres';
+/// ONE database login for every part (LWCamDatabaseSetup's user, default
+/// `lwcam_user`): LWCAM and LWCam Admin both use it. Old files may still carry
+/// a separate `adminPgUser`; [adminLoginFor] reads it, this form never writes it.
+const String defaultPgUser = 'lwcam_user';
+
+/// Why [host] cannot be a bare host name/IP, or null when it looks fine. The
+/// usual slip on a multi-PC site is pasting `host:5432` or a URL.
+String? pgHostProblem(String host) {
+  final h = host.trim();
+  if (h.contains('://') || h.contains('/') || h.contains(' ')) {
+    return 'Enter only the host name or IP of the database PC, without '
+        'postgres:// or a path.';
+  }
+  final colons = ':'.allMatches(h).length;
+  if (colons == 1) {
+    return 'Enter the port in the Port box, not after the host name.';
+  }
+  return null;
+}
+
+/// Signature of [openPgConnection]; injectable so tests need no server.
+typedef PgOpener = Future<Connection> Function({
+  required String host,
+  required int port,
+  required String database,
+  required String user,
+  required String password,
+  required bool useSsl,
+});
 
 /// This machine's PostgreSQL connection + local snapshot path
 /// (`lwcam_node_config.json`) — the file LWCAM's SyncBootstrap also reads,
 /// so Station Setup here is how a fresh capture PC gets provisioned.
 class StationSetupController extends GetxController {
+  StationSetupController({PgOpener openConnection = openPgConnection})
+    : _open = openConnection;
+
+  final PgOpener _open;
+
   final pgHost = ''.obs;
   final pgPort = 5432.obs;
   final pgDatabase = ''.obs;
@@ -82,7 +120,6 @@ class StationSetupController extends GetxController {
   /// an admin would see blank fields over a fully configured station.
   final isLoaded = false.obs;
   bool _loaded = false;
-  late NodeConfig _loadedConfig;
 
   // ── LWCAM capture-station settings (this app is their ONLY editor —
   // LWCAM's own Settings page was removed; only SuperAdmin configures a
@@ -98,26 +135,14 @@ class StationSetupController extends GetxController {
   /// configured; LWCAM refuses to start a transfer until it is set.
   final destinationPath = ''.obs;
 
-  // ── LWIP folders (as this PC sees them) ────────────────────────────────
-  /// LWIP now runs on its own PC with its own installer and config; these two
-  /// fields only tell REWORK where to find a folder's original images. They
-  /// must be the same folders LWIP is configured with on the LWIP PC (a UNC
-  /// path is recommended so both sides agree without depending on a drive
-  /// letter).
-  final processingInputRoot = ''.obs;
-  final processingOutputRoot = ''.obs;
-
   /// What first-run provisioning did, for the page to show once. Empty when
   /// there was nothing to do - which is every launch after the first.
   final firstRunStatus = ''.obs;
 
-  /// Set while provisioning runs, so the page can say so instead of looking
-  /// frozen: creating the database and loading the schema takes a few seconds.
-  final isProvisioning = false.obs;
-
-  /// Guard: provisioning is a one-shot, and the page calls ensureLoaded(force:
-  /// true) every time it is opened.
-  bool _seedChecked = false;
+  /// True when a saved DPAPI password could not be decrypted on this Windows
+  /// account. The form then shows a visible error, and Save keeps the stored
+  /// blob unless a NEW password is typed - it must not overwrite it with ''.
+  final capturePasswordUnreadable = false.obs;
 
   NodeConfigService get _service => Get.find<NodeConfigService>();
 
@@ -130,12 +155,17 @@ class StationSetupController extends GetxController {
     // first loaded it — editing a stale copy would save the stale values
     // back over LWCAM's.
     final config = await _service.reload();
-    _loadedConfig = config;
     pgHost.value = config.pgHost ?? defaultPgHost;
     pgPort.value = config.pgPort;
     pgDatabase.value = config.pgDatabase ?? defaultPgDatabase;
     pgUser.value = config.pgUser ?? defaultPgUser;
-    pgPassword.value = config.pgPassword ?? '';
+    capturePasswordUnreadable.value = false;
+    try {
+      pgPassword.value = capturePasswordOf(config);
+    } catch (_) {
+      pgPassword.value = ''; // other Windows user/PC: re-enter it
+      capturePasswordUnreadable.value = true;
+    }
     pgUseSsl.value = config.pgUseSsl;
     syncIntervalSeconds.value = config.syncIntervalSeconds;
     usersStorePath.value = config.usersStorePath ?? '';
@@ -145,151 +175,59 @@ class StationSetupController extends GetxController {
     // blank, so a fresh station is one Save away from working. An admin can
     // still point any of them anywhere (a NAS, another drive, a UNC share);
     // a value already in the file always wins.
-    final root = defaultCaptureRoot();
-    final images = p.join(root, captureImagesFolder);
-    final batches = p.join(root, captureBatchesFolder);
-    destinationPath.value = config.destinationPath ?? images;
-    processingInputRoot.value = config.processingInputRoot ?? images;
-    processingOutputRoot.value = config.processingOutputRoot ?? batches;
+    destinationPath.value =
+        config.destinationPath ?? p.join(defaultCaptureRoot(), captureImagesFolder);
     isLoaded.value = true;
-    await _provisionFromSeedIfUnconfigured();
   }
 
-  /// Turns the connection Setup left behind into a working station,
-  /// the first time Admin opens.
-  ///
-  /// This is what makes the install a two-step job for the operator - run the
-  /// installer, open Admin - instead of asking them to copy a 32-character
-  /// password out of a dialog, invent a database name, and then find a .bat
-  /// file in Program Files. Everything it does was already possible from this
-  /// screen; the only thing missing was the password, and setup knows it.
-  ///
-  /// Deliberately conditional on there being no password saved yet. A station
-  /// that has been configured, or pointed at a shared database somewhere else,
-  /// must never be dragged back to a local one by a seed file that outlived its
-  /// purpose.
-  Future<void> _provisionFromSeedIfUnconfigured() async {
-    if (_seedChecked) return;
-    _seedChecked = true;
-    final seed = readStationSeed();
-    if (seed == null) return;
-
-    // "A password is saved" is NOT the same as "this station works", and
-    // treating them as equal cost a whole test cycle.
-    //
-    // What happened: PostgreSQL was reinstalled, so setup generated a new
-    // password and seeded it, but an lwcam_node_config.json from the previous
-    // install was still sitting in the user profile. Its password had been
-    // valid once and was now meaningless. Provisioning saw a non-empty password,
-    // declared the station configured, ignored the seed, and every connection
-    // failed with an authentication error nobody could explain from the UI.
-    //
-    // So the test is whether the saved credentials actually authenticate. A
-    // station deliberately pointed at a shared database elsewhere still wins -
-    // its password works, so the seed is simply consumed and discarded. Only
-    // credentials that no longer open a connection are replaced.
-    if (pgPassword.value.isNotEmpty) {
-      if (await _savedCredentialsWork()) {
-        // Configured and working. The seed has nothing to add and should not be
-        // left lying around with a superuser password in it.
-        deleteStationSeed();
-        return;
-      }
-      print(
-        'Saved PostgreSQL credentials do not authenticate; '
-        'adopting the connection left by setup.',
-      );
-    }
-
-    pgHost.value = seed.host;
-    pgPort.value = seed.port;
-    pgDatabase.value = seed.database;
-    pgUser.value = seed.user;
-    pgPassword.value = seed.password;
-
-    // LWCAM's own sync goes on at this same first-run moment - past here a
-    // stored `false` is an admin's decision, not an absence.
-    //
-    // syncEnabled does not merely pause a drain: with it off, every outbox
-    // write in upload_stats_db is a no-op (`if (!syncEnabled) return;`), so
-    // captures are never even QUEUED for PostgreSQL. A station provisioned
-    // without it captures and transfers perfectly, but downstream review sees
-    // an empty task list forever.
-    //
-    // Safe to switch on here: provisioning only reaches this point after the
-    // credentials have been proven against the server.
-    if (!lwcamSyncEnabled.value) {
-      lwcamSyncEnabled.value = true;
-      print('Enabling LWCAM sync so captures reach PostgreSQL.');
-    }
-
-    isProvisioning.value = true;
-    try {
-      // Wait for the server to actually accept these credentials before doing
-      // anything with them.
-      //
-      // EnterpriseDB's unattended installer starts the service and applies the
-      // superuser password near the END of its run, so there is a window where
-      // PostgreSQL is up, listening, and rejecting the very password setup just
-      // generated. Admin is launched by the installer and lands squarely in it:
-      // the first real clean install failed here, with a log full of
-      // "password authentication failed" for a password that was correct barely
-      // a minute later. Retrying is the difference between a station that sets
-      // itself up and one that shows a wall of red text on first launch.
-      if (!await _waitForCredentials(seed)) {
-        throw StateError(
-          'PostgreSQL did not accept the connection within '
-          '${_provisionWaitLimit.inSeconds} seconds. It may still be starting '
-          'up - press Save to try again.',
-        );
-      }
-      // The ordinary save path: it writes the config, creates the destination
-      // folder, tests the database connection, and registers the app
-      // services. Reusing it means first run cannot drift from what a manual
-      // save does.
-      await save();
-      // No success message on purpose. Provisioning working is the expected
-      // case, the screen already shows the filled-in settings as proof, and a
-      // banner explaining that nothing needs doing is itself something to read.
-    } catch (e) {
-      // The seed is deliberately NOT deleted here: whatever failed is worth
-      // retrying on the next launch, and the password is the one thing that
-      // cannot be recovered from anywhere else the operator can reach.
-      firstRunStatus.value =
-          'Automatic setup did not finish: $e\n\n'
-          'The connection details are filled in above - press Save to try '
-          'again.';
-    } finally {
-      isProvisioning.value = false;
-    }
+  // Applied to [base] - the config freshly re-read from disk - so QC, upload,
+  // AI and other unedited fields, and every key this build does not know
+  // (extras), keep whatever is on disk NOW, not what was there when the page
+  // opened.
+  NodeConfig _applyForm(NodeConfig base) {
+    // A password that could not be decrypted and was not retyped keeps its
+    // stored blob: saving '' over it would destroy a secret that another
+    // Windows account (or a restored profile) can still read.
+    final keepCapture = pgPassword.value.isEmpty &&
+        capturePasswordUnreadable.value;
+    return base.copyWith(
+      pgHost: pgHost.value.trim(),
+      pgPort: pgPort.value,
+      pgDatabase: pgDatabase.value.trim(),
+      pgUser: pgUser.value.trim(),
+      // Capture password: DPAPI (entropy "LWCam"), plain field blanked.
+      pgPasswordProtected: keepCapture
+          ? base.pgPasswordProtected
+          : pgPassword.value.isEmpty
+              ? ''
+              : dpapiProtect(pgPassword.value, entropy: captureDpapiEntropy),
+      pgPassword: keepCapture ? base.pgPassword : '',
+      // One shared login since 2026-09-30: an older station's separate
+      // LWCam Admin login would otherwise keep winning in adminLoginFor, so a
+      // Station Setup save retires it and Admin uses the login saved here.
+      adminPgUser: '',
+      adminPgPasswordProtected: '',
+      pgUseSsl: pgUseSsl.value,
+      syncEnabled: lwcamSyncEnabled.value,
+      syncIntervalSeconds: syncIntervalSeconds.value,
+      usersStorePath: usersStorePath.value.trim().isEmpty
+          ? defaultLwcamDbsDir()
+          : usersStorePath.value.trim(),
+      pgConnectionEnabled: pgConnectionEnabled.value,
+      destinationPath: destinationPath.value.trim(),
+    );
   }
-
-  // Omitted QC, upload, AI, and other unedited fields keep their loaded values.
-  NodeConfig _buildFromForm() => _loadedConfig.copyWith(
-    pgHost: pgHost.value.trim(),
-    pgPort: pgPort.value,
-    pgDatabase: pgDatabase.value.trim(),
-    pgUser: pgUser.value.trim(),
-    pgPassword: pgPassword.value,
-    pgUseSsl: pgUseSsl.value,
-    syncEnabled: lwcamSyncEnabled.value,
-    syncIntervalSeconds: syncIntervalSeconds.value,
-    usersStorePath: usersStorePath.value.trim().isEmpty
-        ? defaultLwcamDbsDir()
-        : usersStorePath.value.trim(),
-    pgConnectionEnabled: pgConnectionEnabled.value,
-    destinationPath: destinationPath.value.trim(),
-    processingInputRoot: processingInputRoot.value.trim(),
-    processingOutputRoot: processingOutputRoot.value.trim(),
-  );
 
   /// Persists the form and immediately re-registers [AdminStoreService]
   /// against the new config (mirrors LWCAM's SyncBootstrap.apply).
   Future<bool> save() async {
-    final config = _buildFromForm();
-    await _ensureFolders(config);
-    await _service.save(config);
-    _loadedConfig = config;
+    final preview = _applyForm(await _service.reload());
+    await _ensureFolders(preview);
+    // Reload again inside update(): the folder check above can take a while
+    // (a share that is down), and LWCAM may have rewritten the file meanwhile.
+    final config = await _service.update(_applyForm);
+    // Saved: whatever was typed is now the stored value.
+    if (pgPassword.value.isNotEmpty) capturePasswordUnreadable.value = false;
     // Database creation/upgrade is LWCamDatabaseSetup's job now, on the
     // database PC — this app only connects. A complete connection that still
     // does not answer is worth telling the admin about; an empty one is just
@@ -306,8 +244,6 @@ class StationSetupController extends GetxController {
           'The database answers but its tables are out of date — run the '
           'newest LWCamDatabaseSetup on the database PC.';
     } else if (databaseReady) {
-      // The seed is no longer needed once the connection it left behind works.
-      deleteStationSeed();
       firstRunStatus.value = '';
     }
     await AdminBootstrap.apply(config);
@@ -318,15 +254,14 @@ class StationSetupController extends GetxController {
   /// path. Runs BEFORE the config is written: a path that cannot be created is
   /// not worth saving, and the admin sees which one it was instead of a
   /// capture failing later.
-  ///
-  /// The LWIP folders (processingInputRoot/processingOutputRoot) are
-  /// deliberately NOT created here any more — LWIP runs on its own PC now and
-  /// owns them; this PC only records where they are for rework to read.
   Future<void> _ensureFolders(NodeConfig config) async {
     final path = config.destinationPath?.trim();
     if (path == null || path.isEmpty) return;
     try {
-      await Directory(path).create(recursive: true);
+      // A UNC path can hang on a dead PC: bound it.
+      await Directory(path).create(recursive: true).timeout(
+        const Duration(seconds: 20),
+      );
     } catch (e) {
       throw StateError(
         'Could not create the folder $path: $e\n'
@@ -340,12 +275,13 @@ class StationSetupController extends GetxController {
   /// database-provisioning replacement now that provisioning itself lives in
   /// LWCamDatabaseSetup. Reuses the same gateway [testConnection] does.
   Future<GatewayStatus> _testDatabaseConnection(NodeConfig config) async {
+    final login = adminLoginFor(config);
     final gateway = AdminPgGateway(
       host: config.pgHost!.trim(),
       port: config.pgPort,
       database: config.pgDatabase!.trim(),
-      user: config.pgUser!.trim(),
-      password: config.pgPassword!,
+      user: login.user.trim(),
+      password: login.password,
       useSsl: config.pgUseSsl,
     );
     try {
@@ -359,96 +295,7 @@ class StationSetupController extends GetxController {
       (config.pgHost?.trim().isNotEmpty ?? false) &&
       (config.pgDatabase?.trim().isNotEmpty ?? false) &&
       (config.pgUser?.trim().isNotEmpty ?? false) &&
-      (config.pgPassword?.trim().isNotEmpty ?? false);
-
-  /// Whether the credentials already in the config can still open a connection.
-  ///
-  /// Checked against the `postgres` maintenance database, not the configured
-  /// one: the target database legitimately may not exist yet, and that is not a
-  /// credential problem. One attempt only - this runs on the way into the
-  /// screen, and a station that is merely offline must not be mistaken for one
-  /// with bad credentials, which is why only [PgFailure.badPassword] counts as
-  /// failure here.
-  Future<bool> _savedCredentialsWork() async {
-    try {
-      final conn = await openPgConnection(
-        host: pgHost.value.trim(),
-        port: pgPort.value,
-        database: 'postgres',
-        user: pgUser.value.trim(),
-        password: pgPassword.value,
-        useSsl: pgUseSsl.value,
-      );
-      await conn.close();
-      return true;
-    } on SyncConnectException catch (e) {
-      return e.failure != PgFailure.badPassword;
-    } catch (_) {
-      return true; // unreachable for some other reason - not a credential fault
-    }
-  }
-
-  /// How long first-run provisioning waits for a just-installed PostgreSQL.
-  ///
-  /// Generous on purpose: the cost of waiting is a progress line, while the cost
-  /// of giving up early is an operator staring at an authentication error on a
-  /// brand-new machine. Observed window on a clean install was well under a
-  /// minute; this allows for a slower disk.
-  static const Duration _provisionWaitLimit = Duration(minutes: 3);
-
-  /// Polls until [seed]'s credentials authenticate, or the limit runs out.
-  ///
-  /// Connects to the `postgres` maintenance database, NOT the one being
-  /// provisioned: that one does not exist yet, and a "database does not exist"
-  /// reply is itself proof the credentials were accepted.
-  Future<bool> _waitForCredentials(StationSeed seed) async {
-    final deadline = DateTime.now().add(_provisionWaitLimit);
-    while (DateTime.now().isBefore(deadline)) {
-      try {
-        final conn = await openPgConnection(
-          host: seed.host,
-          port: seed.port,
-          database: 'postgres',
-          user: seed.user,
-          password: seed.password,
-          useSsl: false,
-        );
-        await conn.close();
-        return true;
-      } on SyncConnectException catch (e) {
-        // Authenticated, just pointed at a database that is not there yet.
-        if (e.failure == PgFailure.missingDatabase) return true;
-      } catch (_) {
-        // Fall through and retry: still starting, or still applying the password.
-      }
-      await Future<void>.delayed(const Duration(seconds: 3));
-    }
-    return false;
-  }
-
-  /// Asks the server what is actually wrong, for a message worth reading.
-  ///
-  /// Opens a raw connection rather than reusing the gateway, because the gateway
-  /// deliberately reports only reachable/outdated/unreachable - it exists to
-  /// decide whether to sync, not to explain a failure to a person.
-  Future<PgFailure> _diagnose() async {
-    try {
-      final conn = await openPgConnection(
-        host: pgHost.value.trim(),
-        port: pgPort.value,
-        database: pgDatabase.value.trim(),
-        user: pgUser.value.trim(),
-        password: pgPassword.value,
-        useSsl: pgUseSsl.value,
-      );
-      await conn.close();
-      return PgFailure.unreachable; // connected on retry; nothing to explain
-    } on SyncConnectException catch (e) {
-      return e.failure;
-    } catch (_) {
-      return PgFailure.unreachable;
-    }
-  }
+      pgPassword.value.trim().isNotEmpty;
 
   /// Rotates the PostgreSQL password: changes it on the SERVER, then saves it
   /// here. Both halves or neither.
@@ -465,19 +312,26 @@ class StationSetupController extends GetxController {
   /// config write is no longer optional - it is the only remaining record of the
   /// new password - so its failure is reported with the password in the message
   /// rather than swallowed.
+  ///
+  /// It rotates THE database login (a member of lwcam_app may ALTER ROLE
+  /// itself). Every other part keeps the old password until it is re-entered
+  /// there, so the dialog says so.
+  String get rotateTargetUser => pgUser.value.trim();
+
   Future<void> rotatePgPassword(String newPassword) async {
     // No trim: a space can legitimately be part of a password, and silently
     // saving something different from what the server was given would lock this
     // station out.
     if (newPassword.isEmpty) throw StateError('Enter a new password.');
-    if (newPassword == pgPassword.value) {
+    final current = pgPassword.value;
+    if (newPassword == current) {
       throw StateError('That is already the current password.');
     }
     final host = pgHost.value.trim();
-    final user = pgUser.value.trim();
+    final user = rotateTargetUser;
     if (host.isEmpty) throw StateError('Enter a PostgreSQL host first.');
     if (user.isEmpty) throw StateError('Enter a PostgreSQL user first.');
-    if (pgPassword.value.isEmpty) {
+    if (current.isEmpty) {
       throw StateError(
         'Enter the current password first - it is needed to authenticate the '
         'change.',
@@ -489,7 +343,7 @@ class StationSetupController extends GetxController {
       port: pgPort.value,
       database: pgDatabase.value.trim(),
       user: user,
-      password: pgPassword.value,
+      password: current,
       useSsl: pgUseSsl.value,
     );
     try {
@@ -507,13 +361,13 @@ class StationSetupController extends GetxController {
     }
 
     pgPassword.value = newPassword;
+    capturePasswordUnreadable.value = false;
     // Deliberately NOT the full save(): the folder check and the reachability
     // test do not carry this credential, and running them as a side effect of
     // a password change would surprise the operator. The config file and the
     // live gateway are the two things that must not miss it.
     try {
-      final config = _buildFromForm();
-      await _service.save(config);
+      final config = await _service.update(_applyForm);
       await AdminBootstrap.apply(config);
     } catch (e) {
       throw StateError(
@@ -524,35 +378,76 @@ class StationSetupController extends GetxController {
     }
   }
 
-  /// One-off reachability test against whatever is currently typed in —
-  /// does not require saving first.
+  /// One-off test of the database login against whatever is currently typed in
+  /// (no save needed), against the configured database - LAN access only
+  /// admits the app login to it, never to `postgres`.
+  ///
+  /// Works against a remote database PC by name, IP or Tailscale name: TLS is
+  /// required for every non-local host ([pgSslMode]) and every attempt is
+  /// time-limited, so a database PC that is off fails in seconds instead of
+  /// hanging the form. Connects directly rather than through the gateway: the
+  /// gateway flattens every failure into "unreachable", and "could not reach
+  /// the host" sent operators hunting firewalls when the password, the
+  /// pg_hba rule or TLS was the problem. Errors name the login and the
+  /// host:port that was tried.
   Future<void> testConnection() async {
     final host = pgHost.value.trim();
     if (host.isEmpty) throw StateError('Enter a PostgreSQL host first.');
-    final gateway = AdminPgGateway(
-      host: host,
-      port: pgPort.value,
-      database: pgDatabase.value.trim(),
-      user: pgUser.value.trim(),
-      password: pgPassword.value,
-      useSsl: pgUseSsl.value,
-    );
-    try {
-      final result = await gateway.probe();
-      switch (result.status) {
-        case GatewayStatus.reachable:
-          return;
-        case GatewayStatus.schemaOutdated:
-          return; // Reachable is enough here; schema upgrades are LWCamDatabaseSetup's job.
-        case GatewayStatus.unreachable:
-          // probe() flattens every failure into one status, so ask the server
-          // directly for a sentence worth showing: "could not reach the host"
-          // sent operators hunting firewalls when the database simply did not
-          // exist yet.
-          throw SyncConnectException(describePgFailure(await _diagnose()));
+    final hostProblem = pgHostProblem(host);
+    if (hostProblem != null) throw StateError(hostProblem);
+    final logins = <(String, String, String)>[
+      ('Database login', pgUser.value.trim(), pgPassword.value),
+    ];
+    for (final (label, user, password) in logins) {
+      try {
+        final conn = await _open(
+          host: host,
+          port: pgPort.value,
+          database: pgDatabase.value.trim(),
+          user: user,
+          password: password,
+          useSsl: pgUseSsl.value,
+        );
+        await conn.close();
+      } on SyncConnectException catch (e) {
+        throw SyncConnectException(
+          '$label ($host:${pgPort.value}): ${describePgFailure(e.failure)}',
+          failure: e.failure,
+        );
+      } on TimeoutException {
+        throw SyncConnectException(
+          '$label ($host:${pgPort.value}): '
+          '${describePgFailure(PgFailure.timeout)}',
+          failure: PgFailure.timeout,
+        );
       }
-    } finally {
-      await gateway.close();
     }
   }
+
+  /// Checks, as typed (no save needed), the one folder LWCAM on this PC uses:
+  /// capture writes the destination, and a rework recapture overwrites its
+  /// original there too (LWCAM's `ReworkService.inputFileFor`).
+  Future<List<FolderAccessResult>> testFolderAccess() async {
+    final destination = destinationPath.value.trim();
+    if (destination.isEmpty) {
+      throw StateError('Enter an image destination folder first.');
+    }
+    return [
+      FolderAccessResult(
+        'Image destination folder',
+        destination,
+        await checkFolderAccess(destination, FolderNeed.write),
+      ),
+    ];
+  }
+}
+
+class FolderAccessResult {
+  const FolderAccessResult(this.label, this.path, this.error);
+
+  final String label;
+  final String path;
+
+  /// Null when the folder works.
+  final String? error;
 }

@@ -3,7 +3,12 @@
 ; LWCamDatabaseSetup.exe); QC review runs from the QC Platform installer.
 
 #define AppNameFull "LWCam"
-#define AppVer "1.0.1"
+#ifndef AppVer
+  #define AppVer "1.0.1"
+#endif
+#ifndef BuildId
+  #define BuildId "dev"
+#endif
 
 #ifndef AppsDir
   #define AppsDir ".."
@@ -46,6 +51,10 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [InstallDelete]
+; Left by an old all-in-one install: a database password in plain text.
+Type: files; Name: "{commonappdata}\LWCAM\station-seed.json"
+Type: files; Name: "{app}\station-seed.json"
+Type: files; Name: "{app}\postgres-password.txt"
 ; Remove old LWIP environments before installing the embeddable runtime.
 Type: filesandordirs; Name: "{app}\LWCAM\LWIP\venv"
 Type: filesandordirs; Name: "{app}\LWCAM\LWIP\python"
@@ -67,6 +76,10 @@ Type: filesandordirs; Name: "{app}\QC"
 Type: files; Name: "{commondesktop}\LWCam Admin.lnk"
 
 [Files]
+; Written by build-installer.ps1: "<version>+<commit>", beside each exe (and in {app}).
+Source: "vendor\VERSION.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "vendor\VERSION.txt"; DestDir: "{app}\LWCAM"; Flags: ignoreversion
+Source: "vendor\VERSION.txt"; DestDir: "{app}\LWCamAdmin"; Flags: ignoreversion
 ; LWCam Admin
 Source: "{#AdminRelease}\*"; DestDir: "{app}\LWCamAdmin"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "vendor\vcruntime\*"; DestDir: "{app}\LWCamAdmin"; Flags: ignoreversion
@@ -82,7 +95,9 @@ Source: "{#ScrcpyDir}\*"; DestDir: "{app}\LWCAM\scrcpy"; Flags: ignoreversion re
 ; the separate QC Platform install.
 Name: "{app}\LWCam Capture\1.Images"; Permissions: users-modify
 Name: "{app}\LWCam Capture\2.Batches"; Permissions: users-modify
-Name: "{commonappdata}\LWCAM"; Permissions: users-modify
+; No users-modify: only installers write lwip.stop here. Post-install
+; LockProgramFolder also strips the write access an older install granted.
+Name: "{commonappdata}\LWCAM"
 
 #include "common.iss"
 
@@ -228,18 +243,16 @@ begin
 
   NL := #13#10;
   RemoveLwipAutostart();
+  // The shared stop-file folder: only installers write it. Also strips the
+  // users-modify an older install granted. Its network-logins sub-folder keeps
+  // its own protected list (LWIP/Upload/QC restrict it themselves).
+  if not LockProgramFolder(ExpandConstant('{commonappdata}\LWCAM')) then
+    Log('LWCam: ' + ExpandConstant('{commonappdata}\LWCAM') + ' could not be locked to Administrators.');
 
+  // Only the fact of the install: the setup steps live in installer\README.txt.
+  Closing := 'LWCam is installed.';
   if StoppedQcBackends > 0 then
-    Closing := 'The old QC engine was stopped and removed.' + NL + NL
-  else
-    Closing := '';
-  Closing := Closing + 'LWCam is installed.' + NL + NL +
-    'This station connects to a central database and to LWIP over the LAN - it installs' + NL +
-    'neither one itself. Run LWCamDatabaseSetup.exe once on the database PC and' + NL +
-    'LWIPSetup.exe once on the LWIP PC, then open LWCam Admin, complete Station Setup' + NL +
-    'with their host, port, and login, and press Save.' + NL + NL +
-    'QC review runs from the separate QC Platform installer: install QCPlatformSetup.exe' + NL +
-    'on the server PC to provide the console and QC engine.';
+    Log('LWCam: the old QC engine was stopped and removed.');
 
   Log('LWCam finished:' + NL + Closing);
   SuppressibleMsgBox(Closing, mbInformation, MB_OK, IDOK);

@@ -60,17 +60,13 @@ class NodeConfig {
   /// only so an older `lwcam_node_config.json` survives a save.
   final bool processingEnabled;
 
-  /// LWIP's input root, as THIS station sees it — the one field in this
-  /// section still actively used here, by `rework_service.dart`, to find the
-  /// file a recapture must overwrite. Null ⇒ use [destinationPath] (the
-  /// common same-PC case). Split-PC deployments point this at the shared
-  /// destination via a UNC path.
+  /// Round-trip only since 2026-09-28, like [processingEnabled]: rework used
+  /// this and [processingOutputRoot] to find a recapture's original, and now
+  /// finds it under [destinationPath] instead (`rework_service.dart`). Kept so
+  /// an older `lwcam_node_config.json` survives a save.
   final String? processingInputRoot;
 
-  /// LWIP's output root, as THIS station sees it — read alongside
-  /// [processingInputRoot] by `rework_service.dart` (mirrors
-  /// `YYYYMMDD/<folder>`). Null ⇒ a sibling `<input>_processed`. Must not be
-  /// inside the input root.
+  /// Round-trip only - see [processingInputRoot].
   final String? processingOutputRoot;
 
   /// Round-trip only, like [processingEnabled]: LWIP's own config file now
@@ -145,6 +141,12 @@ class NodeConfig {
   final String? openrouterExtractModel;
   final String? openrouterCompareModel;
 
+  /// Keys in the file this build does not know — LWCam Admin's `adminPgUser` /
+  /// `adminPgPasswordProtected`, legacy `role`/`cloudUrl`, anything a newer
+  /// build adds. Carried untouched so a save from LWCAM never drops another
+  /// app's settings.
+  final Map<String, Object?> extras;
+
   const NodeConfig({
     this.pgHost,
     this.pgPort = 5432,
@@ -179,6 +181,7 @@ class NodeConfig {
     this.openrouterApiKey,
     this.openrouterExtractModel,
     this.openrouterCompareModel,
+    this.extras = const {},
   });
 
   NodeConfig copyWith({
@@ -215,6 +218,7 @@ class NodeConfig {
     String? openrouterApiKey,
     String? openrouterExtractModel,
     String? openrouterCompareModel,
+    Map<String, Object?>? extras,
   }) {
     return NodeConfig(
       pgHost: pgHost ?? this.pgHost,
@@ -253,10 +257,12 @@ class NodeConfig {
           openrouterExtractModel ?? this.openrouterExtractModel,
       openrouterCompareModel:
           openrouterCompareModel ?? this.openrouterCompareModel,
+      extras: extras ?? this.extras,
     );
   }
 
   Map<String, Object?> toJson() => {
+    ...extras,
     'pgHost': pgHost,
     'pgPort': pgPort,
     'pgDatabase': pgDatabase,
@@ -293,7 +299,12 @@ class NodeConfig {
   };
 
   factory NodeConfig.fromJson(Map<String, Object?> json) {
+    final known = const NodeConfig().toJson().keys.toSet();
     return NodeConfig(
+      extras: {
+        for (final e in json.entries)
+          if (!known.contains(e.key)) e.key: e.value,
+      },
       pgHost: json['pgHost']?.toString(),
       pgPort: (json['pgPort'] as num?)?.toInt() ?? 5432,
       pgDatabase: json['pgDatabase']?.toString(),

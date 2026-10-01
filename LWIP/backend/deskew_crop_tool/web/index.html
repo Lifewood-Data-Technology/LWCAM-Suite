@@ -49,6 +49,9 @@
   .settings-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
   .save-msg { color: var(--green); font-weight: 600; }
   .login-card { max-width: 360px; margin: 60px auto; }
+  .nl-row { border-top: 1px solid var(--border); padding: 10px 0; overflow-wrap: anywhere; }
+  .nl-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .nl-row .settings-actions { margin-top: 8px; }
   @media (max-width: 600px) { body { padding: 12px; } .login-card { margin: 24px auto; } }
 </style>
 </head>
@@ -80,6 +83,7 @@
     </header>
 
     <div id="banner" class="banner hidden" role="status"></div>
+    <div id="schema-banner" class="banner hidden" role="alert"></div>
 
     <section class="card">
       <h2>Status</h2>
@@ -95,6 +99,7 @@
       <div class="status-line">
         Database: <strong id="db-reachable">unknown</strong>
         <span class="hint" id="db-last-report"></span>
+        <div id="db-error" class="error-text hidden"></div>
       </div>
       <div class="status-grid">
         <div class="stat"><div class="num" id="stat-waiting">-</div><div class="lbl">Waiting</div></div>
@@ -155,6 +160,7 @@
           <label for="f-db_password">Database password</label>
           <input type="password" id="f-db_password" name="db_password" autocomplete="new-password" placeholder="leave blank to keep the current password">
           <span id="db-password-hint" class="hint hidden">A password is set.</span>
+          <span class="hint">To change the host, port, user or name above, enter the password again.</span>
         </div>
         <div class="checkbox-row">
           <input type="checkbox" id="f-db_use_ssl" name="db_use_ssl">
@@ -178,7 +184,31 @@
         </div>
       </form>
     </section>
+
+    <section id="netlogin-card" class="card hidden">
+      <h2>Network folder logins</h2>
+      <p class="hint">The account this PC signs in with to reach folders on other PCs (\\PC\share). Saved once per PC and used by every LWCam service on it &mdash; QC, LWIP and Upload. Use an account with access to the LWCam folders only, not an administrator.</p>
+      <div id="nl-rows"></div>
+      <div class="settings-actions"><button type="button" id="nl-check">Test folder access</button></div>
+      <h2 style="margin-top:16px;">Add or change a login</h2>
+      <div class="field-row">
+        <label for="nl-host">Other PC</label>
+        <input type="text" id="nl-host" placeholder="FILE-PC" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <label for="nl-user">Username</label>
+        <input type="text" id="nl-user" placeholder="FILE-PC\lwcam-share" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <label for="nl-pass">Password</label>
+        <input type="password" id="nl-pass" autocomplete="new-password" placeholder="blank keeps the saved password">
+      </div>
+      <div id="nl-error" class="error-text hidden" role="alert"></div>
+      <div id="nl-msg" class="save-msg hidden" role="status"></div>
+      <div class="settings-actions"><button type="button" id="nl-save" class="primary">Save login</button></div>
+    </section>
   </div>
+  <footer class="hint" id="version-text"></footer>
 </div>
 
 <script>
@@ -194,7 +224,7 @@
     mainView: $("main-view"), userbox: $("userbox"), userboxName: $("userbox-name"), signoutBtn: $("signout-btn"),
     banner: $("banner"), servicePill: $("service-pill"), serviceSince: $("service-since"),
     configErrorBox: $("config-error-box"), lastErrorBox: $("last-error-box"), lastErrorText: $("last-error-text"),
-    dbReachable: $("db-reachable"), dbLastReport: $("db-last-report"),
+    dbReachable: $("db-reachable"), dbLastReport: $("db-last-report"), dbError: $("db-error"),
     statWaiting: $("stat-waiting"), statProcessing: $("stat-processing"), statDone: $("stat-done"), statFailed: $("stat-failed"),
     failedBox: $("failed-box"), failedList: $("failed-list"),
     logToggle: $("log-toggle"), logBox: $("log-box"),
@@ -224,15 +254,15 @@
     }
     return fetch(path, fetchOpts).then(function (resp) {
       return resp.json().catch(function () { return {}; }).then(function (data) {
-        if (resp.status === 401 && path !== "/api/login") { showLogin(null); }
+        if (resp.status === 401 && path !== "/api/login") { showLogin(data && data.replaced ? data.error : null); }
         return { ok: resp.ok, status: resp.status, data: data };
       });
     });
   }
 
   function showLogin(errorMessage) {
-    stopPolling();
-    el.mainView.classList.add("hidden");
+    // With the database down the read-only status stays visible beside the form.
+    if (state.access !== "view") { stopPolling(); el.mainView.classList.add("hidden"); }
     el.loginCard.classList.remove("hidden");
     if (errorMessage) {
       el.loginError.textContent = errorMessage;
@@ -276,9 +306,10 @@
 
   function applySession(session) {
     state.access = session.access;
-    if (session.access === "none") { showLogin(null); return; }
+    if (session.access === "none") { showLogin(session.signed_out_reason || null); return; }
 
-    el.loginCard.classList.add("hidden");
+    // Database down and nobody signed in: read-only status plus the sign-in form.
+    el.loginCard.classList.toggle("hidden", !(session.access === "view" && !session.signed_in));
     el.mainView.classList.remove("hidden");
 
     if (session.signed_in) { el.userbox.classList.remove("hidden"); setText(el.userboxName, session.user || ""); }
@@ -286,15 +317,15 @@
 
     el.banner.classList.add("hidden");
     if (session.access === "view") {
-      setText(el.banner, "Database unreachable — read-only. Open this page on the LWIP PC to change settings.");
+      setText(el.banner, "Database unreachable — read-only. An administrator can sign in below; the password is checked against the saved admin list.");
       el.banner.classList.remove("hidden");
-    } else if (session.access === "full" && session.local_fallback) {
-      setText(el.banner, "Database unreachable — changes allowed because you are on the LWIP PC.");
+    } else if (session.access === "full" && session.from_cache && !session.db_reachable) {
+      setText(el.banner, "Signed in from the saved admin list (database unreachable).");
       el.banner.classList.remove("hidden");
     }
 
-    if (session.access === "full") { el.settingsCard.classList.remove("hidden"); loadSettings(); }
-    else { el.settingsCard.classList.add("hidden"); }
+    if (session.access === "full") { el.settingsCard.classList.remove("hidden"); loadSettings(); nl.card.classList.remove("hidden"); nlLoad(); }
+    else { el.settingsCard.classList.add("hidden"); nl.card.classList.add("hidden"); }
 
     startPolling();
   }
@@ -307,6 +338,11 @@
     setText(el.servicePill, svc.state || "unknown");
     setText(el.serviceSince, svc.since ? ("since " + fmtTime(svc.since)) : "");
 
+    var sb = $("schema-banner");
+    sb.classList.toggle("hidden", !s.schema_problem);
+    if (s.schema_problem) { setText(sb, s.schema_problem); }
+    setText($("version-text"), "LWIP " + (s.version || "dev"));
+
     el.configErrorBox.classList.toggle("hidden", !s.config_error);
     if (s.config_error) { setText(el.configErrorBox, "Configuration problem: " + s.config_error); }
 
@@ -316,6 +352,8 @@
     var db = s.database || {};
     setText(el.dbReachable, db.reachable ? "reachable" : "unreachable");
     setText(el.dbLastReport, db.last_report_at ? ("last report " + fmtTime(db.last_report_at)) : "no report yet");
+    el.dbError.classList.toggle("hidden", !db.error);
+    if (db.error) { setText(el.dbError, "Reason: " + db.error); }
 
     var q = s.queue || {};
     setText(el.statWaiting, q.waiting != null ? q.waiting : "-");
@@ -443,6 +481,93 @@
   el.restartConfirmYes.addEventListener("click", function () { hideConfirmRows(); submitRestart(); });
 
   loadSession();
+
+  // ---- Network folder logins: the same card in the LWIP and Upload consoles ----
+  var nl = {
+    card: $("netlogin-card"), rows: $("nl-rows"), host: $("nl-host"), user: $("nl-user"), pass: $("nl-pass"),
+    error: $("nl-error"), msg: $("nl-msg"), save: $("nl-save"), check: $("nl-check")
+  };
+
+  function nlNode(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) { n.className = cls; }
+    if (text != null) { n.textContent = text; }
+    return n;
+  }
+
+  function nlRender(rows, checked) {
+    nl.rows.textContent = "";
+    if (!rows.length) {
+      nl.rows.appendChild(nlNode("p", "hint", "No folder of this service is on another PC, and no login is saved."));
+      return;
+    }
+    rows.forEach(function (r) {
+      var box = nlNode("div", "nl-row");
+      var head = nlNode("div", "nl-head");
+      head.appendChild(nlNode("strong", null, r.host));
+      head.appendChild(nlNode("span", "hint", r.saved ? "signs in as " + r.username : "no login saved"));
+      box.appendChild(head);
+      if (checked) {
+        if (r.saved) { box.appendChild(nlNode("div", r.loginError ? "error-text" : "save-msg", r.loginError || "Signed in")); }
+        (r.folders || []).forEach(function (f) {
+          box.appendChild(nlNode("div", f.error ? "error-text" : "hint",
+            (f.error ? "\u2717 " : "\u2713 ") + f.path + (f.error ? " \u2014 " + f.error : "")));
+        });
+      }
+      var actions = nlNode("div", "settings-actions");
+      var edit = nlNode("button", null, r.saved ? "Change" : "Add login");
+      edit.type = "button";
+      edit.addEventListener("click", function () {
+        nl.host.value = r.host; nl.user.value = r.username || ""; nl.pass.value = ""; nl.user.focus();
+      });
+      actions.appendChild(edit);
+      if (r.saved) {
+        var remove = nlNode("button", null, "Remove");
+        remove.type = "button";
+        remove.addEventListener("click", function () {
+          if (remove.dataset.armed !== "1") { remove.dataset.armed = "1"; setText(remove, "Click again to remove"); return; }
+          api("/api/network-logins/remove", { method: "POST", body: { host: r.host } }).then(nlLoad);
+        });
+        actions.appendChild(remove);
+      }
+      box.appendChild(actions);
+      nl.rows.appendChild(box);
+    });
+  }
+
+  function nlShow(node, text) { setText(node, text); node.classList.remove("hidden"); }
+
+  // The list is instant; the check signs in and tries each folder, so it follows.
+  function nlLoad() {
+    api("/api/network-logins").then(function (res) {
+      if (res.ok) { nlRender(res.data.logins || [], false); nlCheck(); }
+    });
+  }
+
+  function nlCheck() {
+    nl.check.disabled = true;
+    setText(nl.check, "Testing\u2026");
+    var done = function () { nl.check.disabled = false; setText(nl.check, "Test folder access"); };
+    api("/api/network-logins/check", { method: "POST", body: {} }).then(function (res) {
+      done();
+      if (res.ok) { nlRender(res.data.logins || [], true); }
+    }).catch(done);
+  }
+
+  nl.check.addEventListener("click", nlCheck);
+  nl.save.addEventListener("click", function () {
+    nl.error.classList.add("hidden");
+    nl.msg.classList.add("hidden");
+    nl.save.disabled = true;
+    api("/api/network-logins", { method: "POST", body: { host: nl.host.value, username: nl.user.value, password: nl.pass.value } }).then(function (res) {
+      nl.save.disabled = false;
+      if (!res.ok) { nlShow(nl.error, (res.data && res.data.error) || "Could not save the login."); return; }
+      nl.pass.value = "";
+      if (res.data.error) { nlShow(nl.error, "Saved, but signing in failed: " + res.data.error); }
+      else { nlShow(nl.msg, "Saved and signed in."); }
+      nlLoad();
+    }).catch(function () { nl.save.disabled = false; nlShow(nl.error, "Could not reach this console."); });
+  });
 })();
 </script>
 </body>
