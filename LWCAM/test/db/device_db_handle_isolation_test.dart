@@ -23,13 +23,11 @@ Future<Directory> _tempDir(String prefix) async {
   return dir;
 }
 
-Future<UploadStatsDB> _freshDb(String prefix, {bool syncEnabled = false}) async {
+Future<UploadStatsDB> _freshDb(String prefix) async {
   final base = await _tempDir(prefix);
   final db = UploadStatsDB();
   db.debugOverrideBaseFolderForTests(base.path);
-  db.syncEnabled = syncEnabled;
   addTearDown(() {
-    db.syncEnabled = false;
     return db.debugCloseAllForTests();
   });
   return db;

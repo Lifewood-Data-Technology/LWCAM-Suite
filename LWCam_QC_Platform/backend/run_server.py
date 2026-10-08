@@ -1,7 +1,7 @@
 r"""Start the QC engine from THIS working tree.
 
 Not a convenience wrapper - a correctness one. The shipped runtime's
-`python313._pth` hardcodes the INSTALLED backend
+`python314._pth` hardcodes the INSTALLED backend
 (C:\Program Files\LW Suite\QC\backend) onto sys.path, ignores PYTHONPATH, and
 does not add the working directory. So `python -m app.main` run from this
 folder silently starts the INSTALLED engine instead, and because that copy has

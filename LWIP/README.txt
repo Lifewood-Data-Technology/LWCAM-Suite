@@ -82,6 +82,33 @@ deskew_min_degrees
     export time. A tilt nobody can see is not worth QC paying for that
     resample either, which is why the threshold exists at all.
 
+mat_fill
+    true (default) or false. A tilted page keeps its full `crop_padding` on
+    every side except one the page itself runs off (its outline lies along the
+    photo's edge for a quarter of the page or more); only that side is trimmed
+    clear of the rotation corners. Whatever rotation void is left inside the
+    crop is recorded as a trailing `{"op":"matfill"}` op, which QC paints with
+    the surrounding background at preview and export time. false trims every
+    side clear of the void, shortening the padding instead.
+    Upgrade the QC server BEFORE turning this on at a site: an older QC
+    ignores the matfill op and shows the void as black corners.
+    The manifest's files[] entries also carry angle_source ("sides",
+    "min_area_rect" or "none"), page_found, off_frame (side names) and
+    mat_fill (a matfill op was recorded).
+
+Encode once: only a JPEG with a page found is re-written (a lossless jpegtran
+trim). Every other file - PNG, TIFF, BMP, JPEG XL, and a JPEG in which no page
+was found - is delivered as the source's own bytes; its crop (and deskew,
+matfill) is recorded in `qc_ops` against the full, deskew-expanded source frame
+instead. A file whose EXIF orientation is not 1 is still decoded and re-encoded.
+.jxl needs the optional pillow-jxl-plugin package; without it that file fails
+with a message saying so.
+
+Page detection thresholds with OpenCV's TRIANGLE method (since 2026-10-06; it
+was Otsu). Otsu files a bound volume's dark cover board with the backdrop,
+which cost margin and skew accuracy; on the 99 Control pages the residual tilt
+after replay fell from p90 1.0 to 0.6 degrees (22 to 14 pages above 0.5).
+
 For a tilted page, `crop_padding` is measured around the page after it has
 been straightened, at the final QC crop. LWIP maps that padded rectangle back
 into the camera frame before making its lossless JPEG crop, so rotation does
@@ -89,9 +116,12 @@ not consume the background margin as empty corner wedges. If the camera frame
 ends before a full margin is available, only the affected side is shortened.
 
 workers
-    Number of image worker processes. The conservative default is four because
-    high-resolution scans consume substantial memory. Zero selects logical CPU
-    count minus one (up to the Windows limit of 61).
+    Number of image worker processes. The default, zero, selects logical CPU
+    count minus one (up to the Windows limit of 61); on a 12-thread PC that was
+    3.5 images/s at 11 workers against 2.4 at four. Each worker decodes a whole
+    scan: measured peak is about 410 MB per worker for a 6144x8192 JPEG (plan
+    for 0.5 GB). On a PC with little RAM set a smaller number: roughly
+    (RAM in GB - 4) x 2.
 
 stable_seconds / minimum_file_age_seconds
     Without a completion marker, the full list of image paths, sizes, and

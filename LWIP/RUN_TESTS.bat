@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions
+rem The private runtime must never see a per-user site-packages (whoever runs setup may have
+rem their own Python of the same version): pip would skip packages and the runtime break.
+set "PYTHONNOUSERSITE=1"
 
 for %%I in ("%~dp0.") do set "ROOT=%%~fI"
 set "PYTHON_EXE=%ROOT%\runtime\python\python.exe"

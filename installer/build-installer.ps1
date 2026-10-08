@@ -131,7 +131,7 @@ if ($targets -contains 'Database') {
 function Get-BundledInputs {
     param([string[]] $TargetNames)
     $vc = @{ Dir = 'installer/vendor/vcruntime' }
-    $py = @{ Dir = 'installer/vendor'; Names = @('python-3.13.14-embed-amd64.zip') }
+    $py = @{ Dir = 'installer/vendor'; Names = @('python-3.14.8-embed-amd64.zip') }
     $scopes = @()
     foreach ($t in $TargetNames) {
         switch ($t) {
@@ -254,7 +254,7 @@ foreach ($name in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
     Require-File (Join-Path $vcRuntime $name) 'Visual C++ runtime DLL'
 }
 if (($targets -contains 'QC') -or ($targets -contains 'LWIP') -or ($targets -contains 'Upload') -or ($targets -contains 'Database')) {
-    Require-File (Join-Path $installerDir 'vendor\python-3.13.14-embed-amd64.zip') 'Embeddable Python archive'
+    Require-File (Join-Path $installerDir 'vendor\python-3.14.8-embed-amd64.zip') 'Embeddable Python archive'
 }
 
 if ($targets -contains 'LWCam') {

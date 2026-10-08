@@ -7,7 +7,6 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:lwcam/auth/auth_controller.dart';
 import 'package:lwcam/controllers/upload_contoller.dart';
-import 'package:lwcam/db/upload_stats_db.dart';
 import 'package:lwcam/pages/capture_box_list_page.dart';
 import 'package:lwcam/pages/gallery_page.dart';
 import 'package:lwcam/pages/home_page.dart';
@@ -65,9 +64,7 @@ Future<void> main() async {
       Get.put(AuditLogService.production(), permanent: true);
 
       // Load per-machine sync/node config (Phase 0 foundation — see
-      // node_config.dart / sync_bootstrap.dart). NodeConfig.syncEnabled
-      // defaults false, so existing installs see zero behavior change until
-      // an admin explicitly opts in from Settings. No one has logged in
+      // node_config.dart / sync_bootstrap.dart). No one has logged in
       // yet at this point, but the last real capture device id used on this
       // machine (if any) is persisted across restarts — see
       // AuthController.resolveSyncDeviceId — so a previously-configured
@@ -85,7 +82,6 @@ Future<void> main() async {
       );
       Get.put(nodeConfigService, permanent: true);
       final nodeConfig = await nodeConfigService.load();
-      UploadStatsDB().syncEnabled = nodeConfig.syncEnabled;
       try {
         // Called unconditionally — an admin-only station with no persisted
         // capture device id still needs the permanent users/projects pull

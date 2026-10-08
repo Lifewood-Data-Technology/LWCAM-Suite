@@ -11,12 +11,11 @@ import 'sync_service.dart';
 import 'transfer_queue_service.dart' show TransferQueueService, transferWaitBacklog;
 import 'users_store_service.dart';
 
-/// Applies a [NodeConfig] to the running app: flips
-/// [UploadStatsDB.syncEnabled] (governs whether the outbox hooks in
-/// upload_stats_db.dart are no-ops) and starts/stops the background
-/// [SyncService] to match. Called from three places: once at app startup
-/// (main.dart, before any device id is known — syncEnabled still takes
-/// effect immediately, draining just can't start yet), once after a
+/// Applies a [NodeConfig] to the running app: starts/stops the background
+/// [SyncService] to match. The outbox hooks in upload_stats_db.dart record
+/// whatever the switch says; syncEnabled only decides whether they are
+/// drained. Called from three places: once at app startup (main.dart, before
+/// any device id is known — draining just can't start yet), once after a
 /// successful login (auth_controller.dart, once the operator's device id —
 /// the per-device SQLite file's key — is known), and whenever an admin
 /// saves the Settings "Sync" section.
@@ -27,8 +26,6 @@ import 'users_store_service.dart';
 /// 2026-07-18 (see CHANGELOG).
 class SyncBootstrap {
   static Future<void> apply(NodeConfig config, {required String deviceId}) async {
-    UploadStatsDB().syncEnabled = config.syncEnabled;
-
     if (Get.isRegistered<SyncService>()) {
       final existing = Get.find<SyncService>();
       existing.stop();
@@ -43,16 +40,18 @@ class SyncBootstrap {
     final host = config.pgHost?.trim() ?? '';
     if (host.isEmpty) return;
 
+    final sink = PgSyncSink(
+      host: host,
+      port: config.pgPort,
+      database: config.pgDatabase ?? '',
+      user: config.pgUser ?? '',
+      password: config.pgPassword ?? '',
+      useSsl: config.pgUseSsl,
+    );
     final service = SyncService(
       db: UploadStatsDB(),
-      sink: PgSyncSink(
-        host: host,
-        port: config.pgPort,
-        database: config.pgDatabase ?? '',
-        user: config.pgUser ?? '',
-        password: config.pgPassword ?? '',
-        useSsl: config.pgUseSsl,
-      ),
+      sink: sink,
+      cloudCaptureKeys: sink.fetchCaptureKeys,
       deviceId: deviceId,
       drainEnabled: config.syncEnabled && deviceId.isNotEmpty,
       tickInterval: Duration(seconds: config.syncIntervalSeconds),

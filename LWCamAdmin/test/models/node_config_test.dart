@@ -124,7 +124,7 @@ void main() {
       final back = NodeConfig.fromJson(<String, Object?>{});
       expect(back.pgPort, 5432);
       expect(back.pgUseSsl, isFalse);
-      expect(back.syncEnabled, isFalse);
+      expect(back.syncEnabled, isTrue);
       expect(back.syncIntervalSeconds, 30);
     });
 

@@ -108,7 +108,7 @@ void main() {
       final back = NodeConfig.fromJson(<String, Object?>{});
       expect(back.pgPort, 5432);
       expect(back.pgUseSsl, isFalse);
-      expect(back.syncEnabled, isFalse); // critical: default OFF
+      expect(back.syncEnabled, isTrue); // default ON since 2026-10-01
       expect(back.syncIntervalSeconds, 30);
     });
 
@@ -145,7 +145,7 @@ void main() {
       () async {
         final svc = makeService();
         final config = await svc.load();
-        expect(config.syncEnabled, isFalse);
+        expect(config.syncEnabled, isTrue);
         expect(
           await File(p.join(tempDir.path, NodeConfigService.fileName)).exists(),
           isTrue,
@@ -158,10 +158,10 @@ void main() {
       () async {
         final svc = makeService();
         final config = await svc.load();
-        await svc.save(config.copyWith(syncEnabled: true));
+        await svc.save(config.copyWith(syncEnabled: false));
 
         final reloaded = await makeService().load();
-        expect(reloaded.syncEnabled, isTrue);
+        expect(reloaded.syncEnabled, isFalse); // a saved OFF stays off
       },
     );
 
@@ -172,7 +172,7 @@ void main() {
         await File(path).writeAsString('not json');
         final svc = makeService();
         final config = await svc.load();
-        expect(config.syncEnabled, isFalse);
+        expect(config.syncEnabled, isTrue);
       },
     );
 

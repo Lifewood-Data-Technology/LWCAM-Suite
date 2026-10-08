@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Any
 from uuid import uuid4
 
 from app.core.paths import fs_path
+from app.services.lwip_baseline import MANIFEST_NAME, _load_manifest
 from app.services.previews import generate_thumbnail_file
+from app.services.qc_ops_store import effective_ops
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,39 @@ def child_directory_path(parent: Path, index: int) -> Path:
     return parent.with_name(child_name)
 
 
+def child_manifest(parent_manifest: dict[str, Any] | None, image_names) -> dict[str, Any] | None:
+    """LWIP's manifest narrowed to [image_names] (same entry objects, every other
+    top-level field kept), or None when the parent has none or none of the pages
+    is listed (QC-added pages carry their own ignore_lwip ops and need no entry).
+
+    LWIP is the only writer of this file and the split moves its pages into
+    sibling folders - without a copy per child, effective_ops() finds no
+    baseline there and deskew/crop silently vanish from preview and export."""
+    if not parent_manifest:
+        return None
+    names = set(image_names)
+    files = [
+        e for e in parent_manifest.get("files") or []
+        if isinstance(e, dict) and e.get("relative_path") in names
+    ]
+    if not files:
+        return None
+    result = dict(parent_manifest)
+    result["files"] = files
+    thumbs = parent_manifest.get("thumbnails")
+    if isinstance(thumbs, dict) and isinstance(thumbs.get("files"), list):
+        # LWIP names a thumbnail <stem>.jpg whatever the page's extension.
+        wanted = names | {PurePosixPath(n).with_suffix(".jpg").name for n in names}
+        result["thumbnails"] = dict(
+            thumbs,
+            files=[
+                e for e in thumbs["files"]
+                if isinstance(e, dict) and PurePosixPath(str(e.get("relative_path"))).name in wanted
+            ],
+        )
+    return result
+
+
 @dataclass(frozen=True)
 class SeparationGroup:
     index: int
@@ -49,7 +86,13 @@ class SeparationFileTransaction:
         parent_image_dir: Path,
         parent_thumbnail_dir: Path | None,
         grouped_image_names: list[list[str]],
+        pending_names: tuple[str, ...] | set[str] = (),
     ) -> None:
+        # Pages whose file is still staged under a hidden name by the same
+        # commit (inserted, or replaced under a new extension): they are in
+        # their group but not in the parent yet, so nothing is moved for them
+        # and the caller's finalize writes them straight into the child.
+        self._pending = set(pending_names)
         self.parent_image_dir = parent_image_dir.expanduser().resolve()
         self.parent_thumbnail_dir = (
             parent_thumbnail_dir.expanduser().resolve() if parent_thumbnail_dir else None
@@ -94,6 +137,7 @@ class SeparationFileTransaction:
                 )
             )
         self._source_thumbnails: set[str] = set()
+        self._parent_manifest: dict[str, Any] | None = None
         self._applied = False
 
     def preflight(self) -> None:
@@ -111,6 +155,7 @@ class SeparationFileTransaction:
             ):
                 raise SeparationFileError(f"The thumbnail directory is not writable: {self.parent_thumbnail_dir}")
 
+        self._parent_manifest = _load_manifest(self.parent_image_dir)
         seen: set[str] = set()
         for group in self.groups:
             for target in (
@@ -130,6 +175,8 @@ class SeparationFileTransaction:
                     raise SeparationFileError(f"Image assigned to more than one group: {image_name}")
                 seen.add(image_name)
                 source = self.parent_image_dir / image_name
+                if image_name in self._pending:
+                    continue
                 if not fs_path(source).is_file():
                     raise SeparationFileError(f"The source image file does not exist: {source}")
                 if self.parent_thumbnail_dir:
@@ -146,6 +193,8 @@ class SeparationFileTransaction:
                     fs_path(group.temporary_thumbnail_dir).mkdir()
 
                 for image_name in group.image_names:
+                    if image_name in self._pending:
+                        continue
                     source = self.parent_image_dir / image_name
                     shutil.move(
                         str(fs_path(source)), str(fs_path(group.temporary_image_dir / image_name))
@@ -161,10 +210,22 @@ class SeparationFileTransaction:
                         generate_thumbnail_file(
                             group.temporary_image_dir / image_name,
                             target_thumbnail,
+                            # LWIP made no thumbnail: bake the page's baseline
+                            # (parent manifest + committed ops) in ourselves.
+                            effective_ops(self.parent_image_dir, image_name),
                         )
                         is None
                     ):
                         raise SeparationFileError(f"Thumbnail generation failed: {image_name}")
+
+            for group in self.groups:
+                manifest = child_manifest(self._parent_manifest, group.image_names)
+                if manifest is not None:
+                    # Staged inside the temp dir: the rename below publishes it
+                    # with the pages, and rollback() removes it with them.
+                    fs_path(group.temporary_image_dir / MANIFEST_NAME).write_text(
+                        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
 
             for group in self.groups:
                 # temporary_thumbnail_dir lives INSIDE temporary_image_dir, so
@@ -233,6 +294,11 @@ class SeparationFileTransaction:
                 except Exception as error:
                     errors.append(f"Thumbnail {thumbnail}: {error}")
 
+            # Our own manifest copy would keep image_dir non-empty.
+            try:
+                fs_path(image_dir / MANIFEST_NAME).unlink(missing_ok=True)
+            except Exception as error:
+                errors.append(f"Manifest {image_dir}: {error}")
             # thumbnail_dir is nested inside image_dir - it must empty out
             # first, or image_dir's rmdir sees it as still non-empty.
             if thumbnail_dir:

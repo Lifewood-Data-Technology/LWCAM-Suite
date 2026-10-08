@@ -85,11 +85,6 @@ class UploadStatsDB {
   /// create an empty database there.
   final Set<String> _recoveringDeviceIds = {};
 
-  /// Set once at startup from NodeConfig.syncEnabled. False (the default) ⇒
-  /// every outbox hook below is a no-op and behavior is byte-identical to
-  /// before the sync feature existed.
-  bool syncEnabled = false;
-
   // =======================================================
   // PATH HANDLING
   // =======================================================
@@ -961,6 +956,12 @@ class UploadStatsDB {
     );
     await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_entity_key ON sync_outbox(entity, entity_key)',
+    );
+    // One row per one-off job this file has finished (the cloud catch-up,
+    // [queueCaptureRowsMissingFromCloud]). Deliberately not carried over by a
+    // rebuild: a rebuilt file just runs its jobs again, harmlessly.
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT)',
     );
   }
 
@@ -1894,8 +1895,12 @@ class UploadStatsDB {
   }
 
   /// Enqueues a payload-snapshot outbox row for `SyncService` to drain later.
-  /// A no-op when [syncEnabled] is false, so callers may call this
-  /// unconditionally. `INSERT OR REPLACE` against the `UNIQUE(entity,
+  /// Always records, whatever NodeConfig.syncEnabled says — that switch only
+  /// governs the DRAIN (SyncService.drainEnabled). A capture made with sync
+  /// off is then sent once it is turned on, instead of never (until
+  /// 2026-10-01 these hooks were no-ops while off, and QC never saw those
+  /// folders). The outbox coalesces per row, so it stays as small as the
+  /// capture data itself. `INSERT OR REPLACE` against the `UNIQUE(entity,
   /// entity_key)` index coalesces repeated edits of the same row into a
   /// single pending outbox entry carrying the latest snapshot (see
   /// the SYNC section comment above). Always called from the same transaction as the
@@ -1908,7 +1913,6 @@ class UploadStatsDB {
     required String op,
     Map<String, dynamic>? payload,
   }) async {
-    if (!syncEnabled) return;
     final now = DateTime.now().toIso8601String();
     await txn.insert('sync_outbox', {
       'entity': entity,
@@ -1938,6 +1942,137 @@ class UploadStatsDB {
       limit: 1,
     );
     return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first);
+  }
+
+  static const _cloudCatchUpKey = 'cloud_catch_up_done';
+
+  /// One-time catch-up for [db] (a device's stable file): queues every local
+  /// box, folder and image that PostgreSQL does not hold and the outbox does
+  /// not already carry. Before 2026-10-01 the outbox hooks did nothing while
+  /// sync was off, so a capture made then was never queued, and nothing else
+  /// would ever send it — LWIP then finds no record and QC never shows it.
+  ///
+  /// MISSING rows only. Re-sending a row PG already has would overwrite QC's
+  /// metadata edits with this PC's older copy and revive folders QC deleted.
+  /// [cloudKeys] returns the [captureCloudKey]s PG holds for one device id
+  /// (soft-deleted rows included). If it throws, the job stays undone and the
+  /// next sync tick tries again. Returns the number of rows queued.
+  Future<int> queueCaptureRowsMissingFromCloud(
+    Database db,
+    Future<Set<String>> Function(String deviceId) cloudKeys,
+  ) async {
+    final done = await db.query(
+      'sync_meta',
+      where: 'key = ?',
+      whereArgs: [_cloudCatchUpKey],
+      limit: 1,
+    );
+    if (done.isNotEmpty) return 0;
+
+    final cloud = <String>{};
+    for (final row in await db.rawQuery(
+      'SELECT DISTINCT device_id FROM capture_boxes',
+    )) {
+      cloud.addAll(await cloudKeys(row['device_id'] as String));
+    }
+
+    return db.transaction((txn) async {
+      final alreadyQueued = {
+        for (final r in await txn.query(
+          'sync_outbox',
+          columns: ['entity', 'entity_key'],
+        ))
+          '${r['entity']}|${r['entity_key']}',
+      };
+      var queued = 0;
+
+      // Local box id → its project_key, and the name PG knows it by
+      // (renamed_from while a rename is still unsent) or null if PG has none.
+      final projectKeyOf = <int, String?>{};
+      final cloudNameOf = <int, String?>{};
+      for (final box in await txn.query('capture_boxes', orderBy: 'id')) {
+        final id = (box['id'] as num).toInt();
+        final projectKey = box['project_key'] as String?;
+        projectKeyOf[id] = projectKey;
+        cloudNameOf[id] = [box['box_name'], box['renamed_from']]
+            .whereType<String>()
+            .where((name) => cloud.contains(captureCloudKey(projectKey, name)))
+            .firstOrNull;
+        if (cloudNameOf[id] == null &&
+            !alreadyQueued.contains('capture_boxes|$id')) {
+          await _enqueueCaptureBoxUpsert(txn, id);
+          queued++;
+        }
+      }
+
+      // Parents are queued before children (ascending outbox ids), which is
+      // the order the drain needs.
+      final folderOf = <int, ({int boxId, int seq})>{};
+      for (final folder in await txn.query(
+        'capture_folders',
+        columns: ['id', 'box_id', 'folder_seq'],
+        orderBy: 'id',
+      )) {
+        final id = (folder['id'] as num).toInt();
+        final boxId = (folder['box_id'] as num).toInt();
+        final seq = (folder['folder_seq'] as num).toInt();
+        folderOf[id] = (boxId: boxId, seq: seq);
+        final name = cloudNameOf[boxId];
+        final inCloud =
+            name != null &&
+            cloud.contains(captureCloudKey(projectKeyOf[boxId], name, seq));
+        if (!inCloud && !alreadyQueued.contains('capture_folders|$id')) {
+          await _enqueueCaptureFolderUpsert(txn, id);
+          queued++;
+        }
+      }
+
+      for (final image in await txn.query('capture_images', orderBy: 'id')) {
+        final folderId = (image['folder_id'] as num).toInt();
+        final folder = folderOf[folderId];
+        if (folder == null) continue; // orphan row — nothing to attach it to
+        final deviceName = image['image_name'] as String;
+        final transferred = (image['transferred_name'] as String?)?.trim();
+        final finalName = transferred == null || transferred.isEmpty
+            ? deviceName
+            : transferred;
+        final boxName = cloudNameOf[folder.boxId];
+        final projectKey = projectKeyOf[folder.boxId];
+        final inCloud =
+            boxName != null &&
+            {deviceName, finalName}.any(
+              (n) => cloud.contains(
+                captureCloudKey(projectKey, boxName, folder.seq, n),
+              ),
+            );
+        if (inCloud ||
+            alreadyQueued.contains('capture_images|$folderId|$deviceName')) {
+          continue;
+        }
+        // The same payload the capture and transfer hooks would have sent.
+        final row = Map<String, dynamic>.from(image)
+          ..remove('id')
+          ..remove('box_id');
+        if (finalName != deviceName) {
+          row['image_name'] = finalName;
+          row['image_renamed_from'] = deviceName;
+        }
+        await _enqueueCaptureImageUpsert(
+          txn,
+          folderId,
+          finalName,
+          row,
+          entityKeyName: deviceName,
+        );
+        queued++;
+      }
+
+      await txn.insert('sync_meta', {
+        'key': _cloudCatchUpKey,
+        'value': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      return queued;
+    });
   }
 
   // ── Boxes ────────────────────────────────────────────────────────────────
@@ -2131,10 +2266,9 @@ class UploadStatsDB {
     );
   }
 
-  /// Re-reads box [boxId] and enqueues its current state, when sync is on.
+  /// Re-reads box [boxId] and enqueues its current state.
   /// Shared by every capture_boxes update hook.
   Future<void> _enqueueCaptureBoxUpsert(DatabaseExecutor txn, int boxId) async {
-    if (!syncEnabled) return;
     final snapshot = await _snapshotRow(txn, 'capture_boxes', boxId);
     if (snapshot == null) return;
     await _enqueueOutbox(
@@ -2360,7 +2494,6 @@ class UploadStatsDB {
     DatabaseExecutor txn,
     int folderId,
   ) async {
-    if (!syncEnabled) return;
     final snapshot = await _snapshotRow(txn, 'capture_folders', folderId);
     if (snapshot == null) return;
     snapshot.addAll(await _parentBoxKeys(txn, snapshot['box_id']));
@@ -2396,7 +2529,6 @@ class UploadStatsDB {
     String? comment,
     String reworkType = 'Recapture',
   }) async {
-    if (!syncEnabled) return;
     final db = await getDatabase(deviceId);
     await db.transaction((txn) async {
       await _enqueueOutbox(
@@ -2457,7 +2589,6 @@ class UploadStatsDB {
     required bool resetQcStatus,
     bool? isCreatedThumbnail, // null = unknown, PG column left untouched
   }) async {
-    if (!syncEnabled) return;
     if (changedMetadata.isEmpty && !resetQcStatus) return;
     final db = await getDatabase(deviceId);
     await db.transaction((txn) async {
@@ -2529,26 +2660,24 @@ class UploadStatsDB {
     });
   }
 
-  /// Deletes one folder row and, when sync is on, enqueues its delete. The
+  /// Deletes one folder row and enqueues its delete. The
   /// caller has already established that no image is assigned to it.
   Future<void> _deleteFolderRow(DatabaseExecutor txn, int folderId) async {
     // Snapshot the cloud natural key BEFORE the row disappears — delete
     // ops must carry it (the sink soft-deletes by (box, folder_seq)).
     Map<String, dynamic>? deletePayload;
-    if (syncEnabled) {
-      final rows = await txn.query(
-        'capture_folders',
-        columns: ['box_id', 'folder_seq'],
-        where: 'id = ?',
-        whereArgs: [folderId],
-        limit: 1,
-      );
-      if (rows.isNotEmpty) {
-        deletePayload = {
-          'folder_seq': rows.first['folder_seq'],
-          ...await _parentBoxKeys(txn, rows.first['box_id']),
-        };
-      }
+    final rows = await txn.query(
+      'capture_folders',
+      columns: ['box_id', 'folder_seq'],
+      where: 'id = ?',
+      whereArgs: [folderId],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      deletePayload = {
+        'folder_seq': rows.first['folder_seq'],
+        ...await _parentBoxKeys(txn, rows.first['box_id']),
+      };
     }
 
     await txn.delete('capture_folders', where: 'id = ?', whereArgs: [folderId]);
@@ -2584,9 +2713,7 @@ class UploadStatsDB {
       );
       if ((countRows.first['c'] as num).toInt() > 0) return false;
 
-      final deletePayload = syncEnabled
-          ? await _parentBoxKeys(txn, boxId)
-          : null;
+      final deletePayload = await _parentBoxKeys(txn, boxId);
 
       final folders = await txn.query(
         'capture_folders',
@@ -2600,7 +2727,7 @@ class UploadStatsDB {
 
       await txn.delete('capture_boxes', where: 'id = ?', whereArgs: [boxId]);
 
-      if (deletePayload != null && deletePayload.isNotEmpty) {
+      if (deletePayload.isNotEmpty) {
         await _enqueueOutbox(
           txn,
           entity: 'capture_boxes',
@@ -2846,7 +2973,6 @@ class UploadStatsDB {
     Map<String, dynamic> row, {
     String? entityKeyName,
   }) async {
-    if (!syncEnabled) return;
     final payload = Map<String, dynamic>.from(row);
     final folderRows = await txn.query(
       'capture_folders',
@@ -2901,24 +3027,21 @@ class UploadStatsDB {
       }
       final folderId = (rows.first['folder_id'] as num).toInt();
 
-      Map<String, dynamic>? deletePayload;
-      if (syncEnabled) {
-        // transferred_name is guaranteed empty here — the refusal above
-        // already returned for any row that has one.
-        deletePayload = {'image_name': deviceFilename};
-        final folderRows = await txn.query(
-          'capture_folders',
-          columns: ['box_id', 'folder_seq'],
-          where: 'id = ?',
-          whereArgs: [folderId],
-          limit: 1,
+      // transferred_name is guaranteed empty here — the refusal above
+      // already returned for any row that has one.
+      final deletePayload = <String, dynamic>{'image_name': deviceFilename};
+      final folderRows = await txn.query(
+        'capture_folders',
+        columns: ['box_id', 'folder_seq'],
+        where: 'id = ?',
+        whereArgs: [folderId],
+        limit: 1,
+      );
+      if (folderRows.isNotEmpty) {
+        deletePayload['folder_seq'] = folderRows.first['folder_seq'];
+        deletePayload.addAll(
+          await _parentBoxKeys(txn, folderRows.first['box_id']),
         );
-        if (folderRows.isNotEmpty) {
-          deletePayload['folder_seq'] = folderRows.first['folder_seq'];
-          deletePayload.addAll(
-            await _parentBoxKeys(txn, folderRows.first['box_id']),
-          );
-        }
       }
 
       await txn.delete(
@@ -2926,15 +3049,13 @@ class UploadStatsDB {
         where: 'image_name = ?',
         whereArgs: [deviceFilename],
       );
-      if (deletePayload != null) {
-        await _enqueueOutbox(
-          txn,
-          entity: 'capture_images',
-          entityKey: '$folderId|$deviceFilename',
-          op: 'delete',
-          payload: deletePayload,
-        );
-      }
+      await _enqueueOutbox(
+        txn,
+        entity: 'capture_images',
+        entityKey: '$folderId|$deviceFilename',
+        op: 'delete',
+        payload: deletePayload,
+      );
       return true;
     });
   }

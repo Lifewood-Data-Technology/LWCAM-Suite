@@ -12,7 +12,7 @@ from .image_ops import DEFAULT_DESKEW_MIN_DEGREES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "deskew_crop_config.json"
-DEFAULT_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+DEFAULT_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".jxl")
 
 # Pixels kept on EACH side of the detected content rect before cropping.
 # The real value comes from the config file Station Setup writes; this is only
@@ -65,6 +65,9 @@ class ToolConfig:
     # matters is in image_ops (DEFAULT_DESKEW_MIN_DEGREES); this carries a
     # station's override to it.
     deskew_min_degrees: float = DEFAULT_DESKEW_MIN_DEGREES
+    # Keep full padding on a tilted page and let QC paint the rotation void
+    # (a trailing matfill op) instead of trimming the padding away.
+    mat_fill: bool = True
     # LWIP's own database login, since the standalone install has no LWCAM
     # node config to borrow it from. Defaulted blank/false like the two
     # fields above; load_config is what makes them mandatory, and only when
@@ -108,7 +111,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
         raw.get("log_file", "runtime/logs/deskew_crop.log"), base
     )
 
-    workers = int(raw.get("workers", 4))
+    workers = int(raw.get("workers", 0))
     if workers == 0:
         workers = min(61, max(1, (os.cpu_count() or 2) - 1))
     elif workers < 0:
@@ -129,6 +132,9 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
     deskew_min_degrees = float(
         raw.get("deskew_min_degrees", DEFAULT_DESKEW_MIN_DEGREES)
     )
+    mat_fill = raw.get("mat_fill", True)
+    if not isinstance(mat_fill, bool):
+        raise ValueError("mat_fill must be true or false")
     # Off by default, like completion_marker and thumbnail_width: a bare
     # START_DESKEW_CROP.bat run must never reach for a database. Station Setup
     # writes true, so every managed station reports.
@@ -247,6 +253,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
         cloud_report=cloud_report,
         rework_settle_seconds=rework_settle,
         deskew_min_degrees=deskew_min_degrees,
+        mat_fill=mat_fill,
         db_host=db_host,
         db_port=db_port,
         db_name=db_name,

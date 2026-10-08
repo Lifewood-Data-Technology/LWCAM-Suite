@@ -13,13 +13,11 @@ Future<Directory> _tempDir(String prefix) async {
   return dir;
 }
 
-Future<UploadStatsDB> _freshDb(String prefix, {bool syncEnabled = false}) async {
+Future<UploadStatsDB> _freshDb(String prefix) async {
   final base = await _tempDir(prefix);
   final db = UploadStatsDB();
   db.debugOverrideBaseFolderForTests(base.path);
-  db.syncEnabled = syncEnabled;
   addTearDown(() {
-    db.syncEnabled = false;
     return db.debugCloseAllForTests();
   });
   return db;
@@ -302,7 +300,7 @@ void main() {
 
     test('insertUploadRecord with sync ON writes the record but NO outbox row '
         'anywhere — upload_records is local-only now', () async {
-      final db = await _freshDb('monthly_outbox_atomic_', syncEnabled: true);
+      final db = await _freshDb('monthly_outbox_atomic_');
       const deviceId = 'SAX01';
 
       await db.insertUploadRecord(
@@ -326,7 +324,7 @@ void main() {
 
     test('getOutboxDatabases never includes a monthly file — only stable DBs '
         'carry an outbox', () async {
-      final db = await _freshDb('monthly_outbox_sources_', syncEnabled: true);
+      final db = await _freshDb('monthly_outbox_sources_');
       const deviceId = 'SAX01';
 
       await db.insertUploadRecord(

@@ -16,7 +16,7 @@
   #define AppsDir ".."
 #endif
 #define UploadDir AppsDir + "\LWCam_Upload"
-#define PyEmbedZip "vendor\python-3.13.14-embed-amd64.zip"
+#define PyEmbedZip "vendor\python-3.14.8-embed-amd64.zip"
 
 [Setup]
 AppName={#AppNameFull}
@@ -57,7 +57,7 @@ Source: "{#UploadDir}\START_UPLOAD.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#UploadDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Build the private runtime on the target; its archive is staged once at the root.
-Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall
 Source: "vendor\vcruntime\*"; DestDir: "{app}\runtime\vc"; Flags: ignoreversion
 
 [Dirs]
@@ -80,8 +80,11 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""LWCam Upload"""; Flags: 
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam Upload"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveUploadTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam Upload"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveUploadFirewallRule"
 
-[UninstallDelete]
+[InstallDelete]
 Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
+
+[UninstallDelete]
+Type: files; Name: "{app}\python-3.14.8-embed-amd64.zip"
 ; runtime\ is NOT removed wholesale: uploads.json is the ledger of what was
 ; already sent, and without it a reinstall would upload every package again.
 ; Only what Setup or the service can rebuild goes.

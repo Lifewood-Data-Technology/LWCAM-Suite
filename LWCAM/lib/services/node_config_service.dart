@@ -124,7 +124,7 @@ class NodeConfigService {
     }
   }
 
-  /// The in-memory config if [load] has run, else null — for call sites (like
-  /// UploadStatsDB.syncEnabled at startup) that must not force an async load.
+  /// The in-memory config if [load] has run, else null — for call sites that
+  /// must not force an async load.
   NodeConfig? get cached => _cached;
 }

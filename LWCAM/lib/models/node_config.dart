@@ -25,8 +25,9 @@ class NodeConfig {
   final bool pgUseSsl;
 
   // ── Sync behaviour ───────────────────────────────────────────────────────
-  /// Default false: existing installs get zero behavior change until an
-  /// admin deliberately opts in from Settings.
+  /// Default true (2026-10-01): QC, LWIP and export only see a folder once
+  /// LWCAM has sent it to PostgreSQL, so off silently stalls the pipeline.
+  /// A config file that says false keeps it off.
   final bool syncEnabled;
   final int syncIntervalSeconds;
 
@@ -154,7 +155,7 @@ class NodeConfig {
     this.pgUser,
     this.pgPassword,
     this.pgUseSsl = false,
-    this.syncEnabled = false,
+    this.syncEnabled = true,
     this.syncIntervalSeconds = 30,
     this.usersStorePath,
     this.pgConnectionEnabled = true,
@@ -311,7 +312,7 @@ class NodeConfig {
       pgUser: json['pgUser']?.toString(),
       pgPassword: json['pgPassword']?.toString(),
       pgUseSsl: json['pgUseSsl'] as bool? ?? false,
-      syncEnabled: json['syncEnabled'] as bool? ?? false,
+      syncEnabled: json['syncEnabled'] as bool? ?? true,
       syncIntervalSeconds: (json['syncIntervalSeconds'] as num?)?.toInt() ?? 30,
       usersStorePath: json['usersStorePath']?.toString(),
       pgConnectionEnabled: json['pgConnectionEnabled'] as bool? ?? true,

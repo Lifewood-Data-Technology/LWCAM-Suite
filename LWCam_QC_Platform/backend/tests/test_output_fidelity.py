@@ -506,6 +506,57 @@ class ExportZipToggleTests(unittest.TestCase):
                 )
 
 
+    def test_zip_stores_images_and_deflates_csvs(self) -> None:
+        import zipfile
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = []
+            for index, name in enumerate(("a.jpg", "b.jpg"), start=1):
+                path = root / name
+                write_capture(path)
+                sources.append(
+                    ImageSource(
+                        id=index,
+                        name=name,
+                        path=path,
+                        size=path.stat().st_size,
+                        mtime_ns=path.stat().st_mtime_ns,
+                        ops=[],
+                    )
+                )
+            snapshot = FolderExportSnapshot(
+                folder_id=1,
+                project_id=1,
+                ingest_project_id="P1",
+                location_code="MY",
+                metadata=self._metadata(),
+                images=sources,
+                source_user_id="op",
+                source_date=date(2026, 8, 4),
+            )
+            config = ExportRuntimeConfig(
+                temp_dir=root,
+                output_dir=root,
+                encoding="utf-8",
+                line_ending_name="LF",
+                line_ending="\n",
+                tiff_output=False,
+                zip_output=True,
+            )
+            package = build_export_zip(snapshot, "GROUP", "run", config)
+            with zipfile.ZipFile(package.path) as archive:
+                kinds = {i.filename: i.compress_type for i in archive.infolist()}
+                self.assertEqual(kinds[GROUP_CSV_NAME], zipfile.ZIP_DEFLATED)
+                self.assertEqual(kinds[ARTIFACT_CSV_NAME], zipfile.ZIP_DEFLATED)
+                for name in ("GROUP_Image0001.jpg", "GROUP_Image0002.jpg"):
+                    self.assertEqual(kinds[f"artifacts/{name}"], zipfile.ZIP_STORED)
+                self.assertEqual(
+                    archive.read("artifacts/GROUP_Image0001.jpg"),
+                    (root / "a.jpg").read_bytes(),
+                )
+
+
 class LuminanceGuardTests(unittest.TestCase):
     """The button is not the boundary.
 

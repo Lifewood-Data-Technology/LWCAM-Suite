@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions
+rem The private runtime must never see a per-user site-packages (whoever runs setup may have
+rem their own Python of the same version): pip would skip packages and the runtime break.
+set "PYTHONNOUSERSITE=1"
 
 rem Restore the LWCam database from a backup made by BACKUP_DATABASE.bat.
 rem   RESTORE_DATABASE.bat "D:\LWCam Backups\lwcam-20260930-0200.dump" [/y]

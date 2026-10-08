@@ -789,6 +789,9 @@ def verify_sources_unchanged(snapshot: FolderExportSnapshot) -> None:
 EXPORT_PARALLEL_MIN_IMAGES = 4
 
 
+_IMAGE_EXTS = (".tif", ".tiff", ".jpg", ".jpeg")
+
+
 def export_worker_count() -> int:
     """How many processes to convert images with.
 
@@ -962,7 +965,10 @@ def build_export_zip(
         archive.write(fs_path(work_dir / ARTIFACT_CSV_NAME), ARTIFACT_CSV_NAME)
         for row in artifact_rows:
             artifact_name = str(row["Filename"])
-            archive.write(fs_path(artifacts_dir / artifact_name), f"artifacts/{artifact_name}")
+            # Images are already compressed (TIFF deflate / JPEG): DEFLATE again
+            # gained 0.0% and cost ~55 s per 99 pages. Store them; CSVs stay deflated.
+            kind = zipfile.ZIP_STORED if artifact_name.lower().endswith(_IMAGE_EXTS) else zipfile.ZIP_DEFLATED
+            archive.write(fs_path(artifacts_dir / artifact_name), f"artifacts/{artifact_name}", compress_type=kind)
     expected_names = [
         GROUP_CSV_NAME,
         ARTIFACT_CSV_NAME,

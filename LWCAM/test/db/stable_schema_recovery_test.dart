@@ -160,7 +160,6 @@ void main() {
       const deviceId = 'SAX-RECOVER';
       final db = UploadStatsDB();
       db.debugOverrideBaseFolderForTests(base.path);
-      db.syncEnabled = true;
       await db.insertCaptureBox(deviceId: deviceId, boxDetails: 'OLD');
       await db.debugCloseAllForTests();
 
@@ -230,7 +229,6 @@ void main() {
           .where((f) => f.path.contains('.corrupt-'))
           .toList();
       expect(backups, isNotEmpty);
-      db.syncEnabled = false;
       await db.debugCloseAllForTests();
     },
   );

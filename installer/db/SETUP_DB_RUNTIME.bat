@@ -1,11 +1,14 @@
 @echo off
 setlocal EnableExtensions
+rem The private runtime must never see a per-user site-packages (whoever runs setup may have
+rem their own Python of the same version): pip would skip packages and the runtime break.
+set "PYTHONNOUSERSITE=1"
 
 rem Build the Database installer's own embeddable Python runtime offline -
 rem the same technique as the QC server's SETUP_QC.bat, but this runtime only
 rem ever runs setup_qc_db.py, so it needs psycopg and nothing else.
 for %%I in ("%~dp0.") do set "ROOT=%%~fI"
-set "ZIP_NAME=python-3.13.14-embed-amd64.zip"
+set "ZIP_NAME=python-3.14.8-embed-amd64.zip"
 rem At install the archive sits at ROOT; in a source checkout it sits under vendor.
 set "PY_ZIP="
 if exist "%ROOT%\%ZIP_NAME%" set "PY_ZIP=%ROOT%\%ZIP_NAME%"
@@ -21,6 +24,16 @@ del /q "%SETUP_OK%" >nul 2>&1
 
 echo [DB] Setup root: %ROOT%
 
+rem A runtime of another Python version (an upgrade from 3.13) is rebuilt, not reused:
+rem the bundled wheels are built for 3.14 only.
+if exist "%PY%" (
+    "%PY%" -c "import sys; raise SystemExit(sys.version_info[:2] != (3, 14))" >nul 2>&1
+    if errorlevel 1 rmdir /s /q "%PY_DIR%"
+)
+if exist "%PY%" if not exist "%PY_DIR%\python314.dll" (
+    echo [ERROR] The old Python runtime in %PY_DIR% could not be removed. Close what uses it and run setup again.
+    exit /b 1
+)
 if exist "%PY%" goto python_ready
 if not exist "%PY_ZIP%" (
     echo [ERROR] Bundled Python runtime not found: %PY_ZIP%
@@ -44,8 +57,8 @@ for %%F in ("%ROOT%\runtime\vc\*.dll") do (
     )
 )
 if not exist "%SITE%" mkdir "%SITE%"
-> "%PY_DIR%\python313._pth" (
-    echo python313.zip
+> "%PY_DIR%\python314._pth" (
+    echo python314.zip
     echo .
     echo Lib\site-packages
     echo import site

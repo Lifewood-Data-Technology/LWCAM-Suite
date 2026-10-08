@@ -15,7 +15,7 @@
   #define AppsDir ".."
 #endif
 #define LwipDir AppsDir + "\LWIP"
-#define PyEmbedZip "vendor\python-3.13.14-embed-amd64.zip"
+#define PyEmbedZip "vendor\python-3.14.8-embed-amd64.zip"
 
 [Setup]
 AppName={#AppNameFull}
@@ -59,7 +59,7 @@ Source: "{#LwipDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#LwipDir}\README_CN.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Build the private runtime on the target; its archive is staged once at the root.
-Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall
 Source: "vendor\vcruntime\*"; DestDir: "{app}\runtime\vc"; Flags: ignoreversion
 ; jpegtran (in tools\) needs its own copy - it is not on runtime\vc's search path.
 Source: "vendor\vcruntime\vcruntime140.dll"; DestDir: "{app}\tools"; Flags: ignoreversion
@@ -87,8 +87,11 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""LWCam LWIP"""; Flags: ru
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam LWIP"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLwipTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam LWIP"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLwipFirewallRule"
 
-[UninstallDelete]
+[InstallDelete]
 Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
+
+[UninstallDelete]
+Type: files; Name: "{app}\python-3.14.8-embed-amd64.zip"
 ; runtime\ is NOT removed wholesale: state.json (+ .bak) is the journal of every
 ; folder already processed, and without it a reinstall would reprocess them all
 ; over QC's edits. Only what Setup or the service can rebuild goes.

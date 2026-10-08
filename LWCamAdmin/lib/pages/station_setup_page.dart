@@ -294,8 +294,10 @@ class _StationSetupPageState extends State<StationSetupPage> {
               dense: true,
               title: const Text('Capture-data sync (LWCAM outbox)'),
               subtitle: const Text(
-                'Whether LWCAM drains its captured groups/folders/images to '
-                'PostgreSQL. Separate from this app\'s own connection above.',
+                'Whether LWCAM sends its captured groups/folders/images to '
+                'PostgreSQL. LWIP and QC only see folders that were sent, so '
+                'leave it on. Captures made while it is off are sent once it '
+                'is turned back on.',
               ),
               value: _c.lwcamSyncEnabled.value,
               onChanged: (v) => _c.lwcamSyncEnabled.value = v,

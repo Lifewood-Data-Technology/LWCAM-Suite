@@ -11,3 +11,6 @@ psycopg[binary]==3.3.4
 bcrypt==5.0.0
 # Certificates for the https console pages (tls.py); the wheels (cryptography, cffi, pycparser) are staged in wheels/.
 cryptography==50.0.1
+# Optional JPEG XL decode (.jxl input); registered by geometry_replay.py and image_ops.py.
+# Wheels (pillow_jxl_plugin, packaging) are staged in wheels/.
+pillow-jxl-plugin==1.3.8

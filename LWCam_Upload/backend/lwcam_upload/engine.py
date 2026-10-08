@@ -73,6 +73,9 @@ RETRY_CAP = timedelta(hours=1)
 # A network share that stops answering must not freeze the sweep, the
 # heartbeat or the console: every check of it runs on a worker thread.
 WATCH_CHECK_SECONDS = 10.0
+# A package is uploaded only after its content has been unchanged this long
+# (guards hand-copied or foreign packages that are still being written).
+SETTLE_SECONDS = 10.0
 # Windows errors that mean "the server answered and there is no such folder",
 # as opposed to the server not answering (53 network path not found, 64, 67, 1231...).
 _NOT_FOUND_WINERRORS = {2, 3}
@@ -503,6 +506,10 @@ class UploadCoordinator:
         self._scan_started_at: float | None = None
         self._scan_done_at: float | None = None
         self._scanning = False
+        # Settle check: name -> (fingerprint, monotonic time first seen with it).
+        self._first_seen: dict[str, tuple[str, float]] = {}
+        self._settle_noted: set[str] = set()  # "still changing" already logged
+        self._settle_ready: float | None = None  # earliest settling package's ready time
 
     def scan_age_minutes(self) -> float:
         """Minutes since the last COMPLETED scan; while one is running, since it
@@ -659,13 +666,39 @@ class UploadCoordinator:
             self._scan_started_at = time.monotonic()
             self._scanning = True
         try:
-            return self._scan(config, stop_check)
+            done = self._scan(config, stop_check)
+            # Packages that appeared or changed just now are held back until
+            # they have been still for SETTLE_SECONDS; wait for that here (at
+            # most two extra passes) instead of leaving them a whole interval.
+            extra = 0
+            while self._settle_ready is not None and extra < 2:
+                while (
+                    self._settle_ready is not None
+                    and time.monotonic() < self._settle_ready
+                    and not (stop_check is not None and stop_check())
+                ):
+                    time.sleep(max(0.0, min(1.0, self._settle_ready - time.monotonic())))
+                if stop_check is not None and stop_check():
+                    break
+                extra += 1
+                done += self._scan(config, stop_check)
+            if self._settle_ready is not None and extra >= 2:
+                for name in self._first_seen:
+                    if name not in self._settle_noted and self._is_settling(name):
+                        self._settle_noted.add(name)
+                        log("SCAN", f"{name}: still changing; will check again next scan")
+            return done
         finally:
             with self._lock:
                 self._scanning = False
                 self._scan_done_at = time.monotonic()
 
+    def _is_settling(self, name: str) -> bool:
+        seen = self._first_seen.get(name)
+        return bool(seen) and time.monotonic() - seen[1] < SETTLE_SECONDS
+
     def _scan(self, config: Config, stop_check: Callable[[], bool] | None) -> int:
+        self._settle_ready = None
         target = upload_target(config)
         ledger_path = self.ledger_path(config)
         kind, problem = watch_state(config.watch_root)
@@ -696,6 +729,10 @@ class UploadCoordinator:
         if count or count != self._last_scan_count:
             log("SCAN", f"{count} package(s) waiting")
         self._last_scan_count = count
+        present = {p.name for p in packages}
+        for name in [n for n in self._first_seen if n not in present]:
+            del self._first_seen[name]
+            self._settle_noted.discard(name)
         for package in packages:
             if stop_check is not None and stop_check():
                 break
@@ -730,6 +767,20 @@ class UploadCoordinator:
                     if self._after_upload(target, package, entry):
                         self._save(ledger_path, ledger)
                     continue
+            # Settle: upload only what has been unchanged for SETTLE_SECONDS.
+            seen = self._first_seen.get(package.name)
+            clock = time.monotonic()
+            if seen is None or seen[0] != fingerprint:
+                if seen is None:
+                    log("SCAN", f"{package.name}: waiting for it to stop changing")
+                self._first_seen[package.name] = seen = (fingerprint, clock)
+                self._settle_noted.discard(package.name)
+            if clock - seen[1] < SETTLE_SECONDS:
+                ready = seen[1] + SETTLE_SECONDS
+                if self._settle_ready is None or ready < self._settle_ready:
+                    self._settle_ready = ready
+                continue
+            self._settle_noted.discard(package.name)
             attempts = 1 if reworked else int(entry.get("attempts") or 0) + 1
             with self._lock:
                 self._current = {"package": package.name, "startedAt": utc_now().isoformat()}

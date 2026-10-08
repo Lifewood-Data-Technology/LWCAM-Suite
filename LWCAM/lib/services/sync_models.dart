@@ -4,9 +4,25 @@
 /// database driver.
 library;
 
+/// One capture row's cloud identity as a flat string: (project_key, box_name)
+/// for a box, plus folder_seq for a folder, plus image_name for an image. How
+/// `UploadStatsDB.queueCaptureRowsMissingFromCloud` matches local rows against
+/// `PgSyncSink.fetchCaptureKeys`.
+String captureCloudKey(
+  String? projectKey,
+  String boxName, [
+  int? folderSeq,
+  String? imageName,
+]) => [
+  projectKey ?? '',
+  boxName,
+  if (folderSeq != null) '$folderSeq',
+  if (imageName != null) imageName,
+].join('\u0000');
+
 /// `SyncService`'s current activity, surfaced to Settings as a status chip.
 enum SyncState {
-  /// syncEnabled is false (NodeConfig) — the default; no timer runs.
+  /// No PostgreSQL host configured; no timer runs.
   disabled,
 
   /// Timer running, outbox empty, nothing to do.

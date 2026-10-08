@@ -55,6 +55,13 @@ class SyncService extends GetxController {
   /// box-name uniqueness pull at the tail of each tick; null skips the pull.
   final String? Function()? activeProjectKey;
 
+  /// PG's capture keys for one device id, for the one-time catch-up
+  /// ([UploadStatsDB.queueCaptureRowsMissingFromCloud]) each source DB runs
+  /// before its first drain — wired by SyncBootstrap to
+  /// [PgSyncSink.fetchCaptureKeys]. Null skips the catch-up (tests that only
+  /// exercise the drain).
+  final Future<Set<String>> Function(String deviceId)? cloudCaptureKeys;
+
   final Rx<SyncState> state = SyncState.disabled.obs;
   final RxInt pendingCount = 0.obs;
   final Rx<String?> lastError = Rx<String?>(null);
@@ -101,6 +108,7 @@ class SyncService extends GetxController {
     this.tickInterval = const Duration(seconds: 30),
     this.applyPulledStore,
     this.activeProjectKey,
+    this.cloudCaptureKeys,
     this.heartbeatEnabled = false,
     this.extraBacklog,
     this.heartbeatInterval = const Duration(seconds: 60),
@@ -196,6 +204,25 @@ class SyncService extends GetxController {
 
     if (drainEnabled) {
       for (final source in sources) {
+        final catchUp = cloudCaptureKeys;
+        if (catchUp != null) {
+          try {
+            final queued = await _db.queueCaptureRowsMissingFromCloud(
+              source,
+              catchUp,
+            );
+            if (queued > 0) {
+              print('📤 Queued $queued capture row(s) the database never got');
+            }
+          } on SyncConnectException catch (e) {
+            lastError.value = e.message;
+            hadOffline = true;
+            break;
+          } catch (e) {
+            // Retried next tick; the drain itself is unaffected.
+            print('⚠️ Cloud catch-up skipped this tick: $e');
+          }
+        }
         await _holdDependentsOfHeld(source);
         final rows = await _selectEligible(source);
         if (rows.isEmpty) continue;

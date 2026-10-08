@@ -297,7 +297,7 @@ begin
   Dir := TlsFolder();
   Result :=
     ForceDirectories(Dir) and LockProgramFolder(ExtractFileDir(Dir)) and RestrictToAdmins(Dir, True) and
-    Exec(Python, '-m ' + Package + ' ensure "' + Dir + '" --config "' + ConfigPath + '"',
+    Exec(Python, '-s -m ' + Package + ' ensure "' + Dir + '" --config "' + ConfigPath + '"',
       WorkDir, SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) and
     CopyFile(Dir + '\lwcam-ca.crt', ExpandConstant('{app}\LWCam server certificate.crt'), False);
   if not Result then
@@ -329,7 +329,7 @@ var
   ResultCode: Integer;
 begin
   Result := FileExists(Python) and
-    Exec(Python, Target + ' protect-file "' + ConfigPath + '" --keys ' + Keys,
+    Exec(Python, '-s ' + Target + ' protect-file "' + ConfigPath + '" --keys ' + Keys,
       WorkDir, SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
   if not Result then
     Log('Could not encrypt the passwords in ' + ConfigPath + ' (exit ' + IntToStr(ResultCode) + ').');

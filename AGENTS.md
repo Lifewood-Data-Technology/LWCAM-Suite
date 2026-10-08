@@ -65,7 +65,7 @@ chasing them wastes a session.**
 cd LWCAM        && flutter analyze && flutter test     # 5 infos, 442 pass (2026-09-30)
 cd LWCamAdmin   && flutter analyze && flutter test     # clean,   136 pass (2026-09-30)
 cd LWCam_QC_Platform/backend && C:\Python314\python.exe -m unittest discover -s tests -t .
-                                                       # 291 total, 0 fail; 1 skip with LWCAM_DB_PASSWORD set, 5 without (2026-09-30)
+                                                       # 375 total (pytest, 2026-10-05): 372 pass, 2 skip, 1 fail - test_secrets parity, only in a sparse worktree that hides LWIP; 0 fail on the full tree
 cd LWCam_QC_Platform/frontend && npm run build         # vue-tsc --noEmit && vite build
 cd LWIP/backend        && C:\Python314\python.exe -m unittest discover -s tests
                                                        # 206 run, 2 fail, 1 skipped (2026-09-30)
@@ -108,7 +108,7 @@ commit over `git stash`.
 
 **The shipped runtime imports the INSTALLED backend, not your worktree.** Moot
 while nothing is installed here; it comes back with the next install. Its
-`runtime\python\python313._pth` hardcodes `..\..\backend` — that is
+`runtime\python\python314._pth` hardcodes `..\..\backend` — that is
 `C:\Program Files\LW Suite\QC\backend` — onto `sys.path`, and an embeddable
 `._pth` ignores `PYTHONPATH` and does not put the working directory on the path
 either. So:
@@ -338,8 +338,9 @@ page - FamilySearch rejected that delivery for "image enhancement".)
   longer applies); delete drops the entry; restore original leaves a
   `{"restored": true}` marker so committed ops from an earlier round are
   dropped and the page returns to LWIP's baseline. `qc_ops.json` lives in the
-  folder LWIP republishes, so a capture rework wipes it - correct, the pages
-  are new.
+  folder LWIP republishes, so a capture rework wipes it - but QC keeps its own
+  copy (`qc_kept_pages.py`, see "Pages QC adds are kept" below) and puts back
+  the entries of every page that was not recaptured.
 - **Export replays once.** `convert_to_tiff(source, target, ops)` decodes the
   camera crop, replays `effective_ops`, writes the lossless TIFF (predictor 2 —
   see `LWCam_QC_Platform/AGENTS.md`). Rotation is Lanczos through OpenCV
@@ -353,6 +354,26 @@ page - FamilySearch rejected that delivery for "image enhancement".)
   effective chain into the work copy first and marks the item `baked`, so
   approval commits that copy with `ops: []` and `ignore_lwip: true` - the
   pixels already contain everything.
+- **Mat fill is the one exception that SYNTHESISES pixels, and only outside
+  the photo** (2026-10-06, ported from `lwip_deskew_crop_v2.py`). A tilted
+  page close to the photo edge keeps its full padding; the rotation void that
+  leaves inside the crop is recorded as a trailing `{"op":"matfill"}` and
+  painted with surrounding background at preview/thumbnail/export, in the
+  same single resample. Never on a side the page itself runs off
+  (`off_frame` - there the void lands on the page, so that side alone is
+  trimmed, by the wedge width + `RESAMPLE_REACH`). Per page in the manifest
+  (`mat_fill`). LWIP config `mat_fill` (default true); false = the old
+  trim-every-side behaviour. Upgrade QC before LWIP at a site.
+- **The replay is ONE file, `geometry_replay.py`, byte-identical in
+  `LWIP\backend\deskew_crop_tool\` and `LWCam_QC_Platform\backend\app\services\`**
+  (`test_geometry_replay.py` checks parity; edit QC's copy, then copy it).
+  QC's `geometry_ops.py` is a `sys.modules` alias of it (tests patch
+  `geometry_ops.cv2`); LWIP's `image_ops.apply_qc_ops` calls it. Before
+  2026-10-06 LWIP's thumbnail had its own copy that lacked `rotate`.
+- **Encode once covers every format.** Only a JPEG with a page is rewritten
+  (lossless jpegtran trim); PNG/TIFF/BMP/JPEG XL and a page-less JPEG ship
+  the source bytes with their crop recorded as ops. JPEG XL needs
+  `pillow-jxl-plugin` (staged in both wheels folders with `packaging`).
 
 Order is the contract - cropping then rotating is not the same picture - so the
 list is replayed exactly as recorded, never bucketed by kind.
@@ -380,15 +401,69 @@ lock, so a finished folder is never claimed. It checks the one-task-per-person
 rule BEFORE changing anything, so a refusal cannot leave a folder reopened but
 unclaimed.
 
-**A row can outlive its file, and both repairs must work.** An image inserted
-during QC does not survive a capture rework: LWIP rebuilds the folder from what
-was captured, and an inserted page was never in the capture folder. That is
-intended - a recaptured folder is a fresh decision about what belongs in it -
-but it must not strand the folder. So `canOpenQcTask` needs ANY readable page
-rather than every one (opening it is the only way to fix a missing page), and
-`expected_image_path` splits path resolution from the existence check so the
-commit can delete or replace a page whose file has gone. The traversal and
-unconfigured-folder guards stay on BOTH paths; only `is_file` moved.
+**A row can outlive its file, and both repairs must work.** LWIP rebuilds the
+folder from a capture rework (fresh directory, swapped in), so a file QC added
+is gone while its capture_images row - which LWIP never touches - lives on.
+Pages added or replaced since 2026-10-02 are kept (next paragraph); a page
+lost any other way (or before that) is repaired by Replace or Delete, so it
+must not strand the folder: `canOpenQcTask` needs ANY readable page rather than
+every one, `expected_image_path` splits path resolution from the existence
+check so the commit can delete or replace a page whose file has gone, and the
+task view reports a replaced page as available through its draft work copy
+(the Approve button waits on that). The traversal and unconfigured-folder
+guards stay on BOTH paths; only `is_file` moved. Rotate/crop/luminance on a
+missing page still answer a clear 404.
+
+**Pages QC adds are kept through a capture rework** (`services/qc_kept_pages.py`,
+2026-10-02; supersedes "a rework wipes them - correct"). LWIP is unchanged and
+still refuses extra files. After every commit (Save changes, Approve) QC copies
+each inserted/replaced page and `qc_ops.json` to
+`<qc_work_dir>\qc_kept\<folder id>\` with the manifest's publish marker
+(`created_at` + `source_fingerprint`) and per-file sha256. At claim time
+(`claim_task` / `claim_next`, row lock held) a changed marker means LWIP
+republished - the fingerprint alone is not enough, it describes LWIP's INPUT
+and stays the same when LWIP rebuilds because adoption failed - and so does
+the folder missing a stored kept page, or `qc_ops.json` missing while the
+store has entries. A snapshot first restores when those signals hold, so it
+never overwrites the good copy with a rebuilt state. Kept pages are copied back (thumbnails rebuilt; a cross-format replace retires the
+`lwip_name` file LWIP produced into `qc_deleted\<id>\republish-*`), and
+`qc_ops.json` entries come back for every page that was NOT recaptured -
+recaptured = its manifest sha256 changed OR a `QC Rework` rework_logs row is
+newer than the snapshot; unsure means the edits are dropped. Restore and
+snapshot never raise (a failure is logged and the folder still opens). Entries
+for added pages carry `kept` (`inserted`/`replaced`) and `lwip_name`, and keep
+them through restore-original or a later bake (`ignore_lwip` is forced on); a
+luminance bake of an ordinary LWIP page does not make it kept. Entries written
+before the tag existed are recognised by LWIP's manifest instead (a page not in
+`files[]` was added in QC) - never by `ignore_lwip` alone, which baked LWIP
+pages carry too. Names read from `qc_ops.json`/`kept.json` must be bare file
+names (they sit on shares and end up in moves done as SYSTEM); store copies
+are written temp-then-replace and checked by sha256 before restoring.
+`reject_task` refuses kept pages (400 "Pages added or replaced in QC can't be
+sent for recapture — replace the page again instead."), reading the store
+as well as `qc_ops.json`. The store is dropped only when the folder is
+split; it is deliberately KEPT after export (a client rework can become a
+capture rework, and nothing prunes it - it holds only QC-added/replaced pages).
+`reject_task` snapshots just before the status flips, so a reverted folder
+nobody saved is covered, and it names the rejected pages in the store
+(`recaptured`, their edits left out of the copy - no clock involved; the
+rework-log check, millisecond-tolerant, is only the fallback for older stores;
+the list is cleared once a genuine republish is restored). A snapshot does not
+re-hash a kept page whose size and mtime match its record. A restore only fills what is missing (existing
+`qc_ops.json` entries are newer than the snapshot) and overwrites an existing
+kept page only when the publish marker changed. Not covered: pages already lost before this shipped (no copy exists),
+and a recapture that LWIP reproduces with identical bytes and no QC Rework log.
+
+**Separation: page 1 is an implicit start.** `PUT .../separation-markers` takes
+the EXTRA start ids (0..n), stores them without the first page (an old client
+that still sends it is ignored) and `[]` clears; the split needs at least one
+extra start, and a mark that a reorder put on page 1 means no split. The task
+view's `separationStart` is true for page 1 only while another start exists.
+In the same save as the split, pages still staged by the commit (inserted,
+cross-format replaced) are written straight into their child folder
+(`final_target`, `SeparationFileTransaction(pending_names=...)`); before
+2026-10-02 an insert plus a split in one Save failed in preflight and a
+replace landed in the emptied parent.
 
 **`exportWorkRoot` is the export SCRATCH root, not the image source** (it was
 called `qcInputRoot` until 2026-09-24, which everyone misread; `qcInputRoot` now
@@ -622,3 +697,14 @@ untouched. The pre-test package is kept at
 - **A switch that is only read at startup passes every unit test that starts a
   fresh object.** Flip it on a running process — that is how the sweep-switch
   bug was found.
+
+## Throughput (2026-10-07)
+
+Bench on i5-12400F, 99 real 20 MB pages (target 0.926 img/s/stage): LWIP 2.4
+img/s at 4 workers, 3.5 at 11; TIFF export converts at 2.45 img/s (11 workers)
+but the zip tail (DEFLATE of already-compressed TIFFs, ratio 1.000) cut it to
+0.90. Changes: export zip now STORES .tif/.tiff/.jpg/.jpeg members (CSVs stay
+deflated; 20 TIFFs zip step 19.7 s -> 0.7 s); LWIP `workers` default 4 -> 0
+(auto, logical CPUs - 1; ~410 MB peak RSS per worker, lower it on small-RAM
+PCs); `exportWorkerCount` was already 0 = auto. Existing installs keep their
+written config values.

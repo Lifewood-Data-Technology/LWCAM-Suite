@@ -61,7 +61,7 @@ still has LW Suite installed can keep using the shipped runtime; nothing in the
 code depends on which of the two runs it.
 
 **Use `run_server.py`. Never `python -m app.main` from this folder.** The
-shipped runtime's `python313._pth` hardcodes the INSTALLED backend
+shipped runtime's `python314._pth` hardcodes the INSTALLED backend
 (`C:\Program Files\LW Suite\QC\backend`) onto `sys.path`, ignores `PYTHONPATH`,
 and does not add the working directory — so `-m app.main` silently starts the
 installed engine, which has no `__main__` block and exits without printing
@@ -107,7 +107,9 @@ Server keys, read once at start (restart after changing): `dbHost`, `dbPort`,
 `aiPreanalysisEnabled`, `openrouterApiKey`, `openrouterExtractModel`,
 `openrouterCompareModel`) is edited live from Admin → Settings; secrets are
 write-only there (never returned; blank keeps the saved one). Also
-`exportWorkerCount` and `exportTempRetentionHours`. `captureImageHostPath`/
+`exportWorkerCount` (default 0 = auto: logical CPUs - 1, max 61; each worker is a
+process holding a full-size decode, so lower it on small-RAM PCs) and
+`exportTempRetentionHours`. `captureImageHostPath`/
 `ContainerPath` are retired in favour of `qcInputRoot`. A value containing a
 line break or control character is refused — it would otherwise plant a key
 of the sender's choosing.
@@ -151,8 +153,8 @@ and allows it one account per remote PC (a second is error 1219).
 `check_directory` signs in with it before probing, and a background keeper
 signs in again every 120 s. The module is byte-identical in LWIP and Upload;
 `test_netlogin_copies_match` fails when they drift. Also on Python 3.13 (the
-shipped runtime) `Path.is_dir()` RAISES for WinError 5/1326 where 3.14
-answers False — `directory_state` exists because that was a 500 on Validate
+shipped runtime until 2026-10-07; 3.14.8 since) `Path.is_dir()` RAISES for WinError 5/1326 where 3.14
+answers False - keep the guard, older installs still run 3.13 — `directory_state` exists because that was a 500 on Validate
 paths.
 | `exportZipOutput` | true = a `.zip`, false = a folder. |
 | `exportTiffOutput` | true = lossless TIFF. false re-encodes edited pages as q100 4:4:4 JPEG and byte-copies untouched ones. |
@@ -170,7 +172,7 @@ cd backend
 C:\Python314\python.exe -m unittest discover -s tests -t .
 ```
 
-**202 tests, 0 failures** on this branch (master's copy of the same suite is
+**375 tests collected by pytest on 2026-10-05 (372 pass, 2 skip, 1 fail** - `test_secrets` parity, only in a sparse worktree that hides LWIP; it passes on the full tree) on this branch (master's copy of the same suite is
 110 — this branch adds the separation, settings, cache, rate-limit,
 attribution, user-role-filter, auto-export-toggle, disabled-template-field,
 sweep-switch, admin-settings and setup_qc_db suites). Any failure is a
@@ -188,6 +190,17 @@ rises.
 
 ## Decisions worth not re-litigating
 
+**QC keeps the pages it adds through a capture rework** (2026-10-02, `services/qc_kept_pages.py`;
+the root `AGENTS.md` has the full account). LWIP rebuilds the folder and wipes
+QC's inserted/replaced pages and `qc_ops.json`; QC snapshots them under
+`<qc_work_dir>\qc_kept\<folder id>\` after every commit and restores them at
+claim time when LWIP's publish marker changed or the folder is visibly missing
+them. Edits survive for pages that were not recaptured. `reject_task` refuses a
+kept page (400); the store is dropped on split only (kept after export; `reject_task` snapshots first).
+**Separation API:** page 1 is an implicit start; `PUT .../separation-markers`
+takes only the EXTRA start ids (an old client sending page 1 is ignored, `[]`
+clears), and the split needs at least one extra.
+
 **One live sign-in per account, the FIRST wins** (2026-09-29, asked for after a
 newest-wins version was built the same day). A second sign-in gets 409 while the
 first is in use; "in use" = a request in the last 3 minutes, and the console
@@ -200,6 +213,10 @@ process; the LWIP and Upload consoles' `SessionStore.create` do the same.
 *measures* tilt; the engine layers LWIP baseline + committed QC ops
 (`qc_ops.json`) + the reviewer's draft, and replays the chain ONCE at export.
 Approval writes data, not pixels. Full account in the root `AGENTS.md`.
+Since 2026-10-06 the replay lives in `services/geometry_replay.py` (shared
+byte-for-byte with LWIP; `geometry_ops.py` is an alias) and knows a fourth op,
+`matfill`, which paints rotation void outside the photo with surrounding
+background - see the root `AGENTS.md`.
 
 **The delivery TIFF carries predictor 2** (`export.py`, `TIFF_PREDICTOR_HORIZONTAL`).
 Horizontal differencing: deflate compresses the difference between neighbouring
@@ -207,6 +224,8 @@ pixels instead of the pixels. Reversible — measured 193.4 MB → 137.6 MB (−
 over one real folder with every pixel identical, at ~40% more encode time. It
 rides in the **provenance `ImageFileDirectory`** because Pillow accepts one
 `tiffinfo` and a second dict silently drops the camera tags.
+
+**Separation copies LWIP's manifest into every child** (2026-10-05). The deskew/crop baseline is `.deskew_crop_manifest.json`, which used to stay in the retained parent - children had no baseline, so preview, thumbnails and export lost deskew/crop. `SeparationFileTransaction` now writes `child_manifest(...)` (files[] and thumbnails.files narrowed to that child's pages; none for a child of only QC-added pages) into each temp dir, so it is published by the same rename and removed by `rollback()`; the parent's manifest is kept. LWIP's own thumbnails are already baked, so moved thumbnails stay right; one LWIP never made is rendered with the baseline. Children split BEFORE the fix: `backend\repair_split_manifests.py` (dry run; `--yes` writes; command line in its docstring). Tests: `tests/test_split_manifest.py`.
 
 **Separation splits `qc_ops.json` per child.** `commit_current_draft` used to
 capture the parent's path, move the images into children, then write the ops

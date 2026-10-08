@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
 import 'package:lwcam/models/capture_box_models.dart';
+import 'package:lwcam/services/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<Directory> _tempDir(String prefix) async {
@@ -101,86 +102,17 @@ void main() {
   });
 
   group('outbox hooks', () {
-    Future<UploadStatsDB> freshDb(
-      String prefix, {
-      required bool syncEnabled,
-    }) async {
+    Future<UploadStatsDB> freshDb(String prefix) async {
       final base = await _tempDir(prefix);
       final db = UploadStatsDB();
       db.debugOverrideBaseFolderForTests(base.path);
-      db.syncEnabled = syncEnabled;
-      addTearDown(() {
-        db.syncEnabled = false; // don't leak into later tests via the singleton
-        return db.debugCloseAllForTests();
-      });
+      addTearDown(db.debugCloseAllForTests);
       return db;
     }
 
-    test(
-      'syncEnabled=false: every hooked write path enqueues nothing',
-      () async {
-        final db = await freshDb('hooks_off_', syncEnabled: false);
-        const deviceId = 'devHooksOff';
-
-        await db.insertUploadRecord(
-          deviceId: deviceId,
-          scanningOpr: 'alice',
-          boxDetails: 'BOX-1',
-          filename: 'IMG_1.jpg',
-          format: 'jpg',
-          createdAt: DateTime(2026, 1, 1),
-        );
-        final boxId = await db.insertCaptureBox(
-          deviceId: deviceId,
-          boxDetails: 'BOX-1',
-        );
-        await db.updateCaptureBoxDetails(
-          deviceId: deviceId,
-          boxId: boxId,
-          boxDetails: 'BOX-1-renamed',
-        );
-        await db.markCaptureBoxTransferred(deviceId: deviceId, boxId: boxId);
-        final folderId = await db.insertCaptureFolder(
-          deviceId: deviceId,
-          folder: _folder(boxId),
-          isComplete: false,
-        );
-        await db.updateCaptureFolderMetadata(
-          deviceId: deviceId,
-          folder: _folder(boxId).copyWith(id: folderId, title: 'Updated'),
-          isComplete: true,
-        );
-        await db.updateCaptureFolderName(
-          deviceId: deviceId,
-          folderId: folderId,
-          folderName: 'F001',
-        );
-        await db.deleteCaptureFolder(deviceId: deviceId, folderId: folderId);
-        await db.insertReplacementRecord(
-          deviceId: deviceId,
-          sequenceIndex: 1,
-          dateKey: '20260101',
-          originalFilename: 'IMG_2.jpg',
-          replacementFilename: 'IMG_2_r1.jpg',
-          replacementLocalPath: 'C:/tmp/IMG_2_r1.jpg',
-        );
-        await db.markReplacementRecordSuperseded(
-          deviceId: deviceId,
-          originalFilename: 'IMG_2.jpg',
-          replacementFilename: 'IMG_2_r1.jpg',
-        );
-        await db.markReplacementRecordsSuperseded(
-          deviceId: deviceId,
-          originalFilename: 'IMG_2.jpg',
-        );
-
-        expect(await _outboxRows(db, deviceId), isEmpty);
-      },
-    );
-
     test('insertUploadRecord enqueues NOTHING — upload_records left the sync '
         'pipeline (capture_images replaced it)', () async {
-      final db = await freshDb('hooks_upload_', syncEnabled: true);
+      final db = await freshDb('hooks_upload_');
       const deviceId = 'devUpload';
 
       await db.insertUploadRecord(
@@ -197,7 +129,7 @@ void main() {
 
     test('insertCaptureBox enqueues an upsert keyed by the local row id, '
         'payload in cloud shape (box_name, CAPS status, project_id)', () async {
-      final db = await freshDb('hooks_box_insert_', syncEnabled: true);
+      final db = await freshDb('hooks_box_insert_');
       const deviceId = 'devBox';
 
       final boxId = await db.insertCaptureBox(
@@ -222,7 +154,7 @@ void main() {
       'updateCaptureBoxDetails and markCaptureBoxTransferred coalesce into a '
       'single pending outbox row carrying the latest snapshot + renamed_from',
       () async {
-        final db = await freshDb('hooks_box_coalesce_', syncEnabled: true);
+        final db = await freshDb('hooks_box_coalesce_');
         const deviceId = 'devBoxCoalesce';
 
         final boxId = await db.insertCaptureBox(
@@ -255,7 +187,7 @@ void main() {
     test(
       'a second rename keeps the ORIGINAL renamed_from (only-if-null rule)',
       () async {
-        final db = await freshDb('hooks_box_rename2_', syncEnabled: true);
+        final db = await freshDb('hooks_box_rename2_');
         const deviceId = 'devBoxRename2';
 
         final boxId = await db.insertCaptureBox(
@@ -283,7 +215,7 @@ void main() {
     test(
       'markCaptureBoxTransferStarted stamps transfer_start_at and enqueues',
       () async {
-        final db = await freshDb('hooks_box_start_', syncEnabled: true);
+        final db = await freshDb('hooks_box_start_');
         const deviceId = 'devBoxStart';
 
         final boxId = await db.insertCaptureBox(
@@ -309,7 +241,7 @@ void main() {
       'markCaptureBoxTransferStarted fixes the destination day dir once: a '
       'retry (even from another root) reuses it, a legacy bare root is replaced',
       () async {
-        final db = await freshDb('hooks_box_dest_', syncEnabled: false);
+        final db = await freshDb('hooks_box_dest_');
         const deviceId = 'devBoxDest';
         final boxId = await db.insertCaptureBox(
           deviceId: deviceId,
@@ -351,7 +283,7 @@ void main() {
 
     test("insertCaptureFolder's payload carries the parent box's natural keys "
         'and the operator stamps', () async {
-      final db = await freshDb('hooks_folder_insert_', syncEnabled: true);
+      final db = await freshDb('hooks_folder_insert_');
       const deviceId = 'devFolder';
 
       final boxId = await db.insertCaptureBox(
@@ -382,7 +314,7 @@ void main() {
       'updateCaptureFolderMetadata and updateCaptureFolderName coalesce into a '
       "single pending row that still carries the parent's natural keys",
       () async {
-        final db = await freshDb('hooks_folder_coalesce_', syncEnabled: true);
+        final db = await freshDb('hooks_folder_coalesce_');
         const deviceId = 'devFolderCoalesce';
 
         final boxId = await db.insertCaptureBox(
@@ -419,7 +351,7 @@ void main() {
 
     test('deleteCaptureFolder after insert coalesces to a single delete op '
         'carrying the cloud natural key', () async {
-      final db = await freshDb('hooks_folder_delete_', syncEnabled: true);
+      final db = await freshDb('hooks_folder_delete_');
       const deviceId = 'devFolderDelete';
 
       final boxId = await db.insertCaptureBox(
@@ -453,7 +385,7 @@ void main() {
 
     test('deleteCaptureBox coalesces the box and each folder into delete ops '
         'that carry the cloud natural key', () async {
-      final db = await freshDb('hooks_box_delete_', syncEnabled: true);
+      final db = await freshDb('hooks_box_delete_');
       const deviceId = 'devBoxDelete';
 
       final boxId = await db.insertCaptureBox(
@@ -491,7 +423,7 @@ void main() {
       'assignImageToFolder enqueues a capture_images upsert with parent '
       'keys + file_format; unassignImage coalesces it into a delete',
       () async {
-        final db = await freshDb('hooks_image_', syncEnabled: true);
+        final db = await freshDb('hooks_image_');
         const deviceId = 'devImage';
 
         final boxId = await db.insertCaptureBox(
@@ -544,7 +476,7 @@ void main() {
       'reportCaptureImageTransferName sends the final name (with '
       'image_renamed_from) to the cloud while retaining the local identity',
       () async {
-        final db = await freshDb('hooks_image_rename_', syncEnabled: true);
+        final db = await freshDb('hooks_image_rename_');
         const deviceId = 'devImageRename';
 
         final boxId = await db.insertCaptureBox(
@@ -645,7 +577,7 @@ void main() {
     // inherits the retry/backoff.
     test('enqueueReworkClosed carries the natural keys the sink needs and '
         'coalesces per (folder, image)', () async {
-      final db = await freshDb('hooks_rework_', syncEnabled: true);
+      final db = await freshDb('hooks_rework_');
       const deviceId = 'devRework';
 
       Future<void> close(String imageName, {String? comment}) =>
@@ -691,7 +623,7 @@ void main() {
     });
 
     test('enqueueReworkClosed records a metadata-only resolution', () async {
-      final db = await freshDb('hooks_rework_meta_', syncEnabled: true);
+      final db = await freshDb('hooks_rework_meta_');
       const deviceId = 'devReworkMeta';
       await db.enqueueReworkClosed(
         deviceId: deviceId,
@@ -717,7 +649,7 @@ void main() {
     // edits to the ones the operator never touched.
     test('enqueueFolderRework carries only the changed columns and coalesces '
         'per folder', () async {
-      final db = await freshDb('hooks_folder_rework_', syncEnabled: true);
+      final db = await freshDb('hooks_folder_rework_');
       const deviceId = 'devFolderRework';
 
       Future<void> submit(
@@ -769,7 +701,7 @@ void main() {
     });
 
     test('enqueueFolderRework skips a submit that changes nothing', () async {
-      final db = await freshDb('hooks_folder_rework_noop_', syncEnabled: true);
+      final db = await freshDb('hooks_folder_rework_noop_');
       await db.enqueueFolderRework(
         deviceId: 'devNoop',
         projectKey: 'pk1',
@@ -784,21 +716,6 @@ void main() {
       expect(await _outboxRows(db, 'devNoop'), isEmpty);
     });
 
-    test('enqueueReworkClosed enqueues nothing when sync is off', () async {
-      final db = await freshDb('hooks_rework_off_', syncEnabled: false);
-      await db.enqueueReworkClosed(
-        deviceId: 'devReworkOff',
-        projectKey: 'pk1',
-        projectId: 'PRJ-1',
-        boxName: 'BOX-9',
-        folderSeq: 1,
-        folderName: 'F',
-        imageName: 'a.jpg',
-        assignedUsername: 'Jamie',
-      );
-      expect(await _outboxRows(db, 'devReworkOff'), isEmpty);
-    });
-
     // Template-derived metadata (a mapped Start Date, fixed Place, …) is
     // computed at transfer prep — it is NOT keyed onto the row by the form.
     // The outbox snapshots the ROW, so unless these values are persisted the
@@ -806,7 +723,7 @@ void main() {
     // This is the July-29 NULL-dates bug (HANDOVER_CHANGES §7.4).
     test('updateCaptureFolderEffectiveValues lands derived metadata on the row '
         'AND in the coalesced outbox payload', () async {
-      final db = await freshDb('hooks_effective_', syncEnabled: true);
+      final db = await freshDb('hooks_effective_');
       const deviceId = 'devEffective';
 
       final boxId = await db.insertCaptureBox(
@@ -873,7 +790,7 @@ void main() {
 
     test('reportCaptureImageTransferName is a no-op when there is nothing to '
         'report', () async {
-      final db = await freshDb('hooks_image_rename_noop_', syncEnabled: true);
+      final db = await freshDb('hooks_image_rename_noop_');
       const deviceId = 'devImageRenameNoop';
 
       // Normal Mode keeps no capture_images rows; an unchanged name (no
@@ -903,7 +820,7 @@ void main() {
     test(
       'a duplicate assignImageToFolder returns false and enqueues nothing new',
       () async {
-        final db = await freshDb('hooks_image_dup_', syncEnabled: true);
+        final db = await freshDb('hooks_image_dup_');
         const deviceId = 'devImageDup';
 
         final boxId = await db.insertCaptureBox(
@@ -941,10 +858,7 @@ void main() {
 
     test('deleteCaptureFolder refuses (and enqueues nothing) when images are '
         'assigned', () async {
-      final db = await freshDb(
-        'hooks_folder_delete_refuse_',
-        syncEnabled: true,
-      );
+      final db = await freshDb('hooks_folder_delete_refuse_');
       const deviceId = 'devFolderDeleteRefuse';
 
       final boxId = await db.insertCaptureBox(
@@ -977,7 +891,7 @@ void main() {
 
     test('insertReplacementRecord enqueues nothing — replacements are '
         'local-only, never synced', () async {
-      final db = await freshDb('hooks_replacement_insert_', syncEnabled: true);
+      final db = await freshDb('hooks_replacement_insert_');
       const deviceId = 'devReplacement';
 
       await db.insertReplacementRecord(
@@ -1000,11 +914,8 @@ void main() {
     });
 
     test('markReplacementRecordSuperseded and markReplacementRecordsSuperseded '
-        '(bulk) enqueue nothing even with syncEnabled=true', () async {
-      final db = await freshDb(
-        'hooks_replacement_supersede_',
-        syncEnabled: true,
-      );
+        '(bulk) enqueue nothing', () async {
+      final db = await freshDb('hooks_replacement_supersede_');
       const deviceId = 'devReplacementSupersede';
 
       await db.insertReplacementRecord(
@@ -1043,4 +954,172 @@ void main() {
     });
   });
 
+  group('cloud catch-up (queueCaptureRowsMissingFromCloud)', () {
+    // A capture from before the hooks always recorded: on disk, never queued.
+    Future<({UploadStatsDB db, Database source, int folderId})> legacyCapture(
+      String prefix,
+      String deviceId,
+    ) async {
+      final base = await _tempDir(prefix);
+      final db = UploadStatsDB();
+      db.debugOverrideBaseFolderForTests(base.path);
+      addTearDown(db.debugCloseAllForTests);
+      final boxId = await db.insertCaptureBox(
+        deviceId: deviceId,
+        boxDetails: 'BOX-1',
+        projectKey: 'pk1',
+        projectId: 'PRJ-1',
+      );
+      final folderId = await db.insertCaptureFolder(
+        deviceId: deviceId,
+        folder: _folder(boxId),
+        isComplete: false,
+      );
+      for (final name in ['IMG_1.JPG', 'IMG_2.JPG']) {
+        await db.assignImageToFolder(
+          deviceId: deviceId,
+          boxId: boxId,
+          folderId: folderId,
+          deviceFilename: name,
+        );
+      }
+      final source = await db.getDatabase(deviceId);
+      await source.delete('sync_outbox');
+      return (db: db, source: source, folderId: folderId);
+    }
+
+    Future<List<Map<String, dynamic>>> queuedInOrder(
+      UploadStatsDB db,
+      String deviceId,
+    ) async =>
+        (await _outboxRows(db, deviceId))
+          ..sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
+
+    test('queues every row PG lacks, parents first, and only once', () async {
+      const deviceId = 'devCatchUp';
+      final c = await legacyCapture('catchup_all_', deviceId);
+      final asked = <String>[];
+
+      final queued = await c.db.queueCaptureRowsMissingFromCloud(
+        c.source,
+        (id) async {
+          asked.add(id);
+          return <String>{};
+        },
+      );
+
+      expect(queued, 4);
+      expect(asked, [deviceId]);
+      final rows = await queuedInOrder(c.db, deviceId);
+      expect([for (final r in rows) r['entity']], [
+        'capture_boxes',
+        'capture_folders',
+        'capture_images',
+        'capture_images',
+      ]);
+      final image = rows[2]['decoded_payload'] as Map;
+      expect(rows[2]['entity_key'], '${c.folderId}|IMG_1.JPG');
+      expect(image['image_name'], 'IMG_1.JPG');
+      expect(image['project_key'], 'pk1');
+      expect(image['box_name'], 'BOX-1');
+      expect(image['folder_seq'], 1);
+      expect(image.containsKey('box_id'), isFalse); // local-only
+
+      expect(
+        await c.db.queueCaptureRowsMissingFromCloud(
+          c.source,
+          (_) async => fail('the catch-up ran twice'),
+        ),
+        0,
+      );
+    });
+
+    test('rows PG already holds are never re-sent (QC edits stay)', () async {
+      const deviceId = 'devCatchUpSome';
+      final c = await legacyCapture('catchup_some_', deviceId);
+
+      final queued = await c.db.queueCaptureRowsMissingFromCloud(
+        c.source,
+        (_) async => {
+          captureCloudKey('pk1', 'BOX-1'),
+          captureCloudKey('pk1', 'BOX-1', 1),
+          captureCloudKey('pk1', 'BOX-1', 1, 'IMG_1.JPG'),
+        },
+      );
+
+      expect(queued, 1);
+      final rows = await _outboxRows(c.db, deviceId);
+      expect(rows.single['entity_key'], '${c.folderId}|IMG_2.JPG');
+    });
+
+    test('a transferred image is matched and sent under its final name',
+        () async {
+      const deviceId = 'devCatchUpRenamed';
+      final c = await legacyCapture('catchup_renamed_', deviceId);
+      for (final n in ['1', '2']) {
+        await c.db.reportCaptureImageTransferName(
+          deviceId: deviceId,
+          deviceName: 'IMG_$n.JPG',
+          finalName: '${deviceId}_IMG_${n}_001.JPG',
+        );
+      }
+      await c.source.delete('sync_outbox');
+
+      final queued = await c.db.queueCaptureRowsMissingFromCloud(
+        c.source,
+        (_) async => {
+          captureCloudKey('pk1', 'BOX-1'),
+          captureCloudKey('pk1', 'BOX-1', 1),
+          captureCloudKey('pk1', 'BOX-1', 1, '${deviceId}_IMG_1_001.JPG'),
+        },
+      );
+
+      expect(queued, 1);
+      final row = (await _outboxRows(c.db, deviceId)).single;
+      expect(row['entity_key'], '${c.folderId}|IMG_2.JPG');
+      final payload = row['decoded_payload'] as Map;
+      expect(payload['image_name'], '${deviceId}_IMG_2_001.JPG');
+      expect(payload['image_renamed_from'], 'IMG_2.JPG');
+      expect(payload.containsKey('transferred_name'), isFalse);
+    });
+
+    test('an unreachable PG leaves the job undone; an already-queued row is '
+        'left exactly as it was', () async {
+      const deviceId = 'devCatchUpRetry';
+      final c = await legacyCapture('catchup_retry_', deviceId);
+      final boxId = (await c.source.query('capture_boxes')).single['id'];
+      await c.source.insert('sync_outbox', {
+        'entity': 'capture_boxes',
+        'entity_key': '$boxId',
+        'op': 'upsert',
+        'payload': '{}',
+        'created_at': 'x',
+        'updated_at': 'x',
+        'attempts': 20,
+        'held': 1,
+      });
+
+      await expectLater(
+        c.db.queueCaptureRowsMissingFromCloud(
+          c.source,
+          (_) async => throw const SocketException('down'),
+        ),
+        throwsA(isA<SocketException>()),
+      );
+      expect(await _outboxRows(c.db, deviceId), hasLength(1));
+
+      final queued = await c.db.queueCaptureRowsMissingFromCloud(
+        c.source,
+        (_) async => <String>{},
+      );
+      expect(queued, 3); // folder + 2 images; the box was already queued
+      final box = (await _outboxRows(
+        c.db,
+        deviceId,
+        entity: 'capture_boxes',
+      )).single;
+      expect(box['held'], 1);
+      expect(box['payload'], '{}');
+    });
+  });
 }

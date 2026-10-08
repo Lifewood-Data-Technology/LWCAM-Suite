@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions
+rem The private runtime must never see a per-user site-packages (whoever runs setup may have
+rem their own Python of the same version): pip would skip packages and the runtime break.
+set "PYTHONNOUSERSITE=1"
 
 rem Scheduled task target for the standalone Upload service ("LWCam Upload",
 rem SYSTEM, /SC ONSTART). Modelled on LWIP\START_LWIP.bat: no window, no
@@ -23,7 +26,7 @@ if not exist "%CONFIG%" (
     exit /b 1
 )
 
-rem The embeddable runtime's python313._pth already puts ..\..\backend (this
+rem The embeddable runtime's python314._pth already puts ..\..\backend (this
 rem folder) on sys.path, so lwcam_upload is importable without a cd - kept
 rem anyway to match every other .bat here and give relative work a sane cwd.
 cd /d "%ROOT%\backend"

@@ -971,6 +971,27 @@ class PgSyncSink implements SyncSink {
     return {for (final row in result) row[0] as String};
   }
 
+  /// [captureCloudKey]s of every box, folder and image PG holds for
+  /// [deviceId], soft-deleted ones included (see [st.fetchCaptureKeysSql]).
+  Future<Set<String>> fetchCaptureKeys(String deviceId) => _guard(() async {
+    final conn = await _connect();
+    final result = await _exec(conn, st.fetchCaptureKeysSql(deviceId));
+    final keys = <String>{};
+    for (final row in result) {
+      final projectKey = row[0] as String?;
+      final boxName = row[1] as String;
+      final seq = (row[2] as num?)?.toInt();
+      final imageName = row[3] as String?;
+      keys.add(captureCloudKey(projectKey, boxName));
+      if (seq == null) continue;
+      keys.add(captureCloudKey(projectKey, boxName, seq));
+      if (imageName != null) {
+        keys.add(captureCloudKey(projectKey, boxName, seq, imageName));
+      }
+    }
+    return keys;
+  });
+
   @override
   Future<void> close() async {
     final conn = _conn;

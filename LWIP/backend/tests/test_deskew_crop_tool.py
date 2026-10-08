@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import os
 import tempfile
@@ -617,6 +618,9 @@ class DeskewCropToolTests(unittest.TestCase):
             files = {item["relative_path"]: item for item in manifest["files"]}
             self.assertEqual(files["straight.jpg"]["angle"], 0.0)
             self.assertEqual(files["straight.jpg"]["qc_ops"], [])
+            for item in files.values():
+                for key in ("angle_source", "page_found", "off_frame", "mat_fill"):
+                    self.assertIn(key, item)
             self.assertNotEqual(files["tilted.jpg"]["angle"], 0.0)
             self.assertTrue(files["tilted.jpg"]["qc_ops"])
             for item in files.values():
@@ -711,8 +715,11 @@ class OutputFidelityTests(unittest.TestCase):
         format" on the first matching file, failing that folder forever - it is
         retried every poll but never published.
         """
+        # .bmp and .jxl have no save branch on purpose: they are never
+        # re-encoded, the source bytes are copied (see MatFillAndEncodeOnceTests).
         writable = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
-        self.assertEqual(set(DEFAULT_EXTENSIONS), writable)
+        byte_copied = {".bmp", ".jxl"}
+        self.assertEqual(set(DEFAULT_EXTENSIONS), writable | byte_copied)
 
     def test_output_quantization_matches_a_camera_grade_encode(self) -> None:
         """At quality 100 libjpeg emits quantization tables of all 1s — the same
@@ -946,7 +953,9 @@ class OutputFidelityTests(unittest.TestCase):
                 frame = frame[round(y0 * h):round(y1 * h), round(x0 * w):round(x1 * w)]
         self.assertEqual(int(frame.min()), 255, "QC ops blended rotation fill")
 
-    def _deskew_crop_unsnapped(self, source: Path, output: Path, padding: int) -> dict:
+    def _deskew_crop_unsnapped(
+        self, source: Path, output: Path, padding: int, mat_fill: bool = False
+    ) -> dict:
         """deskew_crop_file on the resampling path: without jpegtran the trim
         box is not grown to the 16 px grid, so no accidental slack can hide a
         missing RESAMPLE_REACH."""
@@ -954,7 +963,8 @@ class OutputFidelityTests(unittest.TestCase):
         image_ops.jpegtran_path = lambda: None
         try:
             return image_ops.deskew_crop_file(
-                str(source), str(output), padding, 100, deskew_min_degrees=0.2
+                str(source), str(output), padding, 100, deskew_min_degrees=0.2,
+                mat_fill=mat_fill,
             )
         finally:
             image_ops.jpegtran_path = original
@@ -1174,7 +1184,9 @@ class OutputFidelityTests(unittest.TestCase):
                 40,
                 100,
                 thumbnail_destination_value=str(thumb),
-                thumbnail_width=256,
+                # The installed width (LWIP.iss). At 256 px one pixel of
+                # contour quantisation alone reads as ~0.2 degrees.
+                thumbnail_width=512,
                 deskew_min_degrees=0.2,
             )
             self.assertTrue(result["thumbnail_created"])
@@ -1184,6 +1196,188 @@ class OutputFidelityTests(unittest.TestCase):
             self.assertIsNotNone(contour)
             angle = image_ops._page_angle(contour)
             self.assertLess(abs(angle), 0.15, f"thumbnail contour angle {angle}")
+
+
+class MatFillAndEncodeOnceTests(unittest.TestCase):
+    """mat_fill clamping, off-frame detection, Triangle threshold, and the
+    encode-once rule (non-JPEG and no-page files ship the source's bytes)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_limited_clamp_still_trims_an_allowed_side_behind_another_violation(self) -> None:
+        """With `sides` limited, the first violated plane may belong to a side
+        matfill will paint. The trim must go on to the allowed side instead of
+        giving up (it used to stop at the first plane)."""
+        width, height, angle = 1000.0, 1400.0, 3.0
+        phi = math.radians(angle)
+        cos_phi, sin_phi = math.cos(phi), math.sin(phi)
+        new_width = width * cos_phi + height * sin_phi
+        new_height = width * sin_phi + height * cos_phi
+        frame = dict(
+            centre=(new_width / 2.0, new_height / 2.0),
+            half_width=width / 2.0,
+            half_height=height / 2.0,
+            cos_phi=cos_phi,
+            sin_phi=sin_phi,
+        )
+        # The whole expanded canvas: every corner sits in rotation void.
+        x0, y0, x1, y1 = image_ops._clamp_to_rotated_frame(
+            0.0, 0.0, new_width, new_height, sides={"left"}, **frame
+        )
+        self.assertGreater(x0, 0.0, "the allowed left side was never trimmed")
+        self.assertEqual((y0, x1, y1), (0.0, new_width, new_height))
+
+    @staticmethod
+    def _frame(width: int, height: int, center, size, angle: float) -> np.ndarray:
+        frame = np.full((height, width, 3), 128, dtype=np.uint8)
+        points = cv2.boxPoints((center, size, angle)).astype(np.int32)
+        cv2.fillConvexPoly(frame, points, (245, 245, 245))
+        return frame
+
+    def _run(self, frame: np.ndarray, name: str = "capture.jpg", **kwargs) -> dict:
+        source = self.tmp / name
+        output = self.tmp / ("out" + Path(name).suffix)
+        self.assertTrue(cv2.imwrite(str(source), frame))
+        original = image_ops.jpegtran_path
+        image_ops.jpegtran_path = lambda: None
+        try:
+            return image_ops.deskew_crop_file(
+                str(source), str(output), 200, 100, deskew_min_degrees=0.2, **kwargs
+            )
+        finally:
+            image_ops.jpegtran_path = original
+
+    def test_off_frame_sides_flags_a_page_that_runs_off_the_frame(self) -> None:
+        running_off = self._frame(2600, 3000, (2300, 1500), (1200, 1800), 0.0)
+        contour = image_ops._largest_content_contour(running_off)
+        self.assertEqual(image_ops._off_frame_sides(contour, 2600, 3000), {"right"})
+
+        inside = self._frame(2600, 3000, (1850, 1500), (1200, 1800), 0.0)
+        contour = image_ops._largest_content_contour(inside)
+        self.assertEqual(image_ops._off_frame_sides(contour, 2600, 3000), set())
+
+    def test_mat_fill_keeps_full_padding_near_the_photo_edge(self) -> None:
+        frame = self._frame(2600, 3000, (1850, 1500), (1200, 1800), 3.0)
+        kept = self._run(frame, "kept.jpg", mat_fill=True)
+        trimmed = self._run(frame, "trimmed.jpg", mat_fill=False)
+        self.assertEqual(kept["off_frame"], [])
+        self.assertTrue(kept["mat_fill"])
+        self.assertEqual([op["op"] for op in kept["qc_ops"]], ["deskew", "crop", "matfill"])
+        self.assertEqual([op["op"] for op in trimmed["qc_ops"]], ["deskew", "crop"])
+        self.assertFalse(trimmed["mat_fill"])
+        self.assertEqual(kept["crop"], trimmed["crop"], "same lossless trim either way")
+        kept_rect = kept["qc_ops"][1]["rect"]
+        trimmed_rect = trimmed["qc_ops"][1]["rect"]
+        self.assertGreater(kept_rect[2], trimmed_rect[2], "right padding not kept")
+
+    def test_mat_fill_clamps_the_side_the_page_runs_off(self) -> None:
+        frame = self._frame(2600, 3000, (2300, 1500), (1200, 1800), 3.0)
+        result = self._run(frame, mat_fill=True)
+        self.assertIn("right", result["off_frame"])
+        self.assertNotEqual(result["angle"], 0.0)
+        self.assertEqual([op["op"] for op in result["qc_ops"]], ["deskew", "crop"])
+        self.assertFalse(result["mat_fill"])
+        OutputFidelityTests._assert_qc_ops_have_no_fill(
+            self, self.tmp / "out.jpg", result["qc_ops"]
+        )
+
+    def test_straight_page_has_no_ops_and_no_matfill(self) -> None:
+        result = self._run(self._frame(2200, 2600, (1100, 1300), (1200, 1600), 0.0))
+        self.assertEqual(result["qc_ops"], [])
+        self.assertFalse(result["mat_fill"])
+        self.assertTrue(result["page_found"])
+
+    def test_manifest_files_carry_the_diagnostics(self) -> None:
+        folder = self.tmp / "incoming" / "job"
+        folder.mkdir(parents=True)
+        _write_page_image(folder / "tilted.jpg", angle=6)
+        config = _config(self.tmp)
+        self.assertEqual(FolderOrchestrator(config).run_once(), 1)
+        manifest = json.loads(
+            (self.tmp / "output" / "job" / ".deskew_crop_manifest.json").read_text("utf-8")
+        )
+        entry = manifest["files"][0]
+        self.assertIn(entry["angle_source"], {"sides", "min_area_rect"})
+        self.assertIs(entry["page_found"], True)
+        self.assertEqual(entry["off_frame"], [])
+        self.assertIsInstance(entry["mat_fill"], bool)
+
+    def test_png_and_bmp_ship_the_source_bytes_with_the_crop_as_an_op(self) -> None:
+        frame = self._frame(2200, 2600, (1100, 1300), (1200, 1600), 0.0)
+        for suffix in (".png", ".bmp"):
+            with self.subTest(suffix=suffix):
+                name = "page" + suffix
+                result = self._run(frame, name)
+                source = self.tmp / name
+                output = self.tmp / ("out" + suffix)
+                self.assertEqual(output.read_bytes(), source.read_bytes())
+                self.assertFalse(result["lossless"])
+                self.assertIsNone(result["crop"])
+                self.assertEqual([op["op"] for op in result["qc_ops"]], ["crop"])
+                x0, y0, x1, y1 = result["qc_ops"][0]["rect"]
+                self.assertAlmostEqual(x0 * 2200, 1100 - 600 - 200, delta=4)
+                self.assertAlmostEqual(y1 * 2600, 1300 + 800 + 200, delta=4)
+
+    def test_tilted_png_records_deskew_crop_and_matfill_against_the_full_frame(self) -> None:
+        frame = self._frame(2600, 3000, (1850, 1500), (1200, 1800), 3.0)
+        result = self._run(frame, "tilted.png")
+        self.assertEqual(
+            (self.tmp / "out.png").read_bytes(), (self.tmp / "tilted.png").read_bytes()
+        )
+        self.assertEqual([op["op"] for op in result["qc_ops"]], ["deskew", "crop", "matfill"])
+        self.assertEqual((result["width"], result["height"]), (2600, 3000))
+
+    def test_jpeg_without_a_page_is_byte_identical(self) -> None:
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)  # nothing to threshold
+        result = self._run(frame, "blank.jpg")
+        self.assertFalse(result["page_found"])
+        self.assertEqual(result["angle_source"], "none")
+        self.assertEqual(result["qc_ops"], [])
+        self.assertEqual(
+            (self.tmp / "out.jpg").read_bytes(), (self.tmp / "blank.jpg").read_bytes()
+        )
+
+    def test_jxl_without_the_plugin_fails_that_file_cleanly(self) -> None:
+        if image_ops.pillow_jxl is not None:
+            self.skipTest("pillow-jxl-plugin is installed")
+        source = self.tmp / "page.jxl"
+        source.write_bytes(b"\xff\x0a" + b"\x00" * 64)
+        with self.assertRaisesRegex(OSError, "pillow-jxl-plugin"):
+            image_ops.deskew_crop_file(str(source), str(self.tmp / "out.jxl"), 200, 100)
+
+    def test_jxl_with_the_plugin_ships_the_source_bytes(self) -> None:
+        if image_ops.pillow_jxl is None:
+            self.skipTest("pillow-jxl-plugin is not installed")
+        frame = self._frame(2200, 2600, (1100, 1300), (1200, 1600), 0.0)
+        source = self.tmp / "page.jxl"
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        Image.fromarray(rgb).save(source, format="JXL", lossless=True)
+        output = self.tmp / "out.jxl"
+        result = image_ops.deskew_crop_file(str(source), str(output), 200, 100)
+        self.assertEqual(output.read_bytes(), source.read_bytes())
+        self.assertTrue(result["page_found"])
+        self.assertEqual([op["op"] for op in result["qc_ops"]], ["crop"])
+
+    def test_triangle_threshold_keeps_a_dark_cover_board_with_the_object(self) -> None:
+        """Backdrop ~10, dark board ~40, paper ~90: Otsu splits between board and
+        paper and traces the paper only; Triangle includes the board."""
+        rng = np.random.default_rng(3)
+        gray = np.full((2600, 2000), 10.0)
+        gray[400:2200, 300:1700] = 40.0   # board
+        gray[600:2000, 500:1500] = 90.0   # paper
+        gray = np.clip(gray + rng.normal(0, 2, gray.shape), 0, 255).astype(np.uint8)
+
+        x, y, width, height = cv2.boundingRect(image_ops._largest_contour_in_frame(gray))
+        self.assertAlmostEqual(x, 300, delta=12)
+        self.assertAlmostEqual(width, 1400, delta=24)
+        self.assertAlmostEqual(height, 1800, delta=24)
+
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        _value, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        otsu_box = cv2.boundingRect(cv2.findNonZero(otsu))
+        self.assertLess(otsu_box[2], 1100, "Otsu was expected to miss the board")
 
 
 class SkewEstimateTests(unittest.TestCase):

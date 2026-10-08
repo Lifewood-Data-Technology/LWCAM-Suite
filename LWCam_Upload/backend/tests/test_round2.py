@@ -26,6 +26,10 @@ from tests.test_upload_reupload import FakeStore, _config, _target
 
 class TempRootCase(unittest.TestCase):
     def setUp(self) -> None:
+        # No settle wait: these tests upload on the first scan.
+        patcher = mock.patch.object(engine, "SETTLE_SECONDS", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)

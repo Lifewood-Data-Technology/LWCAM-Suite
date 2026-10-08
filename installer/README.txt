@@ -670,7 +670,7 @@ an unprivileged account (or a backup of the install folder) can read it.
 Inputs staged outside git
 -------------------------
 
-  installer\vendor\python-3.13.14-embed-amd64.zip
+  installer\vendor\python-3.14.8-embed-amd64.zip   (since 2026-10-07; 3.13.14 before)
   installer\vendor\vcruntime\             Visual C++ runtime DLLs
   installer\vendor\adb\                   adb.exe and its two support DLLs
   installer\vendor\postgresql\             PostgreSQL 18 installer

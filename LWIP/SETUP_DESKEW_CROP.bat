@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions
+rem The private runtime must never see a per-user site-packages (whoever runs setup may have
+rem their own Python of the same version): pip would skip packages and the runtime break.
+set "PYTHONNOUSERSITE=1"
 
 rem Builds LWIP's private Python runtime from the bundled EMBEDDABLE package.
 rem
@@ -24,7 +27,7 @@ set "PY_DIR=%ROOT%\runtime\python"
 set "PY=%PY_DIR%\python.exe"
 set "SITE=%PY_DIR%\Lib\site-packages"
 set "WHEELS=%ROOT%\wheels"
-set "ZIP_NAME=python-3.13.14-embed-amd64.zip"
+set "ZIP_NAME=python-3.14.8-embed-amd64.zip"
 
 rem Proof-of-success sentinel, checked by the installer's MissingRuntimes().
 rem
@@ -42,6 +45,16 @@ del /q "%SETUP_OK%" >nul 2>&1
 
 echo [DeskewCrop] Setup root: %ROOT%
 
+rem A runtime of another Python version (an upgrade from 3.13) is rebuilt, not reused:
+rem the bundled wheels are built for 3.14 only.
+if exist "%PY%" (
+    "%PY%" -c "import sys; raise SystemExit(sys.version_info[:2] != (3, 14))" >nul 2>&1
+    if errorlevel 1 rmdir /s /q "%PY_DIR%"
+)
+if exist "%PY%" if not exist "%PY_DIR%\python314.dll" (
+    echo [ERROR] The old Python runtime in %PY_DIR% could not be removed. Close what uses it and run setup again.
+    exit /b 1
+)
 if exist "%PY%" goto python_ready
 
 rem The standalone LWIP install is its own install root ({autopf}\LWCam LWIP),
@@ -75,12 +88,12 @@ rem launch has no working directory at all.
 rem
 rem ..\..\backend is correct because the depth matches QC's: runtime\python is
 rem two levels below LWIP, and backend sits beside runtime.
-rem The NAME matters: python313._pth pairs with python313.dll, so it applies to
+rem The NAME matters: python314._pth pairs with python314.dll, so it applies to
 rem pythonw.exe too - which is what the logon entry launches. Renamed to
 rem python._pth, pythonw.exe silently loses every path below and LWIP fails only
 rem in the autostart path, never when run from this folder by hand.
-> "%PY_DIR%\python313._pth" (
-    echo python313.zip
+> "%PY_DIR%\python314._pth" (
+    echo python314.zip
     echo .
     echo Lib\site-packages
     echo ..\..\backend

@@ -68,6 +68,7 @@ from app.services.previews import (
     set_pending_op_replay,
 )
 from app.services.qc_audit import write_qc_audit
+from app.services.qc_kept_pages import drop_store, is_kept_page, restore_after_republish, snapshot_folder
 from app.services.qc_ops_store import (
     committed_ops as qc_ops_committed,
     effective_ops,
@@ -919,7 +920,11 @@ def to_task_vo(db, folder: CaptureFolder, viewer_user_id: str) -> MetadataQcTask
     )
     official_by_id = {item.id: item for item in official_images}
     image_ids = visible_order(manifest, [item.id for item in official_images]) if locked_by_viewer else [item.id for item in official_images]
-    marker_ids = set((manifest or {}).get("separation_markers", []))
+    # Page 1 is an implicit start and is never stored; it reads as a start
+    # only while some other page starts a folder too.
+    marker_ids = set((manifest or {}).get("separation_markers", [])) - set(image_ids[:1])
+    if marker_ids and image_ids:
+        marker_ids.add(image_ids[0])
 
     images = []
     # Listed ONCE for the whole folder, before the loop. This also hoists the
@@ -988,7 +993,13 @@ def to_task_vo(db, folder: CaptureFolder, viewer_user_id: str) -> MetadataQcTask
         images.append(MetadataQcImageVO(
             id=image.id,
             filename=image.image_name,
-            available=image_available_in(on_disk, image),
+            # A page whose file went missing is repaired by replacing it, and
+            # the draft's work copy is then what shows and what gets saved.
+            available=image_available_in(on_disk, image) or bool(
+                draft_item
+                and draft_item.get("work_path")
+                and fs_path(Path(draft_item["work_path"])).is_file()
+            ),
             previewUrl=f"/api/qc/metadata-tasks/{folder.id}/images/{image.id}/preview?v={version}",
             draftState=(draft_item or {}).get("status"),
             separationStart=image.id in marker_ids,
@@ -1403,12 +1414,13 @@ def apply_separation_commit(
     marker_ids: list[int],
     ordered_ids: list[int],
     commit_time: datetime,
+    pending_names: set[str] | None = None,
 ) -> SeparationFileTransaction:
-    marker_set = set(marker_ids)
-    if len(marker_set) < 2:
-        raise ValueError("Separation needs at least two start pages.")
-    if ordered_ids and ordered_ids[0] not in marker_set:
-        raise ValueError("The first image must be marked as a start page for separation.")
+    # [marker_ids] are the EXTRA start pages: the first page starts the first
+    # folder without being marked, so a stray mark on it changes nothing.
+    marker_set = set(marker_ids) - set(ordered_ids[:1])
+    if not marker_set:
+        raise ValueError("Separation needs at least one page that starts a new folder.")
 
     groups: list[list[int]] = []
     current_group: list[int] = []
@@ -1445,6 +1457,7 @@ def apply_separation_commit(
         to_local(folder.folder_path),
         to_local(folder.thumbnail_path) if folder.thumbnail_path else None,
         grouped_names,
+        pending_names or (),
     )
     file_transaction.apply()
 
@@ -1548,6 +1561,21 @@ def _split_qc_ops_for_children(
     return per_child
 
 
+def keep_kept_pages_current(db, folder: CaptureFolder, separation_transaction) -> None:
+    """After a commit: refresh QC's copy of its added pages and edits, or drop
+    it when the folder was just split (children cannot be sent back for recapture).
+    Never raises."""
+    try:
+        if separation_transaction is not None:
+            drop_store(folder.id)
+        else:
+            # The relationship still lists the rows as they were before the commit.
+            db.expire(folder, ["images"])
+            snapshot_folder(folder, db)
+    except Exception:
+        logger.exception("QC kept-pages refresh failed; folder=%s", folder.id)
+
+
 def commit_current_draft(
     folder: CaptureFolder,
     user_id: str,
@@ -1594,6 +1622,30 @@ def commit_current_draft(
 
     finalize_steps: list[Callable[[], None]] = []
     abort_steps: list[Callable[[], None]] = []
+    # Set further down, once the split has moved the files; the finalize steps
+    # queued before that read it only when they finally run.
+    separation_transaction: SeparationFileTransaction | None = None
+    # Page files this commit stages under a hidden name and has not yet
+    # published, so a split in the same commit has nothing of theirs to move.
+    staged_names: set[str] = set()
+
+    def final_target(path: Path) -> Path:
+        """Where a page file or thumbnail ends up once the folder may have been split.
+
+        The parent directory holds none of its pages after a split; a staged
+        write aimed at it would leave a stray file there while the child
+        kept the old bytes (or no page at all, for an inserted one).
+        """
+        if separation_transaction is None:
+            return path
+        for group in separation_transaction.groups:
+            if path.name not in group.image_names:
+                continue
+            if path.parent == folder_path:
+                return group.final_image_dir / path.name
+            if thumbnail_dir is not None and path.parent == thumbnail_dir and group.final_thumbnail_dir:
+                return group.final_thumbnail_dir / path.name
+        return path
 
     def defer_write(source: Path, final_path: Path) -> Path:
         """Copy [source]'s bytes in now; queue the swap to [final_path] for
@@ -1603,7 +1655,7 @@ def commit_current_draft(
         staged = _stage_sibling(final_path, "draft_commit_tmp")
         shutil.copy2(fs_path(source), fs_path(staged))
         abort_steps.append(lambda: fs_path(staged).unlink(missing_ok=True))
-        finalize_steps.append(lambda: os.replace(fs_path(staged), fs_path(final_path)))
+        finalize_steps.append(lambda: os.replace(fs_path(staged), fs_path(final_target(final_path))))
         return staged
 
     def defer_retirement(path: Path, target_dir: Path) -> None:
@@ -1654,7 +1706,8 @@ def commit_current_draft(
             # ignore_lwip: this page was never in LWIP's manifest, and a name
             # it happens to reuse must not drag a dead baseline in with it.
             inserted_ops = pending_ops_of(manifest, image_id)
-            qc_ops_updates[image_name] = {"ops": inserted_ops, "ignore_lwip": True}
+            qc_ops_updates[image_name] = {"ops": inserted_ops, "ignore_lwip": True, "kept": "inserted"}
+            staged_names.add(image_name)
             new_image = CaptureImage(
                 image_name=image_name,
                 device_id=folder.device_id,
@@ -1673,7 +1726,7 @@ def commit_current_draft(
                 if generate_thumbnail_file(staged, staged_thumb, inserted_ops) is not None:
                     abort_steps.append(lambda s=staged_thumb: fs_path(s).unlink(missing_ok=True))
                     finalize_steps.append(
-                        lambda s=staged_thumb, o=target_thumb: os.replace(fs_path(s), fs_path(o))
+                        lambda s=staged_thumb, o=target_thumb: os.replace(fs_path(s), fs_path(final_target(o)))
                     )
             committed.append(new_image)
             continue
@@ -1728,9 +1781,15 @@ def commit_current_draft(
                 # claiming file_format='tif'.
                 new_name = item.get("image_name") or image.image_name
                 renamed = new_name != image.image_name
+                lwip_name = image.image_name
                 final_path = (official_path.parent / new_name).resolve() if renamed else official_path
+                if not fs_path(final_path).is_file():
+                    # Nothing of this page in the folder to move in a split:
+                    # the staged copy is all there is (see staged_names).
+                    staged_names.add(new_name)
                 staged = defer_write(work_path, final_path)
                 if renamed:
+                    staged_names.add(new_name)
                     image.image_name = new_name
                     image.file_format = final_path.suffix.lstrip(".").lower() or image.file_format
                     if fs_path(official_path).is_file() or (
@@ -1749,7 +1808,7 @@ def commit_current_draft(
                         raise ValueError(f"Thumbnail generation failed: {target_thumbnail}")
                     abort_steps.append(lambda s=staged_thumbnail: fs_path(s).unlink(missing_ok=True))
                     finalize_steps.append(
-                        lambda s=staged_thumbnail, o=target_thumbnail: os.replace(fs_path(s), fs_path(o))
+                        lambda s=staged_thumbnail, o=target_thumbnail: os.replace(fs_path(s), fs_path(final_target(o)))
                     )
                 # The work copy's pixels already ARE the whole picture - LWIP's
                 # baseline (if any applied), every earlier committed round, and
@@ -1757,6 +1816,12 @@ def commit_current_draft(
                 # ignore_lwip=True stops a future read from replaying the
                 # baseline on top of pixels that already contain it.
                 qc_ops_updates[image.image_name] = {"ops": deferred_ops, "ignore_lwip": True}
+                if not item.get("baked"):
+                    # A replacement is a page QC owns: it is kept through a
+                    # capture rework (see services/qc_kept_pages).
+                    qc_ops_updates[image.image_name]["kept"] = "replaced"
+                    if renamed:
+                        qc_ops_updates[image.image_name]["lwip_name"] = lwip_name
             else:
                 pending = pending_ops_of(manifest, image_id)
                 if item.get("restored"):
@@ -1784,7 +1849,7 @@ def commit_current_draft(
                     if generate_thumbnail_file(source_path, staged_thumbnail, render_ops) is not None:
                         abort_steps.append(lambda s=staged_thumbnail: fs_path(s).unlink(missing_ok=True))
                         finalize_steps.append(
-                            lambda s=staged_thumbnail, o=target_thumbnail: os.replace(fs_path(s), fs_path(o))
+                            lambda s=staged_thumbnail, o=target_thumbnail: os.replace(fs_path(s), fs_path(final_target(o)))
                         )
             image.image_updated_at = commit_time
             committed.append(image)
@@ -1800,8 +1865,14 @@ def commit_current_draft(
         if image:
             image.image_created_at = commit_time + timedelta(seconds=index)
 
-    markers = [id_map.get(int(item), int(item)) for item in manifest.get("separation_markers", [])]
-    separation_transaction = None
+    # Page 1 is the implicit first start. A mark that has ended up on it (the
+    # reviewer reordered after marking) means nothing, so with no OTHER mark
+    # left there is no split to make.
+    markers = [
+        marker
+        for marker in (id_map.get(int(item), int(item)) for item in manifest.get("separation_markers", []))
+        if marker in ordered_ids[1:]
+    ]
     if markers:
         if folder.qc_locked_by != user_id:
             raise ValueError("This task is no longer assigned to you.")
@@ -1811,6 +1882,7 @@ def commit_current_draft(
             markers,
             ordered_ids,
             commit_time,
+            staged_names,
         )
 
     if committed or has_metadata_changes or manifest.get("order") or markers:
@@ -1835,6 +1907,20 @@ def commit_current_draft(
             qc_ops_data["images"] = qc_ops_images
         for name in qc_ops_deletions:
             qc_ops_images.pop(name, None)
+        for name, entry in qc_ops_updates.items():
+            # A later edit to a page QC added or replaced rewrites its entry;
+            # what marks it as QC's own must not be lost on the way. A fresh
+            # `kept` wins (re-replacing an inserted page), the LWIP name never
+            # does - the oldest one is the one LWIP produced.
+            previous = qc_ops_images.get(name)
+            if isinstance(previous, dict) and previous.get("kept"):
+                # Restore-original or a luminance bake on a page QC owns
+                # rewrites the entry without ignore_lwip: the page is still
+                # QC's own and still has no LWIP baseline.
+                entry.setdefault("kept", previous["kept"])
+                entry["ignore_lwip"] = True
+                if previous.get("lwip_name"):
+                    entry["lwip_name"] = previous["lwip_name"]
         qc_ops_images.update(qc_ops_updates)
 
         if separation_transaction is not None:
@@ -2069,6 +2155,9 @@ def claim_next(current_user: QcUser, db: DbSession) -> ApiResponse[MetadataQcTas
 
     folder.qc_locked_by = current_user.user_id
     folder.qc_locked_at = now()
+    # Before the commit, so the row lock is still held while files are put back
+    # after a capture rework. Never raises.
+    restore_after_republish(folder, db)
     db.commit()
     write_qc_audit("claim_next", current_user.user_id, folder.id, result="success")
 
@@ -2131,6 +2220,9 @@ def claim_task(folder_id: int, current_user: QcUser, db: DbSession) -> ApiRespon
         logger.exception("QC stale draft cleanup failed at claim; folder=%s", folder_id)
     folder.qc_locked_by = current_user.user_id
     folder.qc_locked_at = now()
+    # Pages and edits a capture rework wiped from the folder come back before
+    # the task view is built. Row lock still held; never raises.
+    restore_after_republish(folder, db)
     try:
         db.commit()
     except IntegrityError as error:
@@ -2262,6 +2354,7 @@ def approve_task(folder_id: int, request: ReviewRequest, current_user: QcUser, d
             separation_transaction.cleanup_empty_parent_directories()
     except Exception:
         logger.exception("QC draft cleanup failed after approve; folder=%s", folder_id)
+    keep_kept_pages_current(db, folder, separation_transaction)
     write_qc_audit(
         "approve",
         current_user.user_id,
@@ -2402,6 +2495,22 @@ def reject_task(folder_id: int, request: RejectRequest, current_user: QcUser, db
     rejected_images = [image for image in folder.images if image.id in requested_ids]
     if len(rejected_images) != len(requested_ids):
         raise BusinessError(ApiCodes.BAD_REQUEST, "One or more images do not belong to this folder.")
+
+    # A capture rework rebuilds the folder from the recapture, so a page QC
+    # added or replaced has nothing to be recaptured from: it is replaced again
+    # in QC instead.
+    folder_dir = to_local(folder.folder_path) if getattr(folder, "folder_path", None) else None
+    if any(is_kept_page(folder.id, folder_dir, image.image_name) for image in rejected_images):
+        raise BusinessError(
+            ApiCodes.BAD_REQUEST,
+            "Pages added or replaced in QC can't be sent for recapture \u2014 replace the page again instead.",
+        )
+
+    # The folder is about to be rebuilt by LWIP from the recapture: copy what QC
+    # owns first (a client rework reopens a folder nobody has saved since).
+    # Taken BEFORE the rework logs below are stamped, which is what marks the
+    # rejected pages as recaptured. Never raises.
+    snapshot_folder(folder, db, [image.image_name for image in rejected_images])
 
     # Update folder status and reset processing flags (per design doc §6)
     manifest = read_manifest(folder.id, current_user.user_id)
@@ -3043,8 +3152,9 @@ def update_separation_markers(
     marker_ids = list(dict.fromkeys(request.firstPageImageIds))
     if any(image_id not in current_ids for image_id in marker_ids):
         raise BusinessError(ApiCodes.BAD_REQUEST, "A separation start page is not among the current images.", 400)
-    if marker_ids and (len(marker_ids) < 2 or current_ids[0] not in marker_ids):
-        raise BusinessError(ApiCodes.BAD_REQUEST, "Separation needs at least two start pages, and the first image must be marked.", 400)
+    # The extra starts only: page 1 starts the first folder without a mark (a
+    # client that still sends it is ignored) and an empty list clears the split.
+    marker_ids = [image_id for image_id in marker_ids if image_id not in current_ids[:1]]
     set_separation_markers(folder.id, current_user.user_id, marker_ids, official_image_ids(folder))
     db.commit()
     write_qc_audit("separation_markers", current_user.user_id, folder.id, image_ids=marker_ids, source_hash=request.sourceHash, result="success")
@@ -3067,18 +3177,18 @@ def save_draft(
         metadata_values_from_manifest(manifest),
         metadata_template(folder),
     )
-    has_separation = bool((manifest or {}).get("separation_markers"))
-    parent_folder_name = folder.folder_name
+    parent_folder_id = folder.id
 
     def response_folder_after_save() -> CaptureFolder:
-        if not has_separation:
+        # Only a split that actually ran has children to move on to: marks
+        # alone (e.g. one a reorder left on page 1) split nothing.
+        if separation_transaction is None:
             return folder
         child = db.scalar(
             select(CaptureFolder)
             .options(*folder_options())
             .where(
-                CaptureFolder.box_id == folder.box_id,
-                CaptureFolder.folder_name.like(f"{parent_folder_name}_%"),
+                CaptureFolder.separated_from_folder_id == parent_folder_id,
                 func.lower(CaptureFolder.qc_status) == "pending",
             )
             .order_by(CaptureFolder.folder_seq.asc(), CaptureFolder.id.asc())
@@ -3147,6 +3257,7 @@ def save_draft(
             separation_transaction.cleanup_empty_parent_directories()
     except Exception:
         logger.exception("QC draft cleanup failed after save; folder=%s", folder_id)
+    keep_kept_pages_current(db, folder, separation_transaction)
     write_qc_audit(
         "save",
         current_user.user_id,

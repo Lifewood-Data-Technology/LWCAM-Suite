@@ -195,8 +195,7 @@ class AuthController extends GetxController {
 
     // Best-effort: (re)start the background sync drain now that the
     // per-device SQLite file's key is known. Never blocks or fails login —
-    // sync is opt-in (NodeConfig.syncEnabled defaults false) and this is
-    // purely additive to the existing login flow.
+    // this is purely additive to the existing login flow.
     if (devId.isNotEmpty && Get.isRegistered<NodeConfigService>()) {
       try {
         final config = await Get.find<NodeConfigService>().load();

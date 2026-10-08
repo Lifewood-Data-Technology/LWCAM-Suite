@@ -39,13 +39,11 @@ void main() {
 
   const deviceId = 'devSync';
 
-  Future<UploadStatsDB> freshDb(String prefix, {bool syncEnabled = true}) async {
+  Future<UploadStatsDB> freshDb(String prefix) async {
     final base = await _tempDir(prefix);
     final db = UploadStatsDB();
     db.debugOverrideBaseFolderForTests(base.path);
-    db.syncEnabled = syncEnabled;
     addTearDown(() {
-      db.syncEnabled = false;
       return db.debugCloseAllForTests();
     });
     return db;
@@ -65,6 +63,29 @@ void main() {
   });
 
   group('SyncService', () {
+    test('a tick first queues what PG never got, then drains it', () async {
+      final db = await freshDb('sync_svc_catchup_');
+      await db.insertCaptureBox(
+        deviceId: deviceId,
+        boxDetails: 'BOX-OLD',
+        projectKey: 'pk1',
+      );
+      // Captured before the hooks always recorded: nothing in the outbox.
+      await (await db.getDatabase(deviceId)).delete('sync_outbox');
+
+      final sink = FakeSyncSink();
+      final service = SyncService(
+        db: db,
+        sink: sink,
+        deviceId: deviceId,
+        cloudCaptureKeys: (_) async => <String>{},
+      );
+      await service.syncNow();
+
+      expect(sink.appliedBatches.single.single.entity, 'capture_boxes');
+      expect(service.pendingCount.value, 0);
+    });
+
     test('idle when the outbox is empty; the sink is never touched', () async {
       final db = await freshDb('sync_svc_empty_');
       final sink = FakeSyncSink();

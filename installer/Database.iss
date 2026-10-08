@@ -18,7 +18,7 @@
 #define QcDatabase AppsDir + "\LWCam_QC_Platform\database"
 #define QcScripts AppsDir + "\LWCam_QC_Platform\scripts"
 #define LwipWheels AppsDir + "\LWIP\wheels"
-#define PyEmbedZip "vendor\python-3.13.14-embed-amd64.zip"
+#define PyEmbedZip "vendor\python-3.14.8-embed-amd64.zip"
 
 [Setup]
 AppName={#AppNameFull}
@@ -61,7 +61,7 @@ Source: "{#LwipWheels}\cffi-*.whl"; DestDir: "{app}\wheels"; Flags: ignoreversio
 Source: "{#LwipWheels}\pycparser-*.whl"; DestDir: "{app}\wheels"; Flags: ignoreversion
 
 ; Build the private runtime on the target; its archive is staged once at the root.
-Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall
 Source: "vendor\vcruntime\*"; DestDir: "{app}\runtime\vc"; Flags: ignoreversion
 
 ; Installer-managed setup scripts.
@@ -91,6 +91,7 @@ Filename: "{cmd}"; Parameters: "/C ""{app}\SETUP_DB_RUNTIME.bat"" <NUL"; Working
 Filename: "{app}\BACKUP_DATABASE.bat"; Description: "Run a backup now (proves the backup folder works)"; Flags: postinstall skipifsilent shellexec
 
 [InstallDelete]
+Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
 ; Retired: logins.txt (the five per-part logins) is read by nothing; pgpass.conf held the database
 ; password in plain text and backup_db.py now passes it through the environment instead.
 Type: files; Name: "{app}\config\logins.txt"
@@ -103,7 +104,7 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam Database Backup
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam Database"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLwcamDatabaseFirewallRule"
 
 [UninstallDelete]
-Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
+Type: files; Name: "{app}\python-3.14.8-embed-amd64.zip"
 Type: files; Name: "{app}\database\.setup_ok"
 Type: filesandordirs; Name: "{app}\runtime"
 Type: filesandordirs; Name: "{app}\logs"

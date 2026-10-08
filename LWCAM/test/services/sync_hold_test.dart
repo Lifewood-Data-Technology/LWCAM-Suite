@@ -107,9 +107,7 @@ void main() {
     final base = await Directory.systemTemp.createTemp('sync_hold_');
     final db = UploadStatsDB();
     db.debugOverrideBaseFolderForTests(base.path);
-    db.syncEnabled = true;
     addTearDown(() async {
-      db.syncEnabled = false;
       await db.debugCloseAllForTests();
       if (await base.exists()) await base.delete(recursive: true);
     });

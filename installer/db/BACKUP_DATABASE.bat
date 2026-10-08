@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions
+rem The private runtime must never see a per-user site-packages (whoever runs setup may have
+rem their own Python of the same version): pip would skip packages and the runtime break.
+set "PYTHONNOUSERSITE=1"
 
 rem Nightly (and on-demand) database backup. Run by the "LWCam Database Backup"
 rem scheduled task as SYSTEM; safe to run by hand as Administrator too.

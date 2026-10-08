@@ -26,6 +26,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from lwcam_upload import engine
 from lwcam_upload.config import Config
 from lwcam_upload.engine import UploadCoordinator, UploadTarget, move_to_done
 
@@ -169,6 +170,11 @@ class ReuploadOnContentChangeTests(unittest.TestCase):
 class FingerprintReworkTests(unittest.TestCase):
     """scan_once must notice a republished package on its own - QC no longer
     calls anything like the old `clear_upload_ledger_entry` for it."""
+
+    def setUp(self) -> None:
+        patcher = patch.object(engine, "SETTLE_SECONDS", 0)  # upload on the first scan
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_unchanged_folder_package_is_not_reuploaded(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -7,6 +7,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from lwcam_upload import engine, health
 from lwcam_upload.engine import UploadCoordinator, classify_error
@@ -128,6 +129,9 @@ class HealthTests(unittest.TestCase):
 
 class WriteBackFlowTests(unittest.TestCase):
     def setUp(self) -> None:
+        patcher = patch.object(engine, "SETTLE_SECONDS", 0)  # upload on the first scan
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)

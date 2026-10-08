@@ -807,6 +807,7 @@ class FolderOrchestrator:
             self.config.thumbnail_width,
             self.config.thumbnail_quality,
             self.config.deskew_min_degrees,
+            self.config.mat_fill,
         )
 
     def _finish_image_job(
@@ -990,6 +991,10 @@ class FolderOrchestrator:
                         "angle": result.get("angle", 0.0),
                         "lossless": bool(result.get("lossless", False)),
                         "qc_ops": result.get("qc_ops", []),
+                        "angle_source": result.get("angle_source", "none"),
+                        "page_found": bool(result.get("page_found", False)),
+                        "off_frame": list(result.get("off_frame", [])),
+                        "mat_fill": bool(result.get("mat_fill", False)),
                     }
                 )
 

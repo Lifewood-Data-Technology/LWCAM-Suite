@@ -5,8 +5,11 @@ per-reviewer draft under qc_work_dir) - it has to survive across review
 sessions and reviewers, because a client-rework reopens an ALREADY-APPROVED
 folder and its prior committed straighten/crop must still apply. A CAPTURE
 rework (LWIP rebuilding the folder from a fresh recapture) correctly wipes
-this file along with everything else in the folder, which is exactly right:
-a recaptured page has no history to keep.
+this file along with everything else in the folder - but QC keeps its own copy
+(services/qc_kept_pages.py) and puts it back at the next claim, dropping only
+the entries of pages that were actually recaptured. An entry for a page QC
+inserted or replaced also carries `kept` ("inserted" | "replaced") and, for a
+cross-format replace, `lwip_name` (the name LWIP gave the original).
 
 Deliberately NOT the per-image page JPEG: geometry lands here instead of in
 pixels so the delivered file never carries anything FamilySearch could call
@@ -95,6 +98,11 @@ def drop_image_ops(folder_path: Path, image_name: str) -> None:
         return
     images.pop(image_name, None)
     _write_atomic(path, data)
+
+
+def write_qc_ops(folder_path: Path, data: dict[str, Any]) -> None:
+    """Replace the whole file (a restore after LWIP rebuilt the folder)."""
+    _write_atomic(qc_ops_path(folder_path), data)
 
 
 def _write_atomic(path: Path, data: dict[str, Any]) -> None:

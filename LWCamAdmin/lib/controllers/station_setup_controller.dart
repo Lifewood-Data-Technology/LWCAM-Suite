@@ -129,7 +129,7 @@ class StationSetupController extends GetxController {
   /// this app's users/projects reconcile (AdminStoreService always tries
   /// PG when a host is configured and [pgConnectionEnabled] is on,
   /// regardless of this flag).
-  final lwcamSyncEnabled = false.obs;
+  final lwcamSyncEnabled = true.obs;
 
   /// The image destination root LWCAM's transfers land in. Empty = not
   /// configured; LWCAM refuses to start a transfer until it is set.

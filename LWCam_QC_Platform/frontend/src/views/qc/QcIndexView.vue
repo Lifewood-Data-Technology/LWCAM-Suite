@@ -98,6 +98,9 @@ const rejectReasons = reactive<Record<number, string>>({})
 
 const selectedImageIds = ref<number[]>([])
 const separationMode = ref(false)
+// Unapplied clicks while the mode is open: the EXTRA start pages only (page 1 is implicit).
+const separationSelection = ref<Set<number>>(new Set())
+const separationApplying = ref(false)
 const metadataForm = reactive<EditableFolderMetadata>({})
 const { previewSrc, previewLoading, previewError } = usePreviewImage(image)
 
@@ -245,7 +248,9 @@ const targetImageIds = computed(() => {
 
 // An image operation is in flight — separate from metadataSaving/draftSaving
 // so the metadata panel doesn't grey out while a page is being rotated.
-const toolbarBusy = computed(() => actionLoading.value || luminanceLoading.value || cropLoading.value)
+const toolbarBusy = computed(() => actionLoading.value || luminanceLoading.value || cropLoading.value || separationApplying.value)
+// Unapplied marks must not be saved/approved/rejected without the reviewer noticing.
+const separationBlocking = computed(() => separationMode.value || separationApplying.value)
 const toolsEnabled = computed(() => current.value?.status === 'reviewing' && !toolbarBusy.value)
 const isTaskSettled = computed(() => current.value?.status === 'passed' || current.value?.status === 'rework')
 const canMoveImageUp = computed(() => toolsEnabled.value && currentImageIndex.value > 1)
@@ -258,6 +263,46 @@ function batched(label: string) {
   return count > 1 ? `${label} (${count} pages)` : label
 }
 const separationMarkerIds = computed(() => current.value?.images.filter((item) => item.separationStart).map((item) => item.id) || [])
+// The server sends page 1 as a start too once any extra marker exists; the
+// extras are what the PUT carries and what the preview toggles.
+const appliedExtraStartIds = computed(() => {
+  const firstId = current.value?.images[0]?.id
+  return separationMarkerIds.value.filter((id) => id !== firstId)
+})
+const separationGroupsShown = computed(
+  () => current.value?.status === 'reviewing' && (separationMode.value || appliedExtraStartIds.value.length > 0),
+)
+// Per image id: which folder it would land in and how big that folder is.
+const separationGroupById = computed(() => {
+  const map = new Map<number, { folder: number; pages: number; first: boolean }>()
+  const images = current.value?.images || []
+  if (!separationGroupsShown.value || !images.length) return map
+  const starts = separationMode.value ? separationSelection.value : new Set(appliedExtraStartIds.value)
+  const groups: number[][] = []
+  images.forEach((item, index) => {
+    if (index === 0 || starts.has(item.id)) groups.push([])
+    groups[groups.length - 1].push(item.id)
+  })
+  groups.forEach((ids, groupIndex) =>
+    ids.forEach((id, i) => map.set(id, { folder: groupIndex + 1, pages: ids.length, first: i === 0 })),
+  )
+  return map
+})
+// "1–2, 3–4, 5" for the confirm dialog, from the CURRENT order and applied markers.
+function splitRanges(): string[] {
+  const images = current.value?.images || []
+  const starts = new Set(appliedExtraStartIds.value)
+  const ranges: string[] = []
+  let from = 0
+  images.forEach((item, index) => {
+    if (index > 0 && starts.has(item.id)) {
+      ranges.push(from + 1 === index ? `${index}` : `${from + 1}–${index}`)
+      from = index
+    }
+  })
+  ranges.push(from + 1 === images.length ? `${images.length}` : `${from + 1}–${images.length}`)
+  return ranges
+}
 
 // The fields shown in the metadata panel/dialog. Whether each one is REQUIRED
 // comes from the template (the backend ships archivalRefNo as optional), not
@@ -346,10 +391,18 @@ const savingChanges = computed(() => draftSaving.value || metadataSaving.value)
 function applyTaskUpdate(task: MetadataQcTask, selectedImageId?: number | null) {
   const visibleImages = task.images.filter((item) => item.draftState !== 'deleted')
   const visibleTask = { ...task, images: visibleImages, imageCount: visibleImages.length }
+  const previousIndex = current.value?.images.findIndex((item) => item.id === image.value?.id) ?? -1
   current.value = visibleTask
   claimedTask.value = visibleTask.status === 'reviewing' ? visibleTask : claimedTask.value
   const nextImageId = selectedImageId ?? image.value?.id
-  image.value = visibleTask.images.find((item) => item.id === nextImageId) || visibleTask.images[0] || null
+  // id match first; a draft page (negative id) gets a real id on Save, so then keep the same position
+  image.value =
+    visibleTask.images.find((item) => item.id === nextImageId) ||
+    (previousIndex >= 0 ? visibleTask.images[Math.min(previousIndex, visibleTask.images.length - 1)] : undefined) ||
+    visibleTask.images[0] ||
+    null
+  syncRejectReasons(rejectedImageIds.value.filter((id) => visibleTask.images.some((item) => item.id === id)), false)
+  rejectedImageIds.value = rejectedImageIds.value.filter((id) => visibleTask.images.some((item) => item.id === id))
   selectedImageIds.value = selectedImageIds.value.filter((id) => visibleTask.images.some((item) => item.id === id))
   const listIndex = tasks.value.findIndex((item) => item.id === visibleTask.id)
   if (listIndex >= 0) tasks.value[listIndex] = visibleTask
@@ -484,6 +537,7 @@ function clearCurrentTask() {
   claimedTask.value = null
   image.value = null
   selectedImageIds.value = []
+  exitSeparationMode()
 }
 
 async function releaseCurrent() {
@@ -652,11 +706,16 @@ async function approve() {
   if (current.value?.status !== 'reviewing') return
   if (!validateCurrentBeforeApprove()) return
   const hasUnsaved = current.value.hasDraft || metadataDirty.value
-  await ElMessageBox.confirm(
-    t(hasUnsaved ? 'qc.approveWithDraftConfirm' : 'qc.approveConfirm', { pages: current.value.images.length }),
-    t('qc.title'),
-    { type: 'info' },
-  )
+  if (appliedExtraStartIds.value.length) {
+    // The split confirmation replaces the plain one - it says more.
+    if (!(await confirmSplit('qc.splitApproveConfirm', 'qc.splitFolder'))) return
+  } else {
+    await ElMessageBox.confirm(
+      t(hasUnsaved ? 'qc.approveWithDraftConfirm' : 'qc.approveConfirm', { pages: current.value.images.length }),
+      t('qc.title'),
+      { type: 'info' },
+    )
+  }
   actionLoading.value = true
   try {
     // Typed-but-unsaved metadata is committed here rather than lost. Image
@@ -718,12 +777,10 @@ async function openRejectDialog() {
       return
     }
   }
-  const imageIds = Object.keys(rejectReasons)
-    .map(Number)
-    .filter((imageId) => (rejectReasons[imageId] || '').trim())
-  if (image.value && !imageIds.includes(image.value.id)) {
-    imageIds.push(image.value.id)
-  }
+  // ticked (else previewed) pages plus every existing page with a typed remark, in page order
+  const order = current.value?.images.map((item) => item.id) ?? []
+  const wanted = new Set([...targetImageIds.value, ...order.filter((id) => (rejectReasons[id] || '').trim())])
+  const imageIds = order.filter((id) => wanted.has(id))
   rejectedImageIds.value = imageIds
   syncRejectReasons(imageIds)
   rejectDialogVisible.value = true
@@ -752,12 +809,19 @@ async function submitReject() {
       rejectedImages,
     )
     rejectDialogVisible.value = false
+    resetRejectState()
     ElMessage.success(t('qc.rejected'))
     claimedTask.value = null
     await promptNextTaskOrClose()
   } catch (error) {
-    rejectDialogVisible.value = false
-    await handleVersionOrActionError(error)
+    const status = (error as ApiError).status
+    if (status === 400 || status === 422) {
+      // e.g. a page added in QC can't be recaptured: stay, dialog stays open to adjust
+      ElMessage.error((error as Error).message)
+    } else {
+      rejectDialogVisible.value = false
+      await handleVersionOrActionError(error)
+    }
   } finally {
     actionLoading.value = false
   }
@@ -841,6 +905,14 @@ async function saveMetadata(options: { silent?: boolean } = {}): Promise<boolean
   }
 }
 
+// Separation refusals are the reviewer's to fix (400): show the message and
+// stay in the task. Only a version conflict (409) or anything unexpected kicks out.
+async function handleStayOrKickOut(error: unknown) {
+  const status = (error as ApiError).status
+  if (status === 400 || status === 422) ElMessage.error((error as Error).message)
+  else await handleVersionOrActionError(error)
+}
+
 async function handleVersionOrActionError(error: unknown) {
   ElMessage.error((error as Error).message)
   clearCurrentTask()
@@ -873,6 +945,7 @@ function enterCropMode() {
   // naturalWidth === 0 means the img hasn't decoded yet — the natural-px
   // conversion would produce garbage, so refuse until @load re-enables us.
   if (!canCrop.value || !cropImageEl.value || cropImageEl.value.naturalWidth === 0) return
+  if (separationMode.value) exitSeparationMode()
   resetCropSelection()
   syncCropOverlayBox()
   cropMode.value = true
@@ -1114,6 +1187,11 @@ function toggleAllBatchSelection() {
 
 function onThumbnailClick(item: MetadataQcImage, index: number, event: MouseEvent) {
   const reviewing = current.value?.status === 'reviewing'
+  if (reviewing && separationMode.value) {
+    toggleSeparationMarker(item.id)
+    image.value = item
+    return
+  }
   if (reviewing && event.shiftKey && current.value) {
     // Range-select between the ACTIVE image and the clicked one (active image
     // itself stays where it is — shift+click only extends the batch selection).
@@ -1134,13 +1212,24 @@ function onThumbnailClick(item: MetadataQcImage, index: number, event: MouseEven
   image.value = item
 }
 
-function syncRejectReasons(ids: number[]) {
+function resetRejectState() {
+  rejectedImageIds.value = []
+  Object.keys(rejectReasons).forEach((key) => delete rejectReasons[Number(key)])
+}
+
+function pageLabel(imageId: number) {
+  const index = current.value?.images.findIndex((item) => item.id === imageId) ?? -1
+  const name = current.value?.images[index]?.filename || imageId
+  return index >= 0 ? t('qc.rejectPageLabel', { page: index + 1, name }) : String(name)
+}
+
+function syncRejectReasons(ids: number[], seed = true) {
   const nextIds = new Set(ids)
   Object.keys(rejectReasons).forEach((key) => {
     const imageId = Number(key)
     if (!nextIds.has(imageId)) delete rejectReasons[imageId]
   })
-  ids.forEach((imageId) => {
+  if (seed) ids.forEach((imageId) => {
     if (!(imageId in rejectReasons)) rejectReasons[imageId] = ''
   })
 }
@@ -1335,18 +1424,88 @@ async function moveCurrentImage(offset: -1 | 1) {
   )
 }
 
-async function toggleSeparationMarker(imageId: number) {
-  if (!current.value || current.value.status !== 'reviewing') return
-  const currentMarkers = new Set(separationMarkerIds.value)
-  if (currentMarkers.has(imageId)) currentMarkers.delete(imageId)
-  else currentMarkers.add(imageId)
-  const firstId = current.value.images[0]?.id
-  if (currentMarkers.size > 0 && firstId) currentMarkers.add(firstId)
-  await runImageAction(
-    () => qcApi.updateSeparationMarkers(current.value!.id, current.value!.sourceHash, [...currentMarkers]),
-    image.value?.id,
-    'qc.separationDone',
-  )
+function enterSeparationMode() {
+  if (current.value?.status !== 'reviewing') return
+  if (cropMode.value) exitCropMode()
+  separationSelection.value = new Set(appliedExtraStartIds.value)
+  separationMode.value = true
+  window.addEventListener('keydown', onSeparationKeydown)
+}
+
+// Cancel: drops unapplied clicks only; whatever is already applied stays.
+function exitSeparationMode() {
+  separationMode.value = false
+  separationSelection.value = new Set()
+  window.removeEventListener('keydown', onSeparationKeydown)
+}
+
+function toggleSeparationMode() {
+  if (separationMode.value) exitSeparationMode()
+  else enterSeparationMode()
+}
+
+function onSeparationKeydown(event: KeyboardEvent) {
+  // A VISIBLE Element Plus overlay owns Esc (closed dialogs keep a display:none overlay in the DOM).
+  if (event.key === 'Escape' && !event.defaultPrevented && !Array.from(document.querySelectorAll<HTMLElement>('.el-overlay')).some((el) => el.style.display !== 'none') && !separationApplying.value) exitSeparationMode()
+}
+
+// Local only - nothing is sent until Apply. Page 1 is the fixed start of folder 1.
+function toggleSeparationMarker(imageId: number) {
+  if (imageId === current.value?.images[0]?.id) return
+  const next = new Set(separationSelection.value)
+  if (next.has(imageId)) next.delete(imageId)
+  else next.add(imageId)
+  separationSelection.value = next
+}
+
+function clearSeparationSelection() {
+  separationSelection.value = new Set()
+}
+
+async function putSeparationMarkers(ids: number[]): Promise<boolean> {
+  if (!current.value || current.value.status !== 'reviewing') return false
+  separationApplying.value = true
+  try {
+    const { data } = await qcApi.updateSeparationMarkers(current.value.id, current.value.sourceHash, ids)
+    applyTaskUpdate(data.data, image.value?.id)
+    ElMessage.success(t('qc.separationDone'))
+    return true
+  } catch (error) {
+    await handleStayOrKickOut(error)
+    return false
+  } finally {
+    separationApplying.value = false
+  }
+}
+
+async function applySeparation() {
+  const known = new Set(current.value?.images.map((item) => item.id))
+  const wanted = [...separationSelection.value].filter((id) => known.has(id))
+  // Nothing changed: a PUT would only create a phantom draft + undo step.
+  if (wanted.length === appliedExtraStartIds.value.length && wanted.every((id) => appliedExtraStartIds.value.includes(id))) {
+    exitSeparationMode()
+    return
+  }
+  if (await putSeparationMarkers([...separationSelection.value].filter((id) => known.has(id)))) exitSeparationMode()
+}
+
+async function removeSeparation() {
+  await putSeparationMarkers([])
+}
+
+/** Asks before the irreversible split; true = go ahead. */
+async function confirmSplit(bodyKey: string, confirmKey: string): Promise<boolean> {
+  const ranges = splitRanges()
+  try {
+    await ElMessageBox.confirm(
+      t(bodyKey, { n: ranges.length, ranges: ranges.join(', ') }),
+      t('qc.splitTitle', { n: ranges.length }),
+      { type: 'warning', confirmButtonText: t(confirmKey), cancelButtonText: t('common.cancel') },
+    )
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Returns whether the image draft was saved; saveChanges stops on false. */
@@ -1404,6 +1563,7 @@ async function discardDraft(
  */
 async function saveChanges() {
   if (current.value?.status !== 'reviewing' || !hasUnsavedChanges.value) return
+  if (appliedExtraStartIds.value.length && !(await confirmSplit('qc.splitConfirm', 'qc.splitAndSave'))) return
   if (metadataDirty.value && !(await saveMetadata({ silent: true }))) return
   if (current.value?.status !== 'reviewing') return
   if (current.value.hasDraft && !(await saveDraft({ silent: true }))) return
@@ -1482,6 +1642,7 @@ watch(
 watch(
   () => current.value?.id,
   () => {
+    resetRejectState()
     fillMetadataFormFromCurrent()
   },
 )
@@ -1492,10 +1653,15 @@ watch(
 watch([previewSrc, () => current.value?.status], () => {
   if (cropMode.value) exitCropMode()
 })
+// A different task or a status change invalidates unapplied separation clicks.
+watch([() => current.value?.id, () => current.value?.status], () => {
+  if (separationMode.value) exitSeparationMode()
+})
 
 onMounted(refreshForRoute)
 onBeforeUnmount(() => {
   exitCropMode()
+  exitSeparationMode()
   if (claimedTask.value?.status === 'reviewing') {
     void qcApi.release(claimedTask.value.id).catch(() => undefined)
   }
@@ -1573,14 +1739,14 @@ onBeforeUnmount(() => {
                   type="danger"
                   :icon="'RefreshLeft'"
                   :loading="actionLoading"
-                  :disabled="current.separatedFromFolder"
+                  :disabled="current.separatedFromFolder || separationBlocking"
                   @click="openRejectDialog"
                 >
                   {{ t('qc.reject') }}
                 </el-button>
               </span>
             </el-tooltip>
-            <el-button type="success" :icon="'Check'" :loading="actionLoading" :disabled="!current.imageAvailable" @click="approve">
+            <el-button type="success" :icon="'Check'" :loading="actionLoading" :disabled="!current.imageAvailable || separationBlocking" @click="approve">
               {{ t('qc.pass') }}
             </el-button>
           </div>
@@ -1598,6 +1764,12 @@ onBeforeUnmount(() => {
               <span>{{ t('qc.imageList') }}</span>
               <strong>{{ current.imageCount }} {{ t('qc.images') }}</strong>
             </div>
+            <div v-if="current.status === 'reviewing' && appliedExtraStartIds.length && !separationMode" class="qc-separation-applied">
+              <span>{{ t('qc.separationApplied', { n: appliedExtraStartIds.length + 1 }) }}</span>
+              <el-button size="small" :loading="separationApplying" @click="removeSeparation">
+                {{ t('qc.removeSeparation') }}
+              </el-button>
+            </div>
             <div v-if="current.status === 'reviewing'" class="qc-batch-tools">
               <el-checkbox
                 :model-value="allBatchSelected"
@@ -1611,12 +1783,25 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="qc-thumbnail-list">
+            <template v-for="(item, index) in current.images" :key="item.id">
+            <div
+              v-if="separationGroupById.get(item.id)?.first"
+              class="qc-thumbnail-group"
+            >
+              {{ t('qc.separationGroup', { n: separationGroupById.get(item.id)!.folder, pages: separationGroupById.get(item.id)!.pages }, separationGroupById.get(item.id)!.pages) }}
+            </div>
             <button
-              v-for="(item, index) in current.images"
-              :key="item.id"
               type="button"
               class="qc-thumbnail"
-              :class="{ active: image?.id === item.id, selected: selectedBatchIds.includes(item.id), unavailable: !item.available }"
+              :aria-pressed="separationMode && index > 0 ? separationSelection.has(item.id) : undefined"
+              :class="{
+                active: image?.id === item.id,
+                selected: selectedBatchIds.includes(item.id),
+                unavailable: !item.available,
+                'qc-thumbnail--grouped': separationGroupById.has(item.id),
+                'qc-thumbnail--stripe-b': (separationGroupById.get(item.id)?.folder ?? 1) % 2 === 0,
+                'qc-thumbnail--split': separationGroupById.get(item.id)?.first && index > 0,
+              }"
               :title="item.filename"
               @click="onThumbnailClick(item, index, $event)"
             >
@@ -1639,24 +1824,18 @@ onBeforeUnmount(() => {
               >
                 {{ t('qc.unsavedBadge') }}
               </span>
-              <el-button
-                v-if="current.status === 'reviewing' && separationMode"
-                class="qc-separation-dot"
-                size="small"
-                :type="item.separationStart ? 'warning' : 'default'"
-                circle
-                @click.stop="toggleSeparationMarker(item.id)"
-              >
-                S
-              </el-button>
+              <span v-if="separationGroupById.get(item.id)?.first" class="qc-thumbnail-starts">
+                {{ index === 0 ? t('qc.separationFirst') : t('qc.separationStarts', { n: separationGroupById.get(item.id)!.folder }) }}
+              </span>
             </button>
+            </template>
           </div>
         </aside>
 
         <section
           v-loading="detailLoading || previewLoading"
           class="qc-preview-stage"
-          :class="{ 'qc-preview-stage--cropping': cropMode }"
+          :class="{ 'qc-preview-stage--cropping': cropMode || separationMode }"
           tabindex="-1"
           @click="focusPagingRoot"
           @keydown="onPageNavKeydown"
@@ -1700,6 +1879,16 @@ onBeforeUnmount(() => {
                   />
                 </div>
               </div>
+            </div>
+            <div v-if="separationMode" class="qc-crop-bar">
+              <span class="qc-crop-bar__hint qc-crop-bar__hint--wrap">{{ t('qc.separationHint') }}</span>
+              <el-button size="small" :disabled="separationApplying" @click="exitSeparationMode">{{ t('common.cancel') }}</el-button>
+              <el-button size="small" :disabled="!separationSelection.size" @click="clearSeparationSelection">
+                {{ t('qc.separationClear') }}
+              </el-button>
+              <el-button size="small" type="primary" :loading="separationApplying" @click="applySeparation">
+                {{ t('qc.separationApply') }}
+              </el-button>
             </div>
             <div v-if="cropMode" class="qc-crop-bar">
               <span class="qc-crop-bar__hint">{{ t('qc.cropHint') }}</span>
@@ -1849,7 +2038,7 @@ onBeforeUnmount(() => {
                 type="success"
                 :icon="'Finished'"
                 :loading="savingChanges"
-                :disabled="!hasUnsavedChanges"
+                :disabled="!hasUnsavedChanges || separationBlocking"
                 @click="saveChanges"
               >
                 {{ t('qc.saveDraft') }}
@@ -2011,7 +2200,7 @@ onBeforeUnmount(() => {
                     circle
                     :icon="'Scissor'"
                     :type="separationMode ? 'warning' : 'default'"
-                    @click="separationMode = !separationMode"
+                    @click="toggleSeparationMode"
                   />
                 </el-tooltip>
               </template>
@@ -2175,17 +2364,18 @@ onBeforeUnmount(() => {
 
     <el-dialog v-model="rejectDialogVisible" :title="t('qc.rejectImages')" width="520px">
       <p class="qc-reject-intro">{{ t('qc.rejectIntro') }}</p>
+      <p v-if="selectedBatchIds.length" class="qc-reject-intro">{{ t('qc.rejectTickedHint', { count: selectedBatchIds.length }) }}</p>
       <el-form label-position="top">
         <el-form-item :label="t('qc.selectRejectedImages')" required>
           <el-checkbox-group v-model="rejectedImageIds" class="reject-image-options" @change="syncRejectReasons">
-            <el-checkbox v-for="item in current?.images || []" :key="item.id" :value="item.id">{{ item.filename }}</el-checkbox>
+            <el-checkbox v-for="item in current?.images || []" :key="item.id" :value="item.id">{{ pageLabel(item.id) }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
         <div v-if="rejectedImageIds.length" class="reject-reason-list">
           <el-form-item
             v-for="imageId in rejectedImageIds"
             :key="imageId"
-            :label="`${current?.images.find((item) => item.id === imageId)?.filename || imageId} - ${t('qc.rejectReason')}`"
+            :label="`${pageLabel(imageId)} - ${t('qc.rejectReason')}`"
             required
           >
             <el-input v-model="rejectReasons[imageId]" type="textarea" :rows="3" maxlength="10000" show-word-limit />
@@ -2353,6 +2543,11 @@ onBeforeUnmount(() => {
   padding: 8px 16px;
   background: rgba(16, 22, 18, 0.82);
   white-space: nowrap;
+}
+
+.qc-crop-bar__hint--wrap {
+  min-width: 0;
+  white-space: normal;
 }
 
 .qc-crop-bar__hint {
@@ -4093,11 +4288,67 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
-.qc-separation-dot {
+/* Separation preview: a header above each folder's first card, a coloured
+   stripe on every card of the folder (two alternating colours), and a yellow
+   wash + border on the cards that START a new folder. */
+.qc-thumbnail-group {
+  flex: 0 0 auto;
+  padding: 2px 4px 0;
+  color: #4d5f56;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.qc-thumbnail--grouped::before {
+  content: '';
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  width: 6px;
+  background: #2c8a6a;
+}
+
+.qc-thumbnail--grouped.qc-thumbnail--stripe-b::before {
+  background: #3b82c4;
+}
+
+.qc-thumbnail.qc-thumbnail--split,
+.qc-thumbnail.qc-thumbnail--split:hover,
+.qc-thumbnail.qc-thumbnail--split.active {
+  border-color: #e0a800;
+}
+
+.qc-thumbnail--split::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(250, 204, 21, 0.3);
+  pointer-events: none;
+}
+
+.qc-thumbnail-starts {
+  position: absolute;
+  right: 6px;
+  top: 38px;
   z-index: 4;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: #e0a800;
+  color: #1a3329;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.qc-separation-applied {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .qc-preview-stage {
@@ -4867,6 +5118,11 @@ onBeforeUnmount(() => {
   .qc-thumbnail {
     width: 150px;
     flex: 0 0 150px;
+  }
+
+  .qc-thumbnail-group {
+    writing-mode: vertical-rl;
+    padding: 4px 2px;
   }
 
   .qc-preview-stage {

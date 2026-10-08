@@ -13,6 +13,25 @@ import cv2
 import numpy as np
 from PIL import Image
 
+try:  # JPEG XL decode for Pillow; cv2 cannot read .jxl. Optional.
+    import pillow_jxl  # noqa: F401
+except ImportError:
+    pillow_jxl = None
+
+# The op replay is shared byte-for-byte with the QC engine (geometry_replay.py
+# in both trees). Verification scripts load this file standalone, outside the
+# package, so fall back to loading the sibling file by path.
+try:
+    from . import geometry_replay
+except ImportError:
+    import importlib.util as _importlib_util
+
+    _spec = _importlib_util.spec_from_file_location(
+        "geometry_replay", Path(__file__).with_name("geometry_replay.py")
+    )
+    geometry_replay = _importlib_util.module_from_spec(_spec)
+    _spec.loader.exec_module(geometry_replay)
+
 
 # Literal "\\?\", the Windows extended-length path prefix.
 _EXTENDED_PREFIX = "\\\\?\\"
@@ -119,6 +138,9 @@ LOSSLESS_CROP_GRID = 16
 # beyond each kept pixel, plus rounding; measured on real captures, a 1 px gap
 # left 70-93 fill-blended pixels, 5 px left 19, 8 px left 0.
 RESAMPLE_REACH = 8
+# A page counts as running OFF the frame on a side only when its outline lies
+# along that frame edge for at least this fraction of the page's extent.
+OFF_FRAME_MIN_FRACTION = 0.25
 # Override for a station whose tools folder is elsewhere; the default is the
 # LWIP\tools folder the installer ships.
 JPEGTRAN_ENV = "LWIP_JPEGTRAN"
@@ -291,20 +313,42 @@ def deskew_crop_file(
     thumbnail_width: int = 0,
     thumbnail_quality: int = 85,
     deskew_min_degrees: float = DEFAULT_DESKEW_MIN_DEGREES,
+    mat_fill: bool = True,
 ) -> dict[str, object]:
     source = Path(source_value)
     destination = Path(destination_value)
+    is_jxl = source.suffix.lower() == ".jxl"
     try:
         source_bytes = fs_path(source).read_bytes()
         with Image.open(BytesIO(source_bytes)) as opened:
             opened.verify()
     except Exception as exc:
+        if is_jxl:
+            state = "installed" if pillow_jxl else "NOT installed on this PC"
+            raise OSError(
+                f"Unreadable image: {source}: JPEG XL needs the pillow-jxl-plugin "
+                f"package ({state}): {exc}"
+            ) from exc
         raise OSError(f"Unreadable image: {source}: {exc}") from exc
     # verify() consumes the file object, so the metadata read needs its own open.
     metadata = _source_metadata(source_bytes)
-    image = cv2.imdecode(np.frombuffer(source_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if is_jxl:
+        # cv2 cannot read JPEG XL; Pillow (with the plugin) can.
+        try:
+            with Image.open(BytesIO(source_bytes)) as opened:
+                image = cv2.cvtColor(np.array(opened.convert("RGB")), cv2.COLOR_RGB2BGR)
+        except Exception as exc:
+            raise OSError(f"Unreadable image: {source}: {exc}") from exc
+    else:
+        image = cv2.imdecode(np.frombuffer(source_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise OSError(f"Unreadable image: {source}")
+    full_height, full_width = image.shape[:2]
+    is_jpeg = source_bytes[:2] == b"\xff\xd8"
+    # Orientation 2..8 means cv2 rotated the frame on decode, so the stored
+    # bytes and the decoded frame disagree: those files take the old
+    # decode-and-re-encode path and are never byte-copied or trim-cropped.
+    upright = _source_orientation(source_bytes) == 1
 
     prepared = _detection_frame(image)
     contour = _largest_content_contour(image, prepared)
@@ -315,53 +359,72 @@ def deskew_crop_file(
     # hands: `angle` is a measurement QC replays later (qc_ops, below), on the
     # one file that is ever going to be resampled.
     angle = 0.0
+    angle_source = "none"
+    off_frame: set[str] = set()
+    crop_source: tuple[int, int, int, int] | None = None
     if contour is not None:
         measured = _estimate_skew(image, contour, deskew_min_degrees)
         if abs(measured) >= deskew_min_degrees:
             angle = measured
-
-    lossless_bytes: bytes | None = None
-    crop_box: tuple[int, int, int, int] | None = None
-    qc_ops: list[dict[str, object]] = []
-    if contour is not None:
         # Keep enough of the camera frame for the final, straightened crop.
         # A tilted page's padded output rectangle maps back to a larger
         # quadrilateral; cropping only the unrotated contour's bbox would
         # leave rotation-fill wedges inside that requested margin.
-        left, top, right, bottom = _source_crop_box(
-            contour, angle, padding, image.shape[1], image.shape[0]
-        )
-        if right > left and bottom > top:
-            # No decode, no encode: the delivered pixels ARE the camera's.
-            # Orientation 2..8 means cv2 rotated the frame on decode, so the
-            # box would not map onto the stored blocks; those pages take the
-            # resampling path. This no longer depends on `angle` — a tilted
-            # page is cropped losslessly exactly like a straight one, since
-            # neither is ever rotated here.
-            if (
-                destination.suffix.lower() in {".jpg", ".jpeg"}
-                and source_bytes[:2] == b"\xff\xd8"
-                and _source_orientation(source_bytes) == 1
-            ):
-                snapped = snap_crop_box(
-                    left, top, right, bottom, image.shape[1], image.shape[0]
-                )
-                lossless_bytes = crop_jpeg_lossless(source_bytes, snapped, metadata)
-                if lossless_bytes is not None:
-                    left, top, right, bottom = snapped
-            crop_box = (left, top, right, bottom)
-            cropped = image[top:bottom, left:right]
-            if angle != 0.0:
-                shifted_contour = contour.reshape(-1, 2).astype(np.float64) - (
-                    left,
-                    top,
-                )
-                qc_ops = _build_qc_ops(
-                    angle, cropped.shape[1], cropped.shape[0], shifted_contour, padding
-                )
-            image = cropped
+        box = _source_crop_box(contour, angle, padding, full_width, full_height)
+        if box[2] > box[0] and box[3] > box[1]:
+            crop_source = box
+            off_frame = _off_frame_sides(contour, full_width, full_height)
+            angle_source = (
+                "sides" if _contour_edge_angle(contour) is not None else "min_area_rect"
+            )
+    page_found = crop_source is not None
 
-    if lossless_bytes is not None:
+    # Encode once: a non-JPEG file, and a JPEG with no page to crop, ship the
+    # camera's bytes untouched. Their geometry (when there is any) is data.
+    copy_source = upright and (not is_jpeg or not page_found)
+
+    lossless_bytes: bytes | None = None
+    crop_box: tuple[int, int, int, int] | None = None
+    qc_ops: list[dict[str, object]] = []
+    if page_found and copy_source:
+        qc_ops = _build_qc_ops(
+            angle,
+            full_width,
+            full_height,
+            contour.reshape(-1, 2).astype(np.float64),
+            padding,
+            off_frame,
+            mat_fill,
+        )
+    elif page_found:
+        left, top, right, bottom = crop_source
+        # No decode, no encode: the delivered pixels ARE the camera's.
+        # This no longer depends on `angle` - a tilted page is cropped
+        # losslessly exactly like a straight one, since neither is ever
+        # rotated here.
+        if destination.suffix.lower() in {".jpg", ".jpeg"} and is_jpeg and upright:
+            snapped = snap_crop_box(left, top, right, bottom, full_width, full_height)
+            lossless_bytes = crop_jpeg_lossless(source_bytes, snapped, metadata)
+            if lossless_bytes is not None:
+                left, top, right, bottom = snapped
+        crop_box = (left, top, right, bottom)
+        cropped = image[top:bottom, left:right]
+        if angle != 0.0:
+            shifted_contour = contour.reshape(-1, 2).astype(np.float64) - (left, top)
+            qc_ops = _build_qc_ops(
+                angle,
+                cropped.shape[1],
+                cropped.shape[0],
+                shifted_contour,
+                padding,
+                off_frame,
+                mat_fill,
+            )
+        image = cropped
+
+    if copy_source:
+        _write_bytes_atomic(destination, source_bytes)
+    elif lossless_bytes is not None:
         _write_bytes_atomic(destination, lossless_bytes)
     else:
         _write_image_atomic(
@@ -391,6 +454,10 @@ def deskew_crop_file(
         "lossless": lossless_bytes is not None,
         "crop": list(crop_box) if crop_box else None,
         "qc_ops": qc_ops,
+        "angle_source": angle_source,
+        "page_found": page_found,
+        "off_frame": sorted(off_frame),
+        "mat_fill": any(op.get("op") == "matfill" for op in qc_ops),
     }
 
 
@@ -400,6 +467,8 @@ def _build_qc_ops(
     height: int,
     contour_xy: np.ndarray,
     padding: int,
+    off_frame: set[str] | None = None,
+    mat_fill: bool = False,
 ) -> list[dict[str, object]]:
     """The deskew+crop QC replays against the OUTPUT frame, in order.
 
@@ -407,7 +476,7 @@ def _build_qc_ops(
     that would straighten the page if warped). QC uses Pillow, whose
     `Image.rotate` is also positive-counter-clockwise but is not the same
     axis convention once you work through `rotate`'s own inverse-affine
-    matrix (see its source) — empirically (an asymmetric fixture, checked
+    matrix (see its source) - empirically (an asymmetric fixture, checked
     both ways) the degrees QC must pass to `rotate(-degrees, expand=True)` to
     straighten the page is `-angle`, not `angle`. Do not "simplify" this back
     to `angle` without re-running that check.
@@ -417,12 +486,18 @@ def _build_qc_ops(
     expand=True)`) does to the frame: rotate the frame's own corners about
     its centre, take their bounding box for the expanded W/H, shift so its
     top-left is (0, 0), apply the same transform to the (already
-    output-frame-shifted) contour, then pad and clamp each side to the real
-    rotated source polygon. `_source_crop_box` keeps the inverse-rotated
-    padded rectangle in the JPEG crop whenever the capture has room, so this
-    clamp removes margin only where the photo itself ends. No pixel is
-    touched; this is pure geometry so QC's later resample lands on the same
-    box LWIP would have cropped to itself.
+    output-frame-shifted) contour, then pad and clamp to the real rotated
+    source polygon. No pixel is touched; this is pure geometry so QC's later
+    resample lands on the same box LWIP would have cropped to itself.
+
+    Rotation void (the black wedges at the corners of the expanded canvas):
+    - `mat_fill` False: every side is clamped clear of it, losing padding.
+    - `mat_fill` True: only the sides in `off_frame` (the page itself runs off
+      the photo there, so there is no background to fill from) are clamped;
+      every other side keeps its full padding, and if the rect still holds
+      void a trailing `{"op": "matfill"}` tells QC to paint it with the
+      surrounding mat. `angle == 0` has no rotation, so no void and no op.
+    A zero angle emits no deskew op (a straight page on an uncropped source).
     """
     # -angle, not angle. `degrees` above is what QC PASSES to rotate(); the
     # direction the pixels then MOVE under it is the opposite one, and this
@@ -457,20 +532,26 @@ def _build_qc_ops(
     y0 = max(0.0, min(ys) - padding)
     x1 = min(float(new_width), max(xs) + padding)
     y1 = min(float(new_height), max(ys) + padding)
-    x0, y0, x1, y1 = _clamp_to_rotated_frame(
-        x0,
-        y0,
-        x1,
-        y1,
+    frame = dict(
         centre=(width / 2.0 - min_x, height / 2.0 - min_y),
         half_width=width / 2.0,
         half_height=height / 2.0,
         cos_phi=cos_phi,
         sin_phi=sin_phi,
     )
+    x0, y0, x1, y1 = _clamp_to_rotated_frame(
+        x0,
+        y0,
+        x1,
+        y1,
+        sides=set(off_frame or ()) if mat_fill else None,
+        **frame,
+    )
 
-    return [
-        {"op": "deskew", "degrees": round(-angle, 4)},
+    ops: list[dict[str, object]] = []
+    if angle != 0.0:
+        ops.append({"op": "deskew", "degrees": round(-angle, 4)})
+    ops.append(
         {
             "op": "crop",
             "rect": [
@@ -479,8 +560,66 @@ def _build_qc_ops(
                 x1 / new_width,
                 y1 / new_height,
             ],
-        },
-    ]
+        }
+    )
+    if mat_fill and angle != 0.0 and _rect_violation(x0, y0, x1, y1, **frame) is not None:
+        ops.append({"op": "matfill"})
+    return ops
+
+
+def _rect_violation(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    *,
+    centre: tuple[float, float],
+    half_width: float,
+    half_height: float,
+    cos_phi: float,
+    sin_phi: float,
+) -> tuple[float, float, float, float] | None:
+    """The first half-plane (a, b, limit, worst value) the rect's corners cross,
+    or None when the rect is clear of rotation void by `RESAMPLE_REACH`.
+
+    A point p is inside the rotated source frame iff |u.(p - c)| <= W/2 and
+    |v.(p - c)| <= H/2, for the rotated axes u = (cos, sin), v = (-sin, cos).
+    """
+    violations = _rect_violations(
+        x0, y0, x1, y1,
+        centre=centre, half_width=half_width, half_height=half_height,
+        cos_phi=cos_phi, sin_phi=sin_phi,
+    )
+    return violations[0] if violations else None
+
+
+def _rect_violations(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    *,
+    centre: tuple[float, float],
+    half_width: float,
+    half_height: float,
+    cos_phi: float,
+    sin_phi: float,
+) -> list[tuple[float, float, float, float]]:
+    """Every half-plane (a, b, limit, worst value) the rect's corners cross."""
+    cx, cy = centre
+    planes = (
+        (cos_phi, sin_phi, half_width - RESAMPLE_REACH),
+        (-cos_phi, -sin_phi, half_width - RESAMPLE_REACH),
+        (-sin_phi, cos_phi, half_height - RESAMPLE_REACH),
+        (sin_phi, -cos_phi, half_height - RESAMPLE_REACH),
+    )
+    corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    found = []
+    for a, b, limit in planes:
+        maximum = max(a * (x - cx) + b * (y - cy) for x, y in corners)
+        if maximum > limit:
+            found.append((a, b, limit, maximum))
+    return found
 
 
 def _clamp_to_rotated_frame(
@@ -494,6 +633,7 @@ def _clamp_to_rotated_frame(
     half_height: float,
     cos_phi: float,
     sin_phi: float,
+    sides: set[str] | None = None,
 ) -> tuple[float, float, float, float]:
     """Trim only the sides of a padded crop that run into rotation fill.
 
@@ -505,50 +645,53 @@ def _clamp_to_rotated_frame(
     degrees against 200px of padding -- so the crop keeps a pure-black edge
     against the grey capture backdrop.
 
-    A point p is inside the rotated source frame iff |u.(p - c)| <= W/2 and
-    |v.(p - c)| <= H/2, for the rotated axes u = (cos, sin), v = (-sin, cos).
-    When a crop corner fails one of those half-planes, move an offending edge
-    inward only as far as that plane requires. Keep `RESAMPLE_REACH` pixels
-    clear so QC's Lanczos4 resample, including its rounding, cannot blend
-    rotation fill into a kept pixel. Recheck all corners after each trim because
-    an edge can participate in more than one plane.
+    A corner failing a half-plane of the rotated source frame (see
+    `_rect_violation`) moves an offending edge inward only as far as that
+    plane requires. Keep `RESAMPLE_REACH` pixels clear so QC's Lanczos4
+    resample, including its rounding, cannot blend rotation fill into a kept
+    pixel. Recheck all corners after each trim because an edge can participate
+    in more than one plane.
 
     No fill is allowed into the delivery. If the page itself reaches the
     capture edge, only the margin on that side is reduced; a uniform shrink
     would needlessly take the same amount from all four sides.
+
+    `sides` (None = all four) limits which edges may move: with mat_fill only
+    the sides the page runs off may be trimmed, and whatever void is left on
+    the others is the matfill op's to paint.
     """
     cx, cy = centre
-    planes = (
-        (cos_phi, sin_phi, half_width - RESAMPLE_REACH),
-        (-cos_phi, -sin_phi, half_width - RESAMPLE_REACH),
-        (-sin_phi, cos_phi, half_height - RESAMPLE_REACH),
-        (sin_phi, -cos_phi, half_height - RESAMPLE_REACH),
-    )
     for _ in range(32):
-        corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
-        violation = None
-        for a, b, limit in planes:
-            maximum = max(a * (x - cx) + b * (y - cy) for x, y in corners)
-            if maximum > limit:
-                violation = (a, b, limit, maximum)
-                break
-        if violation is None:
+        violations = _rect_violations(
+            x0, y0, x1, y1,
+            centre=centre, half_width=half_width, half_height=half_height,
+            cos_phi=cos_phi, sin_phi=sin_phi,
+        )
+        if not violations:
             return x0, y0, x1, y1
 
-        a, b, limit, _maximum = violation
+        corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+        # The first plane an ALLOWED edge can fix. With `sides` limited, the
+        # first violated plane may belong to a side matfill will paint; it
+        # must not stop the trim of an off-frame side further down the list.
         candidates = []
-        for edge, indices, coefficient in (
-            ("left", (0, 3), -a),
-            ("right", (1, 2), a),
-            ("top", (0, 1), -b),
-            ("bottom", (2, 3), b),
-        ):
-            edge_max = max(
-                a * (corners[i][0] - cx) + b * (corners[i][1] - cy)
-                for i in indices
-            )
-            if coefficient > 1e-9 and edge_max > limit:
-                candidates.append((coefficient, edge, edge_max - limit))
+        for a, b, limit, _maximum in violations:
+            for edge, indices, coefficient in (
+                ("left", (0, 3), -a),
+                ("right", (1, 2), a),
+                ("top", (0, 1), -b),
+                ("bottom", (2, 3), b),
+            ):
+                if sides is not None and edge not in sides:
+                    continue
+                edge_max = max(
+                    a * (corners[i][0] - cx) + b * (corners[i][1] - cy)
+                    for i in indices
+                )
+                if coefficient > 1e-9 and edge_max > limit:
+                    candidates.append((coefficient, edge, edge_max - limit))
+            if candidates:
+                break
         if not candidates:
             break
         coefficient, edge, edge_excess = max(candidates)
@@ -619,32 +762,13 @@ def apply_qc_ops(image: Image.Image, qc_ops: list[dict[str, object]]) -> Image.I
     LWIP itself only calls this for the 512px thumbnail (so the review rail
     shows a straight page at zero cost to the full-resolution file, which is
     never rotated). It also backs the regression tests here and the
-    `lossless_replay.py` verification script — one implementation, so the
-    three cannot drift apart.
+    `lossless_replay.py` verification script.
 
-    `Image.rotate` does not support `LANCZOS` for an affine warp (only
-    NEAREST/BILINEAR/BICUBIC — confirmed against this runtime's Pillow, which
-    raises ValueError otherwise); BICUBIC is the best it offers, which is
-    plenty for a thumbnail.
+    It IS the QC engine's replay (`geometry_replay.py`, byte-identical in both
+    trees): deskew, quarter-turn rotate, crop and matfill, so the thumbnail
+    can never drift from the preview and the export again.
     """
-    for op in qc_ops:
-        kind = op.get("op")
-        if kind == "deskew":
-            image = image.rotate(
-                -float(op["degrees"]), expand=True, resample=Image.BICUBIC
-            )
-        elif kind == "crop":
-            x0, y0, x1, y1 = op["rect"]
-            width, height = image.size
-            image = image.crop(
-                (
-                    round(x0 * width),
-                    round(y0 * height),
-                    round(x1 * width),
-                    round(y1 * height),
-                )
-            )
-    return image
+    return geometry_replay.replay_pending_ops(image, qc_ops)
 
 
 def _source_metadata(source_bytes: bytes) -> dict[str, bytes]:
@@ -834,6 +958,33 @@ def _contour_edge_angle(contour) -> float | None:
     return median
 
 
+def _off_frame_sides(contour, width: int, height: int) -> set[str]:
+    """Frame sides the page itself runs off - not merely comes close to.
+
+    Capturing a spread wider than the frame with one side cut by the frame
+    edge is correct practice. A page that only nears the edge, or touches it
+    with one torn corner, does not count: its outline must lie along the frame
+    edge for OFF_FRAME_MIN_FRACTION of the page's extent on that side.
+    """
+    points = np.asarray(contour, dtype=np.float64).reshape(-1, 2)
+    xs, ys = points[:, 0], points[:, 1]
+    # Two detection-frame pixels, expressed at full resolution.
+    tolerance = 2.0 * max(1.0, max(width, height) / DETECTION_MAX_DIMENSION)
+    page_width = max(1.0, float(np.ptp(xs)))
+    page_height = max(1.0, float(np.ptp(ys)))
+    runs = {
+        "left": (xs <= tolerance, ys, page_height),
+        "right": (xs >= width - 1 - tolerance, ys, page_height),
+        "top": (ys <= tolerance, xs, page_width),
+        "bottom": (ys >= height - 1 - tolerance, xs, page_width),
+    }
+    sides: set[str] = set()
+    for side, (on_edge, along, extent) in runs.items():
+        if int(on_edge.sum()) >= 2 and np.ptp(along[on_edge]) / extent >= OFF_FRAME_MIN_FRACTION:
+            sides.add(side)
+    return sides
+
+
 def _page_angle(contour) -> float:
     """The page's measured tilt in degrees (cv2 `getRotationMatrix2D`
     convention), preferring measured sides over the bounding rect. LWIP
@@ -872,6 +1023,9 @@ def _estimate_skew(image: np.ndarray, contour, deskew_min_degrees: float) -> flo
     gray, scale = _detection_frame(image)
     height, width = gray.shape[:2]
     center = (width / 2.0, height / 2.0)
+    threshold, _binary = cv2.threshold(
+        cv2.GaussianBlur(gray, (3, 3), 0), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_TRIANGLE
+    )
 
     # The caller's contour is in full-frame coordinates; bring it down to this
     # frame's scale so the first measurement reuses it instead of re-detecting.
@@ -901,7 +1055,7 @@ def _estimate_skew(image: np.ndarray, contour, deskew_min_degrees: float) -> flo
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=0,
         )
-        current_contour = _largest_contour_in_frame(rotated)
+        current_contour = _largest_contour_in_frame(rotated, threshold)
 
     if vanished:
         LOGGER.info(
@@ -926,17 +1080,34 @@ def _estimate_skew(image: np.ndarray, contour, deskew_min_degrees: float) -> flo
     return best_total
 
 
-def _largest_contour_in_frame(gray: np.ndarray):
+def _largest_contour_in_frame(gray: np.ndarray, threshold: float | None = None):
     """The threshold/contour pipeline `_largest_content_contour` runs, minus
     the scale bookkeeping — factored out so `_estimate_skew` can re-run it on
     a small, already-detection-sized frame it has itself rotated, without
-    paying for another downscale each time."""
+    paying for another downscale each time.
+
+    `threshold` None picks the TRIANGLE threshold from this frame. A frame the
+    caller has rotated carries black corner wedges: they form a second large
+    histogram peak, and TRIANGLE (which walks from the biggest peak toward the
+    longer tail) can then flip and file the whole backdrop with the page. So
+    `_estimate_skew` measures the threshold once on the unrotated frame and
+    passes it in for every re-detection."""
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    _value, threshold = cv2.threshold(
-        blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-    )
+    # TRIANGLE, not OTSU. Otsu is a two-class split, and a bound volume has
+    # three classes on the mat: black backdrop, dark cover board, paper. Otsu
+    # lands between board and paper and files the board with the backdrop, so
+    # the outline traces the inner sheet only and the board eats the padding on
+    # whichever side it protrudes (~230 px measured). TRIANGLE finds the foot of
+    # the dominant background peak, so the board lands on the object side.
+    # Loose sheets are unaffected - there is no middle class to misfile.
+    if threshold is None:
+        _value, binary = cv2.threshold(
+            blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_TRIANGLE
+        )
+    else:
+        _value, binary = cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    closed = cv2.morphologyEx(threshold, cv2.MORPH_CLOSE, kernel)
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     contours, _hierarchy = cv2.findContours(
         closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )

@@ -13,3 +13,5 @@ alembic>=1.13.0
 openai>=2.0.0
 cryptography>=42.0.0
 opencv-python-headless>=4.10.0
+# Optional JPEG XL support (previews/export register it if importable); ships via the offline wheels.
+pillow-jxl-plugin==1.3.8

@@ -9,6 +9,11 @@ bucket yet. A client rework republished under the same Group ID is detected
 by content fingerprint and uploaded again, replacing the earlier copy in both
 the bucket and done_root.
 
+A package is uploaded only once its content has been unchanged for 10 seconds
+(SETTLE_SECONDS in engine.py), so something copied in by hand while still being
+written is not sent half-finished. The scan waits that out itself (up to two
+extra passes); a package still changing after that waits for the next interval.
+
 Split out of the QC server so upload can run on its own PC, on its own
 schedule, whether or not QC or LWIP are even installed there.
 

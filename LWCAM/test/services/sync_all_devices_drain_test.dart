@@ -64,9 +64,7 @@ Future<UploadStatsDB> _freshDb(String prefix) async {
   final base = await _tempDir(prefix);
   final db = UploadStatsDB();
   db.debugOverrideBaseFolderForTests(base.path);
-  db.syncEnabled = true;
   addTearDown(() {
-    db.syncEnabled = false;
     return db.debugCloseAllForTests();
   });
   return db;

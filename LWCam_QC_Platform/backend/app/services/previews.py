@@ -19,6 +19,12 @@ PREVIEW_MAX_EDGE = 1600
 PREVIEW_QUALITY = 85
 PREVIEW_MIME_TYPE = "image/jpeg"
 SUPPORTED_PREVIEW_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "bmp", "tif", "tiff"}
+try:  # optional JPEG XL decoder; without it .jxl stays unsupported
+    import pillow_jxl  # noqa: F401 - registers the Pillow plugin
+
+    SUPPORTED_PREVIEW_EXTENSIONS = SUPPORTED_PREVIEW_EXTENSIONS | {"jxl"}
+except ImportError:
+    pass
 
 # The cap is soft and the sweep brings the cache down to 80% of it, not
 # exactly to it, so a station sitting right on the boundary does not sweep on

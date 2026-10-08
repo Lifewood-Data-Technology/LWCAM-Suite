@@ -771,6 +771,23 @@ PgStatement fetchBoxNamesSql(String projectKey) => PgStatement(
   {'project_key': projectKey},
 );
 
+// ── One-time catch-up (UploadStatsDB.queueCaptureRowsMissingFromCloud) ─────
+
+/// Every box, folder and image PG holds for [deviceId], one row per image (a
+/// box or folder with none still yields one row). Soft-deleted rows are
+/// INCLUDED on purpose: a row QC or LWCam Admin deleted must count as present,
+/// or the catch-up would send it again and revive it.
+PgStatement fetchCaptureKeysSql(String deviceId) => PgStatement(
+  'SELECT p.project_key, b.box_name, f.folder_seq, i.image_name '
+  'FROM capture_boxes b '
+  'JOIN devices d ON d.id = b.device_id '
+  'LEFT JOIN projects p ON p.id = b.project_id '
+  'LEFT JOIN capture_folders f ON f.box_id = b.box_id '
+  'LEFT JOIN capture_images i ON i.folder_id = f.id '
+  'WHERE d.device_id = @device_id',
+  {'device_id': deviceId},
+);
+
 // ── Schema level + service heartbeat (migration 007) ────────────────────────
 
 /// The database's schema level: the highest numeric prefix in

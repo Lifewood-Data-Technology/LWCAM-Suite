@@ -13,7 +13,7 @@
 #endif
 #define QcBackend AppsDir + "\LWCam_QC_Platform\backend"
 #define QcDist AppsDir + "\LWCam_QC_Platform\frontend\dist"
-#define PyEmbedZip "vendor\python-3.13.14-embed-amd64.zip"
+#define PyEmbedZip "vendor\python-3.14.8-embed-amd64.zip"
 
 [Setup]
 AppName={#AppNameFull}
@@ -42,6 +42,7 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [InstallDelete]
+Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
 ; Database setup moved to LWCamDatabaseSetup.exe. An upgrade drops the copy
 ; older QC installers shipped, so nobody runs a stale schema script from here.
 Type: files; Name: "{app}\SETUP_DB.bat"
@@ -57,7 +58,7 @@ Source: "{#QcBackend}\*"; DestDir: "{app}\backend"; Flags: ignoreversion recurse
 Source: "{#QcDist}\*"; DestDir: "{app}\frontend\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Build the private runtime on the target; its archive is staged once at the root.
-Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall
 Source: "vendor\vcruntime\*"; DestDir: "{app}\runtime\vc"; Flags: ignoreversion
 
 ; Installer-managed launch and recovery scripts.
@@ -93,7 +94,7 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""LWCam QC Server"" /F"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LWCam QC Server"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveQcFirewallRule"
 
 [UninstallDelete]
-Type: files; Name: "{app}\python-3.13.14-embed-amd64.zip"
+Type: files; Name: "{app}\python-3.14.8-embed-amd64.zip"
 Type: filesandordirs; Name: "{app}\runtime"
 Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\backend\.cache"
