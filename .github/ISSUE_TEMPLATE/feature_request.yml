@@ -1,0 +1,29 @@
+name: Feature or change
+description: Suggest a new feature or a change to how LWCam works.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - Module edition (lwcam-module)
+        - All-In-One edition (lwcam-all-in-one)
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: What problem does it solve, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed change
+  - type: textarea
+    id: decisions
+    attributes:
+      label: Decision records touched
+      description: Does this go against a decision in docs/decisions/? Name it and say why.

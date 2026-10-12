@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in LWCam does not work as it should.
+labels: [bug]
+body:
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - Module edition (lwcam-module)
+        - All-In-One edition (lwcam-all-in-one)
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Part
+      description: Add the matching module label (lwcam, lwcam-admin, lwip, qc-platform, upload, installer, database).
+      options: [LWCAM, LWCam Admin, LWIP, QC Platform, LWCam Upload, Installer, Database, Not sure]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From VERSION.txt in the install folder, or "Apps" in Windows Settings (e.g. 1.1.0+d778e95).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines or screenshots
+      description: Remove passwords, keys and client data first.
+      render: text

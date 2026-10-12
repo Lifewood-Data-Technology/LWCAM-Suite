@@ -1,0 +1,4 @@
+# Every pull request asks the project lead for a review. On the Free plan
+# GitHub cannot enforce it; see CONTRIBUTING.md. Add module owners as the
+# team grows, e.g. `/LWIP/ @someone`.
+* @djchoy-LW
