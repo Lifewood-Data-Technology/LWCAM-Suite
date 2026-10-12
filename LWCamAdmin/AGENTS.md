@@ -1,14 +1,24 @@
-# AGENTS.md
+# AGENTS.md — LWCam Admin (SuperAdmin app)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Technical guide for developers and AI coding tools working in `LWCamAdmin/`. The
+workspace guide at the repository root covers build, test and installers.
 
-## Project Overview
+## Project overview
 
-LWCam Admin (package name `lwcam_admin`, window title "LWCam Admin") is a **Flutter Windows desktop app** that holds every SuperAdmin capability that used to live in `LWCAM`: user management (accounts, roles, Device IDs, password resets), project management (CRUD, metadata templates), device reassignment, and shared app settings (metadata-keying toggle, remote-shutter config, default temp password). It is the ONLY writer of `users`/`projects`/`app_settings` in the PostgreSQL schema shared with LWCAM — LWCAM only ever pulls them.
+LWCam Admin (package `lwcam_admin`, window title "LWCam Admin") is a **Flutter
+Windows desktop app** for every SuperAdmin capability: user management
+(accounts, roles, Device IDs, password resets), project management (CRUD,
+metadata templates), device reassignment, shared app settings (metadata-keying
+toggle, remote-shutter config, default temp password) and Station Setup. It is
+the ONLY writer of `users`/`projects`/`app_settings` in the shared PostgreSQL
+schema; LWCAM only pulls them. There is no capture workflow here: no ADB, no
+sqflite, no gallery/box UI.
 
-Split out of `LifeTrans-Rework\LWCAM` on 2026-07-21 as an independent fork-style copy (package, `lib/theme/`, Windows app identity — all separate; no shared library), following the same convention LWCAM/LWRework already established. See `LWCAM`'s AGENTS.md "History" for the full split rationale. There is no capture workflow here at all — no ADB, no sqflite, no gallery/box UI; this app is pure user/project/settings administration plus a PostgreSQL connection.
-
-Windows is the only target: `window_manager` for the desktop window, `postgres` (pure-Dart driver) for the database, no native DLL dependencies beyond what window_manager/screen_retriever need. The Inno Setup installer at `windows/runner/resources/LWCamAdmin.iss` has its own AppId GUID (distinct from LWCAM's and LWRework's, so both can be installed on one PC without collision) and bundles only `flutter_windows.dll` + the window-manager plugin DLLs — no `adb.exe`/`scrcpy` bundling, since this app never talks to a phone.
+Windows is the only target: `window_manager` for the window, `postgres` (a
+pure-Dart driver) for the database, no native DLLs beyond what window_manager
+and screen_retriever need. The installer script
+`windows/runner/resources/LWCamAdmin.iss` has its own AppId, distinct from
+LWCAM's, and bundles no `adb.exe` or `scrcpy`.
 
 ## Commands
 
@@ -17,48 +27,151 @@ flutter pub get                          # install dependencies
 flutter run -d windows                   # run the app
 flutter build windows --release          # release build
 flutter analyze                          # static analysis
-flutter test                             # all tests
+flutter test                             # all tests (counts: docs/TESTING.md)
 ```
+
+Lints: `avoid_print`, `deprecated_member_use` and
+`no_leading_underscores_for_local_identifiers` are ignored in
+`analysis_options.yaml`, same as LWCAM. `print` logging with emoji prefixes is
+the established style.
 
 ## Architecture
 
-State management, routing, and DI all use **GetX**, matching LWCAM's conventions. Routes: `/` (LoginPage — SuperAdmin only), `/home` (HomePage — 5 tiles: User Management, Projects, Devices, App Settings, Station Setup, plus a persistent status bar).
+State management, routing and DI use **GetX**, matching LWCAM. Routes: `/`
+(LoginPage, SuperAdmin only), `/home` (HomePage: 5 tiles - User Management,
+Projects, Devices, App Settings, Station Setup - plus a persistent status bar).
 
-- `lib/main.dart` — bootstraps window_manager and `AdminBootstrap.apply` (registers `AdminStoreService` against whatever `NodeConfig` is on disk) BEFORE `runApp`, so the login page's factory-hash fallback and Station Setup both work with zero PostgreSQL connectivity on a brand-new PC. The `apply` call is deliberately NOT awaited — its fresh-start path registers the service synchronously, and the initial reconcile behind it can spend ~5s on a connect timeout, which used to hold the window back. Also registers `SyncStatusController` (the 30s reconcile timer — auto-pushes queued offline edits on reconnect; it looks the store service up per tick, so it survives Station Setup re-registering it). No sqflite, no ADB, no hotkey manager — none of LWCAM's capture-side bootstrap applies here.
+- `lib/main.dart` bootstraps window_manager and `AdminBootstrap.apply` (registers
+  `AdminStoreService` against whatever `NodeConfig` is on disk) BEFORE `runApp`,
+  so the login page's factory-hash fallback and Station Setup both work with zero
+  PostgreSQL connectivity on a brand-new PC. The `apply` call is deliberately not
+  awaited: its fresh-start path registers the service synchronously, and the
+  initial reconcile behind it can spend about 5 s on a connect timeout. It also
+  registers `SyncStatusController` (the 30 s reconcile timer; it looks the store
+  service up per tick, so it survives Station Setup re-registering it).
 
-- `lib/auth/super_admin.dart` — byte-identical to LWCAM's copy (same file, same compiled-in factory bcrypt hash) — this is the ONE account this app accepts; there is no multi-user login here (that's what User Management is for, and its accounts only ever log into LWCAM, never this app). `lib/auth/admin_auth_controller.dart` verifies, in order: PostgreSQL's `app_settings.superadmin_password_hash` override (via a best-effort bounded `trySync()` first, so a hash changed from another PC takes effect promptly) → the local snapshot's copy of that same override → the factory hash — so login always works even offline on a fresh PC.
+- `lib/auth/super_admin.dart` holds the built-in recovery account: only its bcrypt
+  hash is compiled in, so the login works even when PostgreSQL is unreachable and
+  the local snapshot is missing. This is the ONE account the app accepts; the
+  accounts in User Management only ever log into LWCAM.
+  `lib/auth/admin_auth_controller.dart` verifies, in order: PostgreSQL's
+  `app_settings.superadmin_password_hash` override (after a best-effort bounded
+  `trySync()`, so a hash changed from another PC applies promptly) → the local
+  snapshot's copy of that override → the factory hash. `lib/auth/login_lock.dart`
+  is a wrong-password speed bump (5 free attempts, then a doubling lock up to 15
+  minutes, state in `lwcam_admin_login_lock.json`). It is NOT a security boundary;
+  its class comment says what it covers.
 
-- `lib/services/admin_store_service.dart` (`AdminStoreService`) — the one place this app reads/writes users, projects, and app settings; mirrors LWCAM's old NAS-store shape but is PostgreSQL-first with a local-JSON offline fallback (`lwcam_users.json`, same filename and default directory LWCAM's sync pull reads — `%USERPROFILE%\LWCAM_DBs`, overridable via `NodeConfig.usersStorePath` from Station Setup). Every mutation funnels through the `_mutate` primitive: reconcile first (`trySync()` — pull-before-transform, so an online edit is never applied on top of a stale local copy), apply the transform (all validation throws happen here, before anything is written — `_validateProjectName`/`_validateDeviceIdUnique`/`_validateLocationCode`, since PostgreSQL's UNIQUE constraints on `project_name`/`device_id`/`country_location_code` were never checked locally in the old NAS-only UI), then either push+pull (online) or queue offline (`dirty=true` + a tombstone in `deletedUsernames`/`deletedProjectKeys` for a delete, `.lock` create-exclusive against a second admin editing concurrently — the same machinery lifted from LWCAM's former NAS-store service). A push failure mid-mutation degrades to the offline branch rather than losing the edit. `trySync()` is also the reconcile primitive called by `init()` at startup and by `SyncStatusController`'s periodic timer. `NodeConfig.pgConnectionEnabled` (Station Setup's "PostgreSQL connection" toggle, default true) is captured at construction (`AdminBootstrap` rebuilds this service fresh on every save anyway); when false, `trySync()` skips `gateway.probe()` entirely and goes straight to the offline branch — deliberately distinct from a real `unreachable` probe result, which still tries every tick. `HomePage`'s status bar checks it first, ahead of `online.value`, so a deliberately-disabled station reads as informational rather than a connectivity warning.
+- `lib/services/admin_store_service.dart` (`AdminStoreService`) is the one place
+  this app reads and writes users, projects and app settings. It is
+  PostgreSQL-first with a local-JSON offline fallback (`lwcam_users.json`, same
+  file and default directory LWCAM's sync pull uses, `%USERPROFILE%\LWCAM_DBs`,
+  overridable through `NodeConfig.usersStorePath`). Every mutation goes through
+  `_mutate`: reconcile first (`trySync()`: pull before transform, so an online
+  edit never lands on a stale local copy), apply the transform (all validation
+  throws happen here, before anything is written: `_validateProjectName`,
+  `_validateDeviceIdUnique`, `_validateLocationCode`, mirroring PostgreSQL's
+  UNIQUE constraints), then push+pull (online) or queue offline (`dirty=true` plus
+  a tombstone in `deletedUsernames`/`deletedProjectKeys` for a delete; a `.lock`
+  create-exclusive file guards against a second admin editing concurrently). A
+  push failure mid-mutation degrades to the offline branch rather than losing the
+  edit. `trySync()` is also called by `init()` and by `SyncStatusController`.
+  `NodeConfig.pgConnectionEnabled` (Station Setup's "PostgreSQL connection"
+  toggle, default true) is read at construction (`AdminBootstrap` rebuilds the
+  service on every save). When false, `trySync()` skips `gateway.probe()` and goes
+  straight to the offline branch. `HomePage`'s status bar checks it before
+  `online.value`, so a disabled station reads as informational.
 
-- `lib/services/admin_pg_gateway.dart` (`AdminGateway`/`AdminPgGateway`) — the seam between `AdminStoreService` and PostgreSQL (mirrors LWCAM's `SyncSink`/`PgSyncSink` pattern; `test/services/fake_admin_gateway.dart` is the test double). `probe()` distinguishes `unreachable` from `schemaOutdated` (a `ServerException` on a schema-v2 column/table probe — `device_id`/`roles` on `users`, `project_key` on `projects`, `app_settings` itself — means the team hasn't applied the updated SQL file yet; treated as offline, never as a write target). `pushSnapshot` runs one transaction: seed roles → **tombstone soft-deletes FIRST** (an offline delete-then-recreate of the same username must not push the new account and then soft-delete it; `createUser` also drops a recreated username's queued tombstone in the store) → project upserts (skipping code-less projects) → user upserts → targeted password resets (`pendingPasswordResets`) → a second created_by-fill pass → user_projects insert+prune → app_settings upserts. `_exec` wraps `List<String>` parameters as `text[]` (same hardening as LWCAM's sink). `pullStore` runs the 4 SELECTs and hands their rows to the pure `buildUsersStoreFromPgRows` in `admin_pg_statements.dart`.
+- `lib/services/admin_pg_gateway.dart` (`AdminGateway`/`AdminPgGateway`) is the
+  seam between `AdminStoreService` and PostgreSQL (`test/services/fake_admin_gateway.dart`
+  is the test double). `probe()` distinguishes `unreachable` from `schemaOutdated`
+  (a `ServerException` on a schema column/table probe means the database has not
+  been upgraded; treated as offline, never as a write target). `pushSnapshot`
+  runs one transaction: seed roles → **tombstone soft-deletes FIRST** (an offline
+  delete-then-recreate of one username must not push the new account and then
+  soft-delete it) → project upserts (skipping code-less projects) → user upserts
+  → targeted password resets (`pendingPasswordResets`) → a second created_by-fill
+  pass → user_projects insert+prune → app_settings upserts. `_exec` wraps
+  `List<String>` parameters as `text[]`. `pullStore` runs the 4 SELECTs and hands
+  the rows to the pure `buildUsersStoreFromPgRows` in `admin_pg_statements.dart`.
 
-- `lib/services/admin_pg_statements.dart` — pure Dart SQL builders (no `postgres` import, unit-testable without a connection — `test/services/admin_pg_statements_test.dart`). This app owns `users`/`projects`/`user_projects`/`roles`/`app_settings`; it never touches `capture_boxes`/`capture_folders`/`capture_images` (LWCAM's `pg_statements.dart` owns those exclusively). Every upsert conflicts on the entity's natural key — `users(user_id)`, **`projects(project_key)`, NOT `project_id`** (a human-editable label that must survive renames without minting a duplicate cloud row) — and guards its `DO UPDATE` with `IS DISTINCT FROM` so an unchanged reconcile tick writes nothing. LWCAM-owned columns are left OUT of the user upsert's `DO UPDATE` entirely: `last_login_at` (LWCAM's `recordLoginSql`) AND `password`/`must_change_password` (LWCAM's `changeOwnPassword`) — a whole-store push carrying a stale snapshot must never regress a password a capture user just changed. Admin-intended password writes (resetPassword, or createUser reviving a deleted username) go through the targeted `userPasswordResetSql`, driven by the store's `pendingPasswordResets` queue (cleared by the pull after a successful push, like the tombstones). `projects.has_data` is monotonic in the upsert (`OR`, never back to false — LWCAM sets it directly). `projectSoftDeleteSql` also rewrites `country_location_code` to `~deleted~id` — that column is a full unique FK target (devices reference it), so the real code must be freed for reuse; `project_id`/`project_name`/`users.device_id` are instead partial unique indexes (live rows only) in the schema. `buildUsersStoreFromPgRows` reads global roles from `users.roles` (comma-joined), NOT re-derived from `user_projects` — a zero-project admin would otherwise silently lose their role on the next pull.
+- `lib/services/admin_pg_statements.dart` has pure Dart SQL builders (no `postgres`
+  import; unit-testable without a connection). This app owns `users`,
+  `projects`, `user_projects`, `roles` and `app_settings`; it never touches
+  `capture_boxes`/`capture_folders`/`capture_images` (LWCAM's `pg_statements.dart`
+  owns those). Every upsert conflicts on the natural key: `users(user_id)`,
+  **`projects(project_key)`, NOT `project_id`** (a human-editable label that must
+  survive renames without minting a duplicate row). Each `DO UPDATE` is guarded
+  with `IS DISTINCT FROM`, so an unchanged reconcile writes nothing.
+  LWCAM-owned columns are left OUT of the user upsert's `DO UPDATE`:
+  `last_login_at` and `password`/`must_change_password`, so a whole-store push
+  with a stale snapshot never regresses a password a capture user just changed.
+  Admin-intended password writes (reset, or createUser reviving a deleted
+  username) use the targeted `userPasswordResetSql`, driven by the store's
+  `pendingPasswordResets` queue (cleared by the pull after a successful push).
+  `projects.has_data` is monotonic in the upsert (`OR`, never back to false).
+  `projectSoftDeleteSql` rewrites `country_location_code` to `~deleted~id`, since
+  that column is a full unique FK target (devices reference it) and the real code
+  must be freed; `project_id`, `project_name` and `users.device_id` are partial
+  unique indexes (live rows only). `buildUsersStoreFromPgRows` reads global roles
+  from `users.roles` (comma-joined), NOT re-derived from `user_projects`.
 
-- `lib/models/` — `app_user.dart` (`AppUser`/`UsersStore`/`SharedAppSettings`, no `passwordEnc` field — admin-viewable passwords don't exist in this design either, only reset-to-default; `UsersStore` carries `dirty`/`deletedUsernames`/`deletedProjectKeys` for the offline queue, which LWCAM's parser simply ignores as unknown JSON keys), `project.dart`, `metadata_template.dart` (trimmed — no `CaptureFolder` coupling, since there's no capture workflow here), `node_config.dart` (mirrors LWCAM's shape, including the `usersStorePath` field both apps read).
+- `lib/models/`: `app_user.dart` (`AppUser`/`UsersStore`/`SharedAppSettings`; no
+  password-view field; `UsersStore` carries `dirty`/`deletedUsernames`/
+  `deletedProjectKeys` for the offline queue, which LWCAM's parser round-trips as
+  unknown keys), `project.dart`, `metadata_template.dart`, `node_config.dart`
+  (mirrors LWCAM's shape, including the `usersStorePath` both apps read).
 
-- `lib/services/device_registry.dart` — adapted from LWCAM's copy, minus `registerOrCheck` (that's a capture-time gate; this app only reassigns via the Devices page, never registers a new binding itself). Gates on `pgConnectionEnabled` + host — NOT `syncEnabled`, which is LWCAM's capture-outbox flag (default ON since 2026-10-01, edited in Station Setup; gating on it made Devices dead on every admin-only station).
+- `lib/services/device_registry.dart` is adapted from LWCAM's copy minus
+  `registerOrCheck` (a capture-time gate; this app only reassigns, in the Devices
+  page). It gates on `pgConnectionEnabled` + host, NOT `syncEnabled` (LWCAM's
+  capture-outbox flag), or Devices would be dead on an admin-only PC.
 
-- `lib/services/admin_bootstrap.dart` (`AdminBootstrap.apply`) / `lib/controllers/station_setup_controller.dart` — mirrors LWCAM's `SyncBootstrap.apply` pattern: (re)builds and registers `AdminStoreService` from a `NodeConfig`, so Station Setup can apply a changed PG connection without an app restart. Station Setup is the ONLY editor of the whole station config (LWCAM's Settings page was removed 2026-07-22 — Settings is SuperAdmin-only): besides this app's own PG connection, its "LWCAM capture station" section owns LWCAM's capture-outbox `syncEnabled` toggle and the image destination root (`NodeConfig.destinationPath`). LWIP moved to its own installer and boot-time service on its own PC (`LWIPSetup`, `lwip-standalone`) — this app no longer writes its config, starts it, stops it, or registers it to autostart. Its "LWIP folders (as this PC sees them)" section is gone too (2026-09-28): LWCAM's rework finds a folder's original images under the image destination, so `processingInputRoot`/`processingOutputRoot` are round-trip only. `processingEnabled`/`processingWorkers`/`processingCropPadding`/`processingCloudReport` stay in `NodeConfig` round-trip only, so an older `lwcam_node_config.json` still loads — LWIP's own installer now fixes those values in its own config. Save also no longer provisions the database (`LWCamDatabaseSetup` does that, on the database PC); it tests the PostgreSQL connection instead and reports "Database not reachable" if a complete connection does not answer. Both apps read the identical `lwcam_node_config.json` (default `%USERPROFILE%\LWCAM_DBs`) — this is deliberately the fresh-PC bootstrap story: run a portable LWCam Admin build once on a new capture PC, fill in Station Setup, and LWCAM picks up the same file next launch.
+- `lib/services/admin_bootstrap.dart` and `lib/controllers/station_setup_controller.dart`:
+  `AdminBootstrap.apply` (re)builds and registers `AdminStoreService` from a
+  `NodeConfig`, so Station Setup can apply a changed PG connection without a
+  restart. Station Setup is the ONLY editor of the capture PC's station config:
+  besides this app's own PG connection, its "LWCAM capture station" section owns
+  LWCAM's capture-outbox `syncEnabled` toggle and the image destination root
+  (`NodeConfig.destinationPath`). It does not configure, start or stop LWIP, and
+  has no LWIP folder fields (LWCAM's rework finds a folder's originals under the
+  image destination); `processingEnabled`/`processingWorkers`/
+  `processingCropPadding`/`processingCloudReport`/`processingInputRoot`/
+  `processingOutputRoot` stay in `NodeConfig` round-trip only so an older
+  `lwcam_node_config.json` still loads. Save does not provision the database
+  (`LWCamDatabaseSetup` does, on the database PC): it tests the PostgreSQL
+  connection and reports "Database not reachable" if a complete connection does
+  not answer. Both apps read the identical `lwcam_node_config.json` (default
+  `%USERPROFILE%\LWCAM_DBs`). That is the fresh-PC bootstrap: run a portable
+  LWCam Admin build once on a new capture PC, fill in Station Setup, and LWCAM
+  picks up the same file at its next launch.
 
-- `lib/controllers/sync_status_controller.dart` — a 30s probe timer producing the online/dirty/lastPush/lastPull Rx state `HomePage`'s status bar displays; auto-reconciles (`trySync()`) whenever `dirty && reachable`, so a queued offline edit pushes as soon as connectivity returns without the admin doing anything.
+- `lib/services/admin_login.dart` reads the database logins saved in the node
+  config. The password is saved DPAPI-encrypted (`pgPasswordProtected`, base64
+  DPAPI, CurrentUser scope, entropy ASCII `LWCam`; `adminPgPasswordProtected` for
+  this app's own login) and clears the plain `pgPassword`. `lib/services/dpapi.dart`
+  has the same logic as LWCAM's copy: keep the two identical (LWCAM reads the
+  blobs this app writes). When a blob cannot be decrypted (saved by another
+  Windows user or PC), the home page and Station Setup show
+  `adminLoginUnreadableMessage`. Station Setup reloads `lwcam_node_config.json`
+  from disk right before every read-modify-save, round-trips every unknown key,
+  and writes a temp file then replaces it (never delete-then-rename), so it cannot
+  write back a stale copy of a file LWCAM also touches. The capture PC uses the
+  shared database login (see `installer/README.md`).
 
-- `lib/pages/` — `login_page.dart`, `home_page.dart` (5 tiles + persistent status bar), `user_management_page.dart` (temp-password tile is SET-only, never displays an existing password), `projects_page.dart` (CRUD + location code + template button), `template_editor_page.dart`, `devices_page.dart`, `app_settings_page.dart` (keying/shutter/default temp password), `station_setup_page.dart` (NodeConfig editor for this machine + Test Connection button).
+- `lib/controllers/sync_status_controller.dart` is a 30 s probe timer producing
+  the online/dirty/lastPush/lastPull state the status bar shows; it reconciles
+  (`trySync()`) whenever `dirty && reachable`, so a queued offline edit pushes as
+  soon as connectivity returns.
+
+- `lib/pages/`: `login_page.dart`, `home_page.dart`, `user_management_page.dart`
+  (the temp-password tile is SET-only, never displays an existing password),
+  `projects_page.dart` (CRUD + location code + template button),
+  `template_editor_page.dart`, `devices_page.dart`, `app_settings_page.dart`,
+  `station_setup_page.dart` (NodeConfig editor for this machine + Test Connection).
 
 ## Notes
 
-- The root documentation is exactly `README.txt` (English, primary), `README_CN.txt` (Chinese translation), `CHANGELOG.txt` and this file. The stock `flutter create` README was replaced on 2026-08-10.
-- No `CHANGELOG.txt` entries predate 2026-07-21 — this app did not exist before that date. See LWCAM's `CHANGELOG.txt` for the split's own dated entry (same day, LWCAM side).
-- `lib/theme/` (`app_colors.dart`, `app_theme.dart`, `theme_controller.dart`) is a byte-identical copy of LWCAM's — keep it that way; the Lifewood brand theme is shared design language, not per-app.
-- Lints: `avoid_print`, `deprecated_member_use`, and `no_leading_underscores_for_local_identifiers` are ignored in `analysis_options.yaml`, same as LWCAM/LWRework — `print` logging with emoji prefixes is the established style across all three apps.
-
-## Multi-PC notes (2026-09-30)
-
-- Station Setup saves the capture login's password as `pgPasswordProtected`
-  (base64 DPAPI, CurrentUser scope, entropy ASCII `LWCam`) and clears the plain
-  `pgPassword`; `lib/services/dpapi.dart` is mirrored in LWCAM - keep the two
-  identical. It reloads `lwcam_node_config.json` from disk right before every
-  read-modify-save, round-trips every unknown key, and writes a temp file then
-  replaces (never delete-then-rename), so it cannot write back a stale copy of a
-  file LWCAM also touches.
-- Each part has its own database login (`installer\README.txt`, "Database
-  logins"); this app takes `lwcam_admin`, and the capture PC's `lwcam_capture`.
+- `CHANGELOG.txt` records what changed and why (see `CONTRIBUTING.md`).
+- `lib/theme/` (`app_colors.dart`, `app_theme.dart`, `theme_controller.dart`) is a
+  copy of LWCAM's, the shared Lifewood brand theme. Keep the two in step by hand.
