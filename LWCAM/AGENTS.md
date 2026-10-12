@@ -1,14 +1,33 @@
-# AGENTS.md
+# AGENTS.md — LWCAM (capture app)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Technical guide for developers and AI coding tools working in `LWCAM/`. The
+workspace guide at the repository root covers build, test and installers.
 
-## Project Overview
+## Project overview
 
-LWCAM (package name `lwcam`, window title "LWCAM (Lifewood Capture)") is a **Flutter Windows desktop app** used in a document-digitization workflow: it pulls scanned images from an Android device's DCIM folder via ADB, stages them in a local temp directory, then transfers them to a local/NAS destination with extensive reliability safeguards (timeouts, stall detection, checkpoints, file locking, audit logs). It hosts two capture workflows — legacy Normal Mode (keying off) and Box Mode (keying on, Box→Folders workflow with a live phone mirror) — behind a per-account metadata-keying toggle. Roles are `admin`/`capture`/`qc` — QC arrived when the QC platform's review workflow merged in; SuperAdmin lives in a separate sibling app (see "History").
+LWCAM (package `lwcam`, window title "LWCAM (Lifewood Capture)") is a **Flutter
+Windows desktop app** for a document-digitization workflow. It pulls photos from
+an Android phone's DCIM folder over ADB, stages them in a local temp directory,
+then copies them to a local or NAS destination with reliability safeguards
+(timeouts, stall detection, file locking, audit logs). It has two capture
+workflows behind a per-account metadata-keying toggle: Normal Mode (keying off,
+`/gallery`) and Box Mode (keying on, Box → Folders workflow with a live phone
+mirror, `/boxes`). LWCAM acts on two roles, `admin` and `capture`; it has no QC
+screens. The `qc` role stays in the enum only so it round-trips: removing it would lose data, because
+`lwcam_users.json` is shared with LWCam Admin and LWCAM rewrites it, while
+`UserRole.fromJson` ignores a role it does not know (`user_role_qc_test.dart`
+guards that round-trip). A reviewer-only account is refused at login.
 
-This project was forked from `LifeTrans-Rework\LifeTransfer` on 2026-07-14, keeping both capture modes and dropping Rework Mode entirely — see "History" below. Its sibling `LifeTrans-Rework\LWRework` is the rework-only fork; the two are fully independent Dart packages, own DBs, own NAS artifacts, own Windows app identity, and are not expected to run concurrently on the same PC (they *can*, since their identities no longer collide, but neither is engineered or tested for it). A second sibling, `LifeTrans-Rework\LWCamAdmin` ("LWCam Admin"), holds every SuperAdmin capability (user/project/app-settings management) that used to live here — see "History".
+SuperAdmin does not exist here; it lives in the sibling `LWCamAdmin` app. QC is
+the web console in `LWCam_QC_Platform`. LWIP is its own service in `LWIP/`.
 
-Windows is the only target: the code shells out to PowerShell, reads `USERPROFILE`, uses `sqflite_common_ffi`, `window_manager`, and expects `adb.exe`. Only the `windows/` platform folder exists; the app talks to the Android phone externally via `adb.exe` and (for Box Mode's live mirror) a bundled `scrcpy` binary, so no Android build tooling is involved. The Inno Setup installer script at `windows/runner/resources/LWCAM.iss` hand-lists the plugin DLLs and the `scrcpy-win64` folder to bundle — keep it in sync when adding/removing plugins with Windows implementations.
+Windows is the only target: the code shells out to PowerShell, reads
+`USERPROFILE`, uses `sqflite_common_ffi` and `window_manager`, and expects
+`adb.exe`. Only `windows/` exists. The phone is driven externally through
+`adb.exe` and (Box Mode's live mirror) a bundled `scrcpy`. The installer script
+`windows/runner/resources/LWCAM.iss` hand-lists the plugin DLLs and the
+`scrcpy-win64` folder: keep it in sync when you add or remove a plugin that has
+a Windows implementation.
 
 ## Commands
 
@@ -17,93 +36,332 @@ flutter pub get                          # install dependencies
 flutter run -d windows                   # run the app
 flutter build windows --release          # release build
 flutter analyze                          # static analysis
-flutter test                             # all tests
-flutter test test/services/transfer_destination_service_test.dart   # single test file
-flutter test --plain-name "builds same-month work week and day folders"  # single test
+flutter test                             # all tests (counts: docs/TESTING.md)
+flutter test test/services/transfer_destination_service_test.dart   # one file
+flutter test --plain-name "builds same-month work week and day folders"  # one test
 ```
 
-Runtime requirement: `adb.exe` must be next to the built exe, in the project root, at `C:\Android\platform-tools\adb.exe`, or on PATH (resolution order in `gallery_page.dart:_resolveAdbPath`). Box Mode additionally requires the bundled `scrcpy` binary next to the exe (see the `.iss` installer).
+Runtime: `adb.exe` must be next to the built exe, in the project root, at
+`C:\Android\platform-tools\adb.exe`, or on PATH (order in
+`gallery_page.dart:_resolveAdbPath`). Box Mode also needs `scrcpy` (see the
+root `AGENTS.md`, "a dev build has no bundled runtimes").
 
-Lints: `avoid_print`, `deprecated_member_use`, and `no_leading_underscores_for_local_identifiers` are deliberately ignored in `analysis_options.yaml` — `print` logging with emoji prefixes is the established style throughout.
+Lints: `avoid_print`, `deprecated_member_use` and
+`no_leading_underscores_for_local_identifiers` are ignored in
+`analysis_options.yaml`. `print` logging with emoji prefixes is the established
+style.
 
 ## Architecture
 
-State management, routing, and DI all use **GetX**. Routes: `/` (LoginPage), `/home` (HomePage — the post-login landing for every role), `/gallery` (GalleryPage — legacy Normal Mode, keying off) and `/boxes` (CaptureBoxListPage — Box Mode, keying on).
+State management, routing and DI all use **GetX**. Routes: `/` (LoginPage),
+`/home` (HomePage), `/gallery` (GalleryPage, Normal Mode), `/boxes`
+(CaptureBoxListPage, Box Mode).
 
-**Navigation is role-driven and two-step: pick a project, then pick the job** (restructured 2026-08-27; `/select-project` and the unscoped `/qc` queue are gone). `home_page.dart` keeps the branded landing (logo, welcome, role line) and offers at most two cards — `Projects` always, `Unresolved Images` when `isAdmin`; an account with only one card skips the landing entirely. There is no Capture card: capture is entered through a project so the device gate and active-project assignment live in one place. `projects_page.dart` is no longer admin-gated — it lists every project granted in ANY role (`AppUser.allProjectKeys`). `project_area_page.dart` then builds a project's cards from `AppUser.rolesForProjectKey` — `Dashboard` / `Capture` / `QC Check`, each present only where that role is granted ON that project, and BOTH layers must agree (the global role in `users.roles` AND a `user_projects` row for it), so a role with no project row opens nothing and a stale row for a revoked role does not resurrect a card. One applicable card means no list: the project opens directly, which is what makes a capture-only or QC-only account land straight on its work. Capture is not a page push — its card calls `enterCaptureWithProject` (device-registry gate, then `/boxes` or `/gallery`). Login routing follows the same rule: capture-only or QC-only with exactly one project skips the chooser; either with ZERO projects is blocked by the "No Project Assigned" modal; everything else lands on Home.
+**Navigation is role-driven and two-step: pick a project, then the job.**
+`home_page.dart` offers at most two cards: `Projects` always, `Unresolved Images`
+when `isAdmin`; an account with one card skips the landing. There is no Capture
+card: capture is entered through a project, so the device gate and the active
+project assignment live in one place. `projects_page.dart` lists every project
+granted in ANY role (`AppUser.allProjectKeys`). `project_area_page.dart` builds
+cards from `AppUser.rolesForProjectKey` (`Dashboard` / `Capture`; QC review happens in the QC console, so it adds no card),
+each present only where that role is granted ON that project, and BOTH layers
+must agree (the global role in `users.roles` AND a `user_projects` row). One
+applicable card means no list. Capture is not a page push: its card calls
+`enterCaptureWithProject` (device-registry gate, then `/boxes` or `/gallery`).
+Login routing follows the same rule: a capture-only account with exactly one project skips
+the chooser; with ZERO projects it is blocked by the "No Project Assigned"
+modal; everything else lands on Home.
 
-Data flow: **GalleryPage or CaptureBoxListPage/BoxTransferFlow (ADB pull → temp staging) → UploadController (copy to destination) → UploadStatsDB (record keeping in the local per-device DB) → optional PostgreSQL sync (SyncService, if enabled)**.
+Data flow: **GalleryPage or CaptureBoxListPage/BoxTransferFlow (ADB pull → temp
+staging) → UploadController (copy to destination) → UploadStatsDB (local
+per-device DB) → optional PostgreSQL sync (SyncService)**.
+(`UploadController` copies to the local/NAS destination. It does not upload to S3.)
 
-- `lib/main.dart` — bootstraps sqflite FFI, window_manager, and global error handling. Uncaught errors write a crash log (`lwcam_log_<timestamp>.txt`) to the user's Downloads folder and show a PowerShell MessageBox. Window close shows a confirm dialog and runs temp-file cleanup.
+- `lib/main.dart` bootstraps sqflite FFI, window_manager and global error
+  handling. An uncaught error writes `lwcam_log_<timestamp>.txt` to the user's
+  Downloads folder and shows a PowerShell MessageBox. Closing the window shows a
+  confirm dialog and runs temp-file cleanup.
 
-- `lib/pages/gallery_page.dart` (~5900 lines) — the app's center of gravity, and its highest-risk file (never modified for feature work that doesn't need it — see "History"). It was ~2800 lines at the fork and kept untouched through the strip; Rework Mode (2026-07-30) then landed its entire UI here, roughly doubling it. Treat the pre-rework ADB/transfer half as the untouchable part. Resolves and drives `adb.exe` directly via `Process.run`: scans `/storage/emulated/0/DCIM/...` with `adb shell ls`, pulls files, detects device model, can launch the device camera and delete files from the device. Maintains temp dirs (`_tempDir` gallery cache, `_transferTempDir` transfer staging) that are deleted on dispose/app close. Also handles a "replacement image" workflow — recapturing an erroneous image launches the device camera in Pro mode (with foreground verification, since `am start` lies about success) and swaps the new capture over the original's filename on the device, deleting the bad original; every replacement is recorded in the DB with full history (superseded records are marked, never deleted). A live-sync timer polls the device for new photos.
+- `lib/pages/gallery_page.dart` (~6300 lines) is the center of gravity and the
+  highest-risk file. It resolves and drives `adb.exe` through `Process.run`: scans
+  `/storage/emulated/0/DCIM/...` with `adb shell ls`, pulls files, detects the
+  device model, launches the device camera, deletes files from the device. It
+  keeps temp dirs (`_tempDir` gallery cache, `_transferTempDir` staging) that are
+  deleted on dispose/app close. It handles the "replacement image" workflow:
+  recapturing launches the camera in Pro mode (with foreground verification,
+  since `am start` lies about success) and swaps the new capture over the
+  original's filename on the device; every replacement is recorded in the DB
+  (superseded records are marked, never deleted). It also hosts the rework
+  recapture UI. A live-sync timer polls the device for new photos. Do not touch it
+  for work that does not need it. Treat the ADB/transfer half as untouchable.
 
-- `lib/pages/capture_box_list_page.dart`, `lib/pages/box_transfer_flow.dart`, `lib/pages/folder_metadata_form_page.dart`, `lib/controllers/box_session_controller.dart`, `lib/controllers/gallery_controller.dart`, `lib/models/capture_box_models.dart`, `lib/models/batch_metadata.dart` — the Box→Folders workflow (Box Mode): capture boxes hold keyed folders (cover tag, image tags, title, volume, dates, archival ref no, record type), each folder gets its own destination subdirectory at transfer time. Transfers run in a background per-box queue (`transfer_queue_service.dart`); each box tile on the list shows live progress while running and a PERSISTED outcome (`capture_boxes.last_transfer_state`/`last_transfer_error` — local-only, excluded from PG sync) that survives restart: interrupted/partial/failed boxes show a per-tile Retry that re-runs `runBoxTransferFlow` (already-copied images skip via the DB; staging reuses the durable `box_images` store or re-pulls from the phone).
+- Box Mode: `capture_box_list_page.dart`, `box_transfer_flow.dart`,
+  `folder_metadata_form_page.dart`, `box_session_controller.dart`,
+  `gallery_controller.dart`, `capture_box_models.dart`, `batch_metadata.dart`.
+  Capture boxes hold keyed folders (cover tag, image tags, title, volume, dates,
+  archival ref no, record type); each folder gets its own destination
+  subdirectory at transfer time. Transfers run in a background per-box queue
+  (`transfer_queue_service.dart`). Each box tile shows live progress and a
+  PERSISTED outcome (`capture_boxes.last_transfer_state`/`last_transfer_error`,
+  local-only, excluded from PG sync) that survives restart. Interrupted, partial
+  or failed boxes show a per-tile Retry that re-runs `runBoxTransferFlow`
+  (already-copied images skip via the DB; staging reuses the durable `box_images`
+  store or re-pulls from the phone).
 
-- Capture integrity (`lib/services/orphan_image_store.dart`, `lib/services/box_integrity.dart`): the per-image `capture_images` assignment is the ONLY record of box membership, so a lost capture-time write must never go unnoticed. `assignNewImage` retries the write, and on hard failure (or no active folder) stashes the pulled bytes to a **filesystem** ledger (`<AppSupport>/orphan_images/<deviceId>/` + `.intent.json` sidecar — deliberately NOT a DB table, since the DB is what just failed). `healOrphanImages` silently re-files intent-known orphans at box-list load / box open / pre-transfer; `verifyBoxComplete` gates every `markCaptureBoxTransferred` (every assigned image recorded landed + no orphan targeting the box) — a mismatch leaves the box 'partial', never transferred. Unhealable orphans (folder intent lost) route to the admin-only "Unresolved Images" screen (`orphan_resolution_page.dart`, Home tile) to assign-or-discard. `stageBoxFiles` deliberately falls back to the durable `box_images` copy when the phone no longer has an assigned file (the one exception to "phone is source of truth" — the phone stays authoritative whenever it HAS the file). `lib/services/scrcpy_service.dart` embeds the phone-mirror window as a native Win32 child ("clip-host" crop technique — a small black host window clips scrcpy's own window via `SetParent`/`SetWindowPos`, since scrcpy's own `--crop` combined with window embedding was proven to crash-loop). `lib/services/shutter_hotkey_service.dart` arms a global hotkey (via `hotkey_manager`) that taps the phone's shutter through the mirror.
+- **Capture integrity** (`orphan_image_store.dart`, `box_integrity.dart`). The
+  per-image `capture_images` assignment is the ONLY record of box membership, so
+  a lost capture-time write must never go unnoticed. `assignNewImage` retries the
+  write, and on hard failure stashes the pulled bytes to a **filesystem** ledger
+  (`<AppSupport>/orphan_images/<deviceId>/` + `.intent.json`; deliberately not a
+  DB table, since the DB is what just failed). `healOrphanImages` re-files
+  intent-known orphans at box-list load, box open and pre-transfer.
+  `verifyBoxComplete` gates every `markCaptureBoxTransferred`: a mismatch leaves
+  the box `partial`, never transferred. Unhealable orphans go to the admin-only
+  "Unresolved Images" screen (`orphan_resolution_page.dart`). `stageBoxFiles`
+  falls back to the durable `box_images` copy when the phone no longer has an
+  assigned file (the one exception to "the phone is the source of truth").
+  `scrcpy_service.dart` embeds the phone mirror as a native Win32 child
+  ("clip-host" crop: a small black host window clips scrcpy's window via
+  `SetParent`/`SetWindowPos`, because scrcpy's own `--crop` combined with window
+  embedding crash-loops). `shutter_hotkey_service.dart` arms a global hotkey
+  (`hotkey_manager`) that taps the phone's shutter through the mirror.
 
-- `lib/controllers/upload_controller.dart` (~1600 lines; named `upload_contoller.dart` until 2026-10-12) — the batch transfer engine, serving both capture modes. `uploadAll()` takes an optional `BoxTransferContext`; `if (box != null)` branches are the only behavior differences — images land in one destination subfolder per keyed folder and CSV/DB rows carry the owning folder's metadata, otherwise this is byte-identical to the original Normal Mode engine. Copies queued files with up to 12 concurrent tasks in 4 MB chunks with per-file progress. Reliability layers: 10-minute copy timeout, 30-second stall detection (checked every 5 s), and destination-availability polling with a reconnect dialog. Crash/restart recovery is DB-based: a file's `upload_records` row is written only AFTER a verified copy, batches skip already-recorded base names at start, and the static `generateUniqueTargetFile` allocator overwrites a destination file that exists on disk with no DB record (an orphan from an interrupted run) instead of suffix-skipping it — there is deliberately NO resume-by-index checkpoint (removed 2026-07-20: names are allocated fresh from disk state each run, so a saved index can never match after a restart). Each batch writes artifacts into the destination: a CSV of upload records plus transfer/summary/error/interruption logs under `logs/`, all prefixed with the operator's device ID. Artifact writes are serialized through `_runSerializedArtifactWrite`.
+- `lib/controllers/upload_controller.dart` (~1900 lines) is the batch transfer
+  engine for both modes. `uploadAll()` takes an optional `BoxTransferContext`;
+  `if (box != null)` branches are the only differences (images land in one
+  destination subfolder per keyed folder, CSV/DB rows carry the folder's
+  metadata). It copies queued files with up to 12 concurrent tasks in 4 MB chunks
+  with per-file progress. Reliability layers: 10-minute copy timeout, 30-second
+  stall detection (checked every 5 s), destination-availability polling with a
+  reconnect dialog. Crash recovery is DB-based: a file's `upload_records` row is
+  written only AFTER a verified copy, batches skip already-recorded base names,
+  and the static `generateUniqueTargetFile` overwrites a destination file that
+  exists with no DB record (an orphan from an interrupted run) instead of
+  suffix-skipping it. There is deliberately NO resume-by-index checkpoint: names
+  are allocated fresh from disk state each run, so a saved index can never match
+  after a restart. Each batch writes into the destination a CSV of upload records
+  plus transfer/summary/error/interruption logs under `logs/`, prefixed with the
+  operator's device ID; artifact writes are serialized by
+  `_runSerializedArtifactWrite`. Timeout constants are at the top of the file:
+  `_copyOperationTimeout` (10 min), `_stallTimeout` (30 s),
+  `_stallCheckIntervalMs` (5000). The custom exceptions
+  (`TransferTimeoutException`, `TransferStallException`,
+  `UploadInterruptionException`) are defined there too.
 
-- `lib/services/transfer_destination_service.dart` — defines the destination folder layout: `<root>/<work-week folder, e.g. "June 15-19">/<YYYYMMDD>/`. Weeks run Monday–Friday; weekend dates fall into the preceding work week. This is the only unit-tested code inherited unchanged from the pre-fork app.
+- `lib/services/transfer_destination_service.dart` defines the destination
+  layout: `<root>/<work-week folder, e.g. "June 15-19">/<YYYYMMDD>/`. Weeks run
+  Monday to Friday; weekend dates fall into the preceding work week.
 
-- `lib/db/upload_stats_db.dart` (~1700 lines) — singleton over sqflite FFI. The **only** local database: a per-device DB (`lwcam_stats_<deviceId>.db`: `upload_records`, `daily_summary`, `replacement_records`, `capture_boxes`/`capture_folders`/`capture_images`, `sync_outbox`, `processing_ledger`) under `%USERPROFILE%\LWCAM_DBs`, plus one monthly-rotation file per device per month for the two high-volume local-only tables (`upload_records`/`daily_summary` — no outbox in monthly files). The capture tables MIRROR the cloud schema (`LWCam_QC_Platform/database/LWCam_database_unified_*.sql` plus its migrations; the capture tables there are the one authority): same column names (`box_name`, `user_id`, `project_id`, `transfer_start_at`/`transfer_end_at`/`transferred_to`, `source_created_at`/`source_updated_at`, `image_name`/`file_format`), full-CAPS statuses (`'OPEN'`/`'TRANSFERRED'`), plus grouped local-only columns (`renamed_from`, `last_transfer_state`, `template_json`, `project_key`, …) that never sync. `capture_folders` also mirrors the six image-processing columns (`is_deskewed`/`is_cropped`/`is_created_thumbnail`/`folder_path`/`thumbnail_path`/`qc_status`); this app no longer writes them itself (LWIP reports straight to PostgreSQL now — see the Image-processing phase bullet below), except for a metadata-only rework resolution, which still goes through the rework path (never a folder upsert). The QC-owned columns (`group_id`/`client_qc_status`/`client_rework`) remain absent. `processing_ledger` (stable DB only) is schema-compatibility dead weight now — nothing writes it — kept only so an existing station DB's schema version still matches. `upload_records` is purely local record-keeping (the cloud replaced it with `capture_images`); its skip-logic/CSV role is unchanged. Stable schema is at **version 2** (`_stableSchemaVersion`), with a real `onUpgrade` → `_migrateStableSchemaV2` that adds the v2 columns/indexes to an existing v1 file. (The separate monthly-rotation DB is still `version: 1` — don't conflate them.) A fresh `onCreate` lands directly on the current version. Index creation is best-effort per statement: an older file missing a column an index names skips that index rather than failing the OPEN, because a DB that won't open is reported as corrupt and offered a destructive rebuild. Implements "transfer protection" (WAL checkpointing + an OS-level file lock via `RandomAccessFile.lock` on the local lock file `lwcam_transfer_in_progress.lock` during a batch).
+- `lib/db/upload_stats_db.dart` (~3200 lines) is a singleton over sqflite FFI, the
+  **only** local database: a per-device DB `lwcam_stats_<deviceId>.db`
+  (`upload_records`, `daily_summary`, `replacement_records`,
+  `capture_boxes`/`capture_folders`/`capture_images`, `sync_outbox`,
+  `processing_ledger`) under `%USERPROFILE%\LWCAM_DBs`, plus one monthly-rotation
+  file per device per month for the two high-volume local-only tables
+  (`upload_records`/`daily_summary`; no outbox there). The capture tables MIRROR
+  the cloud schema (`LWCam_QC_Platform/database/LWCam_database_unified_*.sql` plus
+  its migrations are the authority): same column names, full-CAPS statuses
+  (`'OPEN'`/`'TRANSFERRED'`), plus local-only columns (`renamed_from`,
+  `last_transfer_state`, `template_json`, `project_key`, …) that never sync.
+  `capture_folders` also mirrors the six image-processing columns
+  (`is_deskewed`, `is_cropped`, `is_created_thumbnail`, `folder_path`,
+  `thumbnail_path`, `qc_status`); LWIP writes them to PostgreSQL itself. The
+  QC-owned columns (`group_id`, `client_qc_status`, `client_rework`) stay absent.
+  `processing_ledger` is dead weight (nothing writes it), kept so an existing DB's
+  schema version still matches. The stable schema is at **version 2**
+  (`_stableSchemaVersion`) with a real `onUpgrade` → `_migrateStableSchemaV2`;
+  the monthly DB is still `version: 1`, do not conflate them. Index creation is
+  best-effort per statement: a DB that will not open is reported as corrupt and
+  offered a destructive rebuild, so an older file missing a column an index names
+  skips that index instead of failing the open. It implements "transfer
+  protection": WAL checkpointing plus an OS-level file lock
+  (`RandomAccessFile.lock` on `lwcam_transfer_in_progress.lock`) during a batch.
 
-- Sync pipeline (optional, configured only from LWCam Admin's Station Setup — LWCAM has no Settings UI): **Since 2026-10-01 the outbox hooks in `upload_stats_db.dart` always record** — `NodeConfig.syncEnabled` (default ON now) only gates the DRAIN — and each stable DB runs a one-time catch-up before its first drain (`queueCaptureRowsMissingFromCloud`, done-marker in `sync_meta`) that queues only the boxes/folders/images PG does not hold (`PgSyncSink.fetchCaptureKeys`; soft-deleted cloud rows count as present). Never a blanket resend: that would overwrite QC's metadata edits with the PC's older copy and revive QC-deleted folders. Before this, a capture made with sync off was never queued at all, so LWIP logged "Not in the database yet" forever and QC never listed the folder (found on the UAT setup 2026-10-01). A delete made while sync was off on a row PG already had is the one thing the catch-up cannot recover. `sync_service.dart` drains the stable DB's `sync_outbox` every 30s through `pg_sync_sink.dart` into the cloud PG, AND (since the 2026-07-21 SuperAdmin split) PULLS a fresh users/projects/app_settings snapshot at the START of every tick — PostgreSQL is the source of truth for those tables now; LWCAM only writes to them via a 3-call whitelist (`updateOwnPasswordSql`/`recordLoginSql`/`markProjectHasDataSql` in `pg_statements.dart`), everything else (user/project CRUD, roles, keying/shutter settings) is owned by the sibling LWCam Admin app. The pull's 4 SELECTs feed the pure `buildUsersStoreFromPgRows` (roles from `users.roles`, NOT re-derived from `user_projects` — a zero-project admin would otherwise lose their role) which rebuilds a `UsersStore` that overwrites the local `lwcam_users.json` snapshot wholesale (`UsersStoreService.applySnapshot`, wired by `sync_bootstrap.dart`'s `applyPulledStore` callback — falls back to a static file write when no `AuthController` is registered yet, i.e. the pre-login startup tick). A `SyncConnectException` on the pull skips the rest of the tick (state=offline); any other pull failure keeps the existing local snapshot and continues into the outbox drain (state=error). Outbox payloads carry NATURAL keys; the sink resolves the cloud's BIGINT identity ids per batch — **projects resolve by `project_key`** (the stable client identity), never `project_id` (a human-editable label LWCam Admin can rename freely) — plus users.user_id = username, devices.device_id = SAX##, boxes (project_id, box_name), folders (box, folder_seq), images (folder, image_name), with per-batch caches, a box-RENAME fixup driven by the local-only `renamed_from` column (set only-if-null; a second rename across ≥2 ticks can orphan a cloud row — accepted), and a devices-row self-heal. All SQL lives in `pg_statements.dart` (pure Dart, unit-testable without a connection; `pg_client.dart` holds the shared connection opener). Every tick ENDS by pulling the active project's cloud box names (by `project_key`) into `cloud_box_names.dart` (consulted by `boxNameExists` — the cross-PC uniqueness check; empty cache ⇒ local-only behavior). `kSyncEntityOrder` holds **six** entities: the three capture ones plus `capture_folder_processing` (sorted after `capture_folders`), `capture_folder_rework`, and `rework_logs`. LWCAM never writes `group_id`/`client_qc_status`/`client_rework` (QC-owned) and never writes any pipeline column through `folderUpsertSql`. There are exactly **two** SQL statements that write a pipeline column: `folderProcessingUpdateSql` (via `capture_folder_processing`), which sets is_deskewed/is_cropped/is_created_thumbnail/folder_path/thumbnail_path and moves qc_status to 'PENDING' only from NULL/''/'PENDING'/'REWORK' (since 2026-09-10 — a report can land days late, after QC has PASSed and exported the folder; a PASS is only re-queued by QC's own send-back) — **since LWIP went standalone (2026-09-25) LWCAM no longer enqueues this entity itself; the case stays only to drain rows a station queued before then, see the Image-processing phase bullet**; and `folderQcStatusPendingSql` (via `capture_folder_rework`, still actively written by the rework loop below), which exists because a metadata-only correction changes no file, so the folder's input fingerprint is unchanged, LWIP will never reprocess it, and nothing else would move it off 'REWORK'. LWCAM never creates cloud schema (the team applies the SQL file manually).
+- **Sync pipeline.** Configured only from LWCam Admin's Station Setup (LWCAM has
+  no Settings UI). The outbox hooks in `upload_stats_db.dart` always record;
+  `NodeConfig.syncEnabled` (default ON) only gates the DRAIN. Each stable DB runs
+  a one-time catch-up before its first drain (`queueCaptureRowsMissingFromCloud`,
+  done-marker in `sync_meta`) that queues only the boxes/folders/images
+  PostgreSQL does not hold (`PgSyncSink.fetchCaptureKeys`; soft-deleted cloud
+  rows count as present). It is never a blanket resend, which would overwrite
+  QC's metadata edits with the PC's older copy and revive QC-deleted folders. A
+  delete made while sync was off on a row PG already had is the one thing the
+  catch-up cannot recover.
+  `sync_service.dart` drains the outbox every 30 s through `pg_sync_sink.dart`,
+  and PULLS a fresh users/projects/app_settings snapshot at the START of every
+  tick: PostgreSQL is the source of truth for those tables, and LWCAM writes them
+  only through a 3-call whitelist (`updateOwnPasswordSql`/`recordLoginSql`/
+  `markProjectHasDataSql` in `pg_statements.dart`). The pull's 4 SELECTs feed the
+  pure `buildUsersStoreFromPgRows` (roles from `users.roles`, NOT re-derived from
+  `user_projects`, or a zero-project admin loses the role), which rebuilds a
+  `UsersStore` that overwrites `lwcam_users.json` wholesale
+  (`UsersStoreService.applySnapshot`, wired by `sync_bootstrap.dart`). A
+  `SyncConnectException` on the pull skips the rest of the tick (state=offline);
+  any other pull failure keeps the local snapshot and continues into the drain
+  (state=error).
+  Outbox payloads carry NATURAL keys and the sink resolves the cloud's BIGINT ids
+  per batch: **projects resolve by `project_key`** (the stable identity), never
+  `project_id` (a label LWCam Admin can rename); users.user_id = username,
+  devices.device_id = SAX##, boxes (project_id, box_name), folders (box,
+  folder_seq), images (folder, image_name). There are per-batch caches, a
+  box-RENAME fixup driven by the local-only `renamed_from` column (set only if
+  null; a second rename across 2+ ticks can orphan a cloud row, accepted), and a
+  devices-row self-heal. All SQL is in `pg_statements.dart` (pure Dart,
+  unit-testable without a connection; `pg_client.dart` opens connections). Every
+  tick ENDS by pulling the active project's cloud box names (by `project_key`)
+  into `cloud_box_names.dart` (used by `boxNameExists`, the cross-PC uniqueness
+  check; an empty cache means local-only behaviour). `kSyncEntityOrder`
+  (`sync_models.dart`) holds six entities: the three capture ones plus
+  `capture_folder_processing`, `capture_folder_rework` and `rework_logs`.
+  LWCAM never writes `group_id`/`client_qc_status`/`client_rework`, and never
+  writes a pipeline column through `folderUpsertSql`. Exactly two statements
+  write a pipeline column: `folderProcessingUpdateSql` (entity
+  `capture_folder_processing`; sets the processing flags and paths and moves
+  `qc_status` to 'PENDING' only from NULL/''/'PENDING'/'REWORK', since a report
+  can land days late, after QC has PASSed and exported; a PASS is re-queued only
+  by QC's own send-back) and `folderQcStatusPendingSql` (via
+  `capture_folder_rework`; a metadata-only correction changes no file, so LWIP
+  would never reprocess it and nothing else would move it off 'REWORK'). LWCAM no
+  longer enqueues `capture_folder_processing` itself; the case remains only to
+  drain rows queued earlier. LWCAM never creates cloud schema.
 
-- **Image-processing phase (LWIP) — LWCAM no longer supervises or reports it; LWIP runs standalone (2026-09-25).** LWIP (its own top-level `LWIP/` product since 2026-09-25, formerly `LWCAM/LWIP`) now runs as its own boot-time SYSTEM service on its own machine, and reports each finished folder straight to PostgreSQL itself (`LWIP/backend/deskew_crop_tool/cloud_report.py`) — unconditionally, not gated by any switch this app carries. `processing_bootstrap.dart`, `processing_report_service.dart` (the 15s `state.json` tailer) and `lwip_service.dart` (the old local supervisor) are all deleted; `main.dart`/`auth_controller.dart` no longer call anything on login or startup for this phase, and `capture_box_list_page.dart`'s DB-recovery pause only quiesces the sync timer now. `NodeConfig.processingEnabled`/`processingWorkers`/`processingCropPadding`/`processingCloudReport` are round-trip only — kept so an existing `lwcam_node_config.json` still saves cleanly, decided nowhere in this app any more. Two things survive because LWCAM is still the one PC that knows them: `lib/services/processing_marker_service.dart`'s `writeBoxProcessingMarkers` (called from `BoxSessionController.markTransferred`) still drops `lwcam_capture_marker.json` — the folder's natural-key identity — into each destination folder, which is LWIP's readiness gate; and `lib/services/rework_service.dart` finds the input file a QC recapture must overwrite under `NodeConfig.destinationPath`, from the `<date>\<folder>` tail of LWIP's `folder_path` (since 2026-09-28; `processingInputRoot`/`processingOutputRoot` are round-trip only now). The `capture_folder_processing` sync entity, `UploadStatsDB`'s `processing_ledger` table, and the sink's `folderProcessingUpdateSql` case in `pg_sync_sink.dart`/`pg_statements.dart` all stay too, but only to drain and apply rows a station had already queued before LWIP went standalone — nothing in this app enqueues a new one; delete them once every station has drained. The old supervisor/report code is in git history if a station ever needs LWIP tied to LWCAM's lifetime again.
+- **Held records and schema gate.** The database can be another PC or site, and
+  can be off: capture never waits on it. Records queue in the per-device SQLite DB
+  and sync with back-off. A record refused `kSyncAttemptCap` (20) times is HELD
+  (kept, skipped) until the operator presses "Try again"
+  (`SyncService.retryHeld`). Held and old unsent records make this PC's row red on
+  the QC System status page; an off PC is grey. `kRequiredSchema` is 7
+  (`sync_sink.dart`): an older database gives "The database is older than this
+  program ... Run LWCamDatabaseSetup".
 
-- **Rework loop (QC send-back → recapture → reprocess).** Note this CONTRADICTS the fork-era statements elsewhere in this file that Rework Mode was dropped: that was true at the 2026-07-14 fork, and rework came BACK on 2026-07-30 in a different shape. It is not the old standalone Rework Mode (that still lives only in the sibling LWRework app) — it is a loop hosted inside the capture page. QC appends an OPEN `rework_logs` row per rejected image; `lib/services/rework_service.dart` reads the worklist (`selectOpenReworkSql`, short-lived PG connections) and `lib/services/open_rework_cache.dart` caches it so box tiles can show a "Needs Rework" badge and sort to the top (`CaptureBoxEntry.reworkCount`; refreshed off the render path — an unreachable PG must never stall the box list). The recapture UI lives in `gallery_page.dart`. Two outbox entities carry the results: `rework_logs` (append-only CLOSED row once the recaptured image transfers, so the closure survives an offline recapture) and `capture_folder_rework` (a metadata-only correction, via `folderMetadataPatchSql` + `folderQcStatusPendingSql`). `pendingReworkClosureKeys` filters just-submitted closures out of the badge count so it drops immediately instead of waiting a sync tick. Archive dates (`start_date`/`end_date`) are TEXT in PG holding the value VERBATIM as keyed (`"1914"`, `"1914-06"`, `"1877-Mar-05"`) — since 2026-09-10 nothing in this app parses, casts or reshapes them; bind and display them as the strings they are (`textOrNull` in `pg_statements.dart` trims and nulls a blank).
+- **LWIP interface.** LWIP runs standalone and reports to PostgreSQL itself; LWCAM
+  neither starts nor reads it. Two things stay here because LWCAM is the one PC
+  that knows them. `processing_marker_service.dart`'s `writeBoxProcessingMarkers`
+  (called from `BoxSessionController.markTransferred`) drops
+  `lwcam_capture_marker.json`, the folder's natural-key identity, into each
+  destination folder; it carries `"image_count"` (images copied in), and LWIP
+  waits until the folder holds that many. And `rework_service.dart` finds the
+  input file a QC recapture must overwrite under `NodeConfig.destinationPath`,
+  from the `<date>\<folder>` tail of LWIP's `folder_path`.
+  `NodeConfig.processingEnabled`/`processingWorkers`/`processingCropPadding`/
+  `processingCloudReport`/`processingInputRoot`/`processingOutputRoot` are
+  round-trip only: kept so an old `lwcam_node_config.json` still saves.
 
-- **Local DB corruption recovery** (`UploadStatsDB.inspectDeviceDatabase` / `rebuildFromCaptureSnapshot`, offered from `capture_box_list_page.dart` on entry into Box Mode). `inspectDeviceDatabase` returns `missing`/`healthy`/`corrupt`/`unavailable`; only genuine SQLite corruption signals (`isSqliteCorruptionError`) count as `corrupt`, because inspecting OPENS the DB and that open runs schema DDL which takes a write lock — a concurrent transfer or an AV scanner is `unavailable`, meaning "try again later", never grounds to rebuild. `rebuildFromCaptureSnapshot` builds a replacement beside the live file from a PG snapshot, validates it (row counts, relationship joins, `integrity_check`), carries over the local-only tables the cloud cannot restore (`sync_outbox` above all — an outbox row is the un-pushed delta, so it exists nowhere else; plus `replacement_records` and the legacy `upload_records`/`daily_summary`), then promotes it by rename, keeping the original as `<path>.corrupt-<micros>`. The promotion window is guarded: `_recoveringDeviceIds` makes `_cachedOpen` refuse to reopen the device mid-rename (otherwise SQLite mints an empty DB at the freed path and the rollback can't tell it from the real thing), and the caller pauses `SyncService`, whose 30s tick reopens every device DB.
+- **Rework loop (QC send-back → recapture → reprocess)**, hosted inside the capture
+  page. QC appends an OPEN `rework_logs` row per rejected image.
+  `rework_service.dart` reads the worklist (`selectOpenReworkSql`, short-lived PG
+  connections) and `open_rework_cache.dart` caches it, so box tiles show a "Needs
+  Rework" badge and sort to the top (`CaptureBoxEntry.reworkCount`; refreshed off
+  the render path, since an unreachable PG must never stall the box list). The
+  recapture UI is in `gallery_page.dart`. Two outbox entities carry the results:
+  `rework_logs` (an append-only CLOSED row once the recaptured image transfers, so
+  the closure survives an offline recapture) and `capture_folder_rework` (a
+  metadata-only correction, via `folderMetadataPatchSql` + `folderQcStatusPendingSql`).
+  `pendingReworkClosureKeys` filters just-submitted closures out of the badge
+  count. Archive dates (`start_date`/`end_date`) are TEXT in PG holding the value
+  VERBATIM as keyed (`"1914"`, `"1914-06"`, `"1877-Mar-05"`): nothing parses,
+  casts or reshapes them; bind and display them as strings (`textOrNull` in
+  `pg_statements.dart` trims and nulls a blank).
 
-- Device registry + lock (`lib/services/device_registry.dart`): the cloud `devices` table binds each capture device (SAX##) to one project via `country_location_code` (an FK to projects — the lock is structural). `AuthController.enterCaptureWithProject` registers/refreshes the device row and BLOCKS entry into a project the device isn't bound to. It and `goToCapture` are BOTH async and both return `false` when blocked — always await them: firing the gate unawaited let login report success and write the session before the block resolved, stranding a capture-only operator on the login page with nowhere to land. Only SuperAdmin can move a device, from LWCam Admin's Devices screen (LWCAM's own Devices page was removed 2026-07-22 — viewing/reassigning devices is SuperAdmin-only; LWCAM keeps just the capture-entry gate). Sync off / PG unreachable / code-less project ⇒ the gate silently allows. Projects carry a required unique free-text `countryLocationCode` (≤32 chars, keyed in LWCam Admin's project dialog — Projects are read-only here).
+- **Local DB corruption recovery** (`UploadStatsDB.inspectDeviceDatabase` /
+  `rebuildFromCaptureSnapshot`, offered from `capture_box_list_page.dart` on
+  entering Box Mode). `inspectDeviceDatabase` returns `missing`/`healthy`/
+  `corrupt`/`unavailable`. Only genuine SQLite corruption signals
+  (`isSqliteCorruptionError`) count as `corrupt`: inspecting OPENS the DB, which
+  runs schema DDL and takes a write lock, so a concurrent transfer or an AV scan
+  is `unavailable` ("try later"), never grounds to rebuild.
+  `rebuildFromCaptureSnapshot` builds a replacement beside the live file from a PG
+  snapshot, validates it (row counts, joins, `integrity_check`), carries over the
+  local-only tables the cloud cannot restore (`sync_outbox` above all, the
+  un-pushed delta; plus `replacement_records` and the legacy tables), then
+  promotes it by rename, keeping the original as `<path>.corrupt-<micros>`.
+  `_recoveringDeviceIds` makes `_cachedOpen` refuse to reopen the device
+  mid-rename (otherwise SQLite creates an empty DB at the freed path), and the
+  caller pauses `SyncService`, whose 30 s tick reopens every device DB.
 
-- `lib/auth/auth_controller.dart` — login is **always username + password**; there is no SuperAdmin account in LWCAM (that role lives only in the sibling LWCam Admin app — see "History"). Password login gates on `canNormalMode`/`isAdmin`, routes to `/boxes` when metadata keying is enabled for the account else `/gallery`, and auto-routes single-role accounts (multi-role/admin land on `/home`). An account with neither role sees a generic "no access to LWCAM" refusal (not "no roles assigned" — it may hold a role this app doesn't have, e.g. a leftover `rework` string from a shared-store era) and its half-authenticated session state is cleared. A forced first-login/reset password change (`AuthStatus.mustChangePassword`) tries PostgreSQL first via `UserDirectoryService` — it IS the account record — but never blocks offline: an unreachable PG queues the new hash locally instead (a permanently-offline site can't wait for a connection), applies it to the local snapshot immediately so login works this session, and retries the direct PG write on every sync tick and opportunistically on every subsequent login attempt (see `users_store_service.dart`'s pending-password-changes queue below). The device ID becomes the operator ID stamped on all records, logs, and DB rows.
+- **Device registry + lock** (`device_registry.dart`). The cloud `devices` table
+  binds each capture device (SAX##) to one project through
+  `country_location_code` (an FK to projects, so the lock is structural).
+  `AuthController.enterCaptureWithProject` registers or refreshes the device row
+  and BLOCKS entry into a project the device is not bound to. It and `goToCapture`
+  are both async and return `false` when blocked: always await them (unawaited,
+  login reports success and writes the session before the block resolves,
+  stranding a capture-only operator on the login page). Only SuperAdmin can move a
+  device, in LWCam Admin's Devices screen. Sync off, PG unreachable or a
+  code-less project means the gate silently allows. Projects carry a required
+  unique free-text `countryLocationCode` (up to 32 chars, keyed in LWCam Admin).
 
-- `lib/models/app_user.dart` — `UserRole` is `{admin, capture, qc}` in this app (no `rework` — that's LWRework's role). `projectKeysFor(role)` is the per-role grant (never flatten it — `user_projects` is role-specific, so a flat lookup hands a capture operator the admin/QC set); `rolesForProjectKey(key)` and `allProjectKeys` build on it and are what the navigation reads. A foreign role string on disk (e.g. `"rework"`) parses to nothing via the same unknown-role tolerance as any unrecognized value. `AppUser` has no admin-viewable password field (`passwordEnc` was retired 2026-07-21 alongside the SuperAdmin split — password_cipher.dart is gone) — an admin can only reset a password to the shared default, never view one. `SharedAppSettings.superAdminPasswordHash` still round-trips through the JSON shape (LWCam Admin sets it; LWCAM has no reader — SuperAdmin login doesn't exist here).
+- `lib/auth/auth_controller.dart`: login is **always username + password**.
+  Password login gates on `canNormalMode`/`isAdmin`, routes to `/boxes` when
+  metadata keying is on for the account else `/gallery`, and auto-routes
+  single-role accounts. An account with neither role sees a generic "no access to
+  LWCAM" refusal and its half-authenticated state is cleared. A forced
+  first-login or reset password change (`AuthStatus.mustChangePassword`) tries
+  PostgreSQL first through `UserDirectoryService` but never blocks offline: an
+  unreachable PG queues the new hash locally, applies it to the local snapshot so
+  login works this session, and retries on every sync tick and every later login
+  attempt. The device ID becomes the operator ID stamped on all records, logs and
+  DB rows.
 
-- `lib/pages/settings_page.dart` — there is NO Settings PAGE in LWCAM (removed 2026-07-22; Settings is SuperAdmin-only, restoring the pre-split rule). The file survives — its historical name kept because half a dozen imports depend on it, same convention as the `upload_controller.dart` typo — holding only the slim `SettingsController`: `destinationPath` (read from `NodeConfig.destinationPath` at startup and refreshed on every login — set exclusively by LWCam Admin's Station Setup; uploads refuse to start while empty, pointing the operator at Station Setup) and `includeUploaded` (session-only gallery filter). LWCAM never writes `lwcam_node_config.json` at all anymore — everything in it (PG connection, LWCAM's own capture-outbox `syncEnabled` toggle, drain interval, `usersStorePath`, `destinationPath`) is owned by Station Setup; LWCAM picks changes up at launch and login via `SyncBootstrap`/`reloadDestination`. The dark/light theme toggle — the one per-user setting left — lives in `lib/widgets/session_app_bar_actions.dart` alongside Logout, shared by the shell's destinations (Home, which used to own it, is gone).
+- `lib/models/app_user.dart`: `projectKeysFor(role)` is the per-role grant (never
+  flatten it: `user_projects` is role-specific, so a flat lookup hands a capture
+  operator the admin/QC set); `rolesForProjectKey` and `allProjectKeys` build on
+  it. `AppUser` has no password-view field: an admin can only reset a password to
+  the shared default. `SharedAppSettings.superAdminPasswordHash` still round-trips
+  through JSON (LWCam Admin sets it; LWCAM has no reader).
 
-- `lib/services/file_lock_service.dart` — creates `.lock` sidecar files for Excel/CSV/DB/JSON sources during transfer; locks are released in `finally` blocks.
-- `lib/services/users_store_service.dart` — reads the local READ-ONLY snapshot of users/projects/app-settings (`lwcam_users.json`, written wholesale by the sync pull every tick, or seeded once by LWCam Admin's Station Setup on a fresh PC with no PG connectivity yet). PostgreSQL is the source of truth; LWCAM never mutates users/projects/settings directly — it writes back through exactly 3 PG-direct calls (`changeOwnPassword`/`recordLogin`/`markProjectHasData`, all via `lib/services/user_directory_service.dart`'s short-lived connections), never the local file, which the next pull overwrites wholesale regardless. `UsersStoreSource` is just `{snapshot, none}` — `none` means a fresh PC before its first successful pull, surfaced on the login page as "run LWCam Admin station setup." The one exception to "never touches the local file": `changeOwnPassword` queues a still-undelivered hash in a sibling `lwcam_pending_password_changes.json` (username → new bcrypt hash) on ANY PG failure — unreachable, or a connection dying mid-write; retrying is idempotent even if the write actually landed — and applies it to the local snapshot immediately; every pull (`applySnapshot`, and the static `writeSnapshotFile` pre-login variant) retries the PG write and re-splices any still-pending hash onto the freshly pulled store first, so a stale pull can never silently revert an offline password change before it's actually reached PostgreSQL. `flushPendingPasswordChanges()` is the same retry, called opportunistically at the start of every login attempt too, not just on the sync tick's cadence. All pending-file/snapshot read-modify-writes are serialized behind an internal mutex (`_serialized`) — the login flush is unawaited and would otherwise race the forced-change dialog. Two shared-file rules with LWCam Admin (same `lwcam_users.json` on a standard station): a pull NEVER overwrites a file the Admin app marked `dirty` (its offline edits/tombstones are newer than the pull — the file's own content becomes the live copy instead), and `UsersStore` round-trips the Admin-only JSON keys (`dirty`/`deletedUsernames`/`deletedProjectKeys`/`pendingPasswordResets`, plus future ones) opaquely via `adminExtras` so LWCAM's own writes never strip them. Callers must pass the CANONICAL username (the store record's, not the typed one) to `changeOwnPassword`/`recordLogin` — PG matches `user_id` exactly while local lookup is case-insensitive.
-- `lib/services/path_utils.dart` (renamed from the pre-fork `rework_paths.dart`) — Windows path sanitization and the FNV-1a-based box key helper used by Box Mode; the rework-only `reworkTransferFolderName` helper was dropped in the split.
+- `lib/pages/settings_page.dart`: there is NO Settings page in LWCAM. The file
+  name stays because half a dozen imports use it; it holds only the slim
+  `SettingsController`: `destinationPath` (from `NodeConfig.destinationPath` at
+  startup, refreshed on every login; uploads refuse to start while empty) and
+  `includeUploaded` (session-only gallery filter). LWCAM never writes
+  `lwcam_node_config.json`; Station Setup owns it, and LWCAM picks changes up at
+  launch and login (`SyncBootstrap`/`reloadDestination`). The theme toggle lives
+  in `lib/widgets/session_app_bar_actions.dart` beside Logout.
 
-Custom exceptions (`TransferTimeoutException`, `TransferStallException`, `UploadInterruptionException`) are defined at the top of `upload_controller.dart` and drive the user-facing error dialogs and interruption logs.
+- `lib/services/file_lock_service.dart` creates `.lock` sidecars for
+  Excel/CSV/DB/JSON sources during transfer; locks are released in `finally`.
 
-## History
+- `lib/services/users_store_service.dart` reads the local READ-ONLY snapshot
+  `lwcam_users.json` (written wholesale by the sync pull, or seeded by Station
+  Setup on a fresh PC). PostgreSQL is the source of truth; LWCAM writes back
+  through 3 PG-direct calls (`changeOwnPassword`/`recordLogin`/
+  `markProjectHasData`, via `user_directory_service.dart`), never the local file.
+  `UsersStoreSource` is `{snapshot, none}`; `none` means a fresh PC before its
+  first pull ("run LWCam Admin station setup"). The one exception:
+  `changeOwnPassword` queues a still-undelivered hash in
+  `lwcam_pending_password_changes.json` (username → bcrypt hash) on ANY PG failure
+  (retry is idempotent) and applies it locally at once; every pull re-splices any
+  pending hash onto the freshly pulled store, so a stale pull never reverts an
+  offline password change before it reaches PostgreSQL.
+  `flushPendingPasswordChanges()` is the same retry, also called at the start of
+  each login. All pending-file and snapshot read-modify-writes run behind an
+  internal mutex (`_serialized`). Two shared-file rules with LWCam Admin (same
+  `lwcam_users.json` on a standard station): a pull NEVER overwrites a file the
+  Admin app marked `dirty`, and `UsersStore` round-trips the Admin-only JSON keys
+  (`dirty`, `deletedUsernames`, `deletedProjectKeys`, `pendingPasswordResets`,
+  and future ones) through `adminExtras`, so LWCAM's writes never strip them.
+  Pass the CANONICAL username (the store record's, not the typed one) to
+  `changeOwnPassword`/`recordLogin`: PG matches `user_id` exactly while local
+  lookup is case-insensitive.
 
-Forked from the combined LifeTrans app (package `life_transfer`, three workflows: legacy Normal Mode, Box Mode, Rework Mode) on 2026-07-14. The split's rationale and full identity-touchpoint inventory live in the fork commit; in short: this project kept both capture modes, its sibling LWRework kept only Rework Mode, both started with **fresh, empty databases** (no data migration — operators finished in-flight work in the old combined app first). All rework code (`rework_*` controllers/pages/services, the `rework_models.dart` `AppMode` enum, rework DB tables) was removed; `gallery_page.dart` was never touched during the strip, keeping the app's riskiest file exactly as it was pre-fork. **Both of those last two facts have since expired** — see the rework-loop bullet in Architecture: a QC-driven rework loop was added back on 2026-07-30 (a different design from the old standalone Rework Mode, which remains LWRework's alone), and its UI landed in `gallery_page.dart`, roughly doubling the file. Deliberately kept identical to LWRework despite the split: on-device paths (`/sdcard/life_transfer_camera_ui.xml`, `.lifetrans_bak` suffix), the `password_cipher` encryption key, temp-dir prefixes (`dcim_cache_gallery_`, `box_transfer_stage`), and SharedPreferences key names — none of these collide between the two apps and renaming them would only be churn.
+- `lib/services/path_utils.dart`: Windows path sanitization and the FNV-1a-based
+  box key helper.
 
-A follow-up cleanup pass (same day) diverged the two apps' `UserRole` enums — each app now only defines its own role (LWCAM: `admin`/`capture`; LWRework: `admin`/`rework`) instead of sharing all three role names. This was a deliberate design choice, not an oversight: the two users stores were already separate files with no interop, so carrying the sibling app's role name added confusion (an invisible, unremovable role in the admin UI) without any benefit.
-
-The next day (2026-07-15), login was redesigned to always be username + password with a built-in SuperAdmin recovery account. The bcrypt hash embedded in `super_admin.dart` was identical in both apps by design (one factory password to remember); it was generated once and is not derivable from anything in this repo.
-
-On 2026-07-21, SuperAdmin was split out of LWCAM entirely into a new sibling app, **LWCam Admin** (`LifeTrans-Rework\LWCamAdmin`, package `lwcam_admin` — fork-style copy per the LWCAM/LWRework convention, not a shared library). Rationale: LWCAM only needed Admin + Capture; every SuperAdmin capability (user/project/app-settings CRUD, template editing, admin-viewable passwords) moved wholesale to the new app, and PostgreSQL became the source of truth for `users`/`projects`/`app_settings` instead of the NAS `lwcam_users.json`. LWCAM was rebuilt around a schema-v2 PostgreSQL: `users` gained `device_id`/`roles` columns (global roles round-trip through `users.roles`, NOT `user_projects` — a zero-project admin would otherwise lose their role on pull), `projects` gained `project_key` (the stable client identity everything now resolves by, since `project_id` became a freely-renamable human label owned by LWCam Admin), and a new `app_settings` key-value table replaced the keying/shutter fields that used to live only in the NAS JSON. LWCAM's role in this pair: SuperAdmin login, `lib/auth/super_admin.dart`, User Management, Template Editor, and Projects CRUD were all DELETED from LWCAM (moved to LWCam Admin unchanged); `passwordEnc`/`password_cipher.dart` were retired everywhere (admin-viewable passwords are gone — reset-to-default only); `users_store_service.dart` was rewritten from a NAS-push model to a PG-pull, read-only-snapshot model (see the bullet above and the sync-pipeline bullet); `sync_service.dart`/`pg_sync_sink.dart`/`pg_statements.dart` flipped from pushing the NAS store to PG every tick to pulling it. This was a from-scratch PostgreSQL + local-DB reset (drop-and-recreate the schema, wipe `%USERPROFILE%\LWCAM_DBs` and the old `lwcam_users.json` on every station) — no data migration, matching the fork's own precedent.
-
-`CHANGELOG.txt` predating the fork describes the combined app; entries from 2026-07-14 onward describe this project alone.
+- `lib/services/dpapi.dart` reads the capture DB password from
+  `pgPasswordProtected` in `lwcam_node_config.json` (base64 DPAPI, CurrentUser
+  scope, entropy ASCII `LWCam`), else the old plain `pgPassword`. It is a copy of
+  LWCamAdmin's: keep the two identical. The config file is reloaded from disk
+  before every read-modify-save, unknown keys round-trip, and saving is
+  write-temp-then-replace. Upgrade order for a capture PC: install the new
+  LWCamSetup first, then enter the login in Station Setup.
 
 ## Notes
 
-- `CHANGELOG.txt` at the root records what changed and why, grouped by date. Add an entry there for every user-visible or behavioral change you make.
-- The root documentation is exactly `README.txt` (English, primary), `README_CN.txt` (Chinese translation), `CHANGELOG.txt` and this file. Ten pre-fork documents were removed on 2026-08-10 during handover preparation: five near-duplicate "Phase 1" status reports, an index of them, a July deployment checklist, `IMPROVEMENTS_PLAN.md`, `TESTING_GUIDE_PHASE1.md`, and `Life_Transfer_Documentation.docx`. They described the pre-fork LifeTrans app; `FILE_LOCK_SERVICE_DOCS.md` also documented three `FileLockService` members that do not exist. The reliability rationale that mattered (why the timeout is 10 minutes, why stall detection exists, why there is no resume-by-index checkpoint) now lives in `README.txt` and in the `upload_controller.dart` bullet above.
-- Timeout tuning constants live at the top of `upload_controller.dart`: `_copyOperationTimeout` (10 min), `_stallTimeout` (30 s), `_stallCheckIntervalMs` (5000).
-- `assets/logo.png` is a bundled asset declared in `pubspec.yaml`. `assets/credentials.txt` (legacy, unused) was dropped in the fork along with the dead `auth/auth_service.dart` it backed.
-
-## Multi-PC notes (2026-09-30)
-
-- The database can be another PC or site, and can be off: capture never waits
-  on it. Records queue in the per-device SQLite DB and sync with back-off; a
-  record refused `kSyncAttemptCap` (20) times is HELD (kept, skipped) until the
-  operator presses "Try again" (`SyncService.retryHeld`). Held and old unsent
-  records make this PC's row red on the QC System status page; an off PC is grey.
-- `kRequiredSchema` is 7 (`sync_sink.dart`): an older database gives
-  "The database is older than this program ... Run LWCamDatabaseSetup".
-- The processing marker LWCAM writes carries `"image_count"` (images copied into
-  the folder); LWIP waits until the folder holds that many.
-- The capture DB password is read from `pgPasswordProtected` in
-  `lwcam_node_config.json` (base64 DPAPI, CurrentUser, entropy ASCII `LWCam`;
-  `lib/services/dpapi.dart` is a copy of LWCamAdmin's - keep them identical),
-  else the old plain `pgPassword`. The file is reloaded from disk before every
-  read-modify-save, unknown keys round-trip, and saving is write-temp-then-replace.
-  Upgrade order for a capture PC: upgrade LWCamSetup first, then enter
-  `lwcam_capture` in Station Setup (never into an old LWCAM).
+- `CHANGELOG.txt` records what changed and why. Add an entry for every
+  user-visible or behavioral change (see `CONTRIBUTING.md`).
+- `assets/logo.png` is a bundled asset declared in `pubspec.yaml`.
+- Kept identical to the sibling apps on purpose, with no reason to rename: on-device
+  paths (`/sdcard/life_transfer_camera_ui.xml`, `.lifetrans_bak` suffix),
+  temp-dir prefixes (`dcim_cache_gallery_`, `box_transfer_stage`) and
+  SharedPreferences key names.
