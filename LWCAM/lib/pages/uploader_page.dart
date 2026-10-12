@@ -9,8 +9,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../controllers/upload_controller.dart';
-import 'upload_status_page.dart';
+import '../controllers/transfer_controller.dart';
+import 'transfer_status_page.dart';
 import '../theme/app_colors.dart';
 
 class UploaderPage extends StatefulWidget {
@@ -36,7 +36,7 @@ class UploaderPage extends StatefulWidget {
 }
 
 class _UploaderPageState extends State<UploaderPage> {
-  final UploadController c = Get.find<UploadController>();
+  final TransferController c = Get.find<TransferController>();
   UploadBatchResult? _result;
 
   @override
@@ -105,7 +105,7 @@ class _UploaderPageState extends State<UploaderPage> {
 
   /// Pops THIS dialog route with [_result], waiting until it is the current
   /// route — never popping whatever happens to be on top (the operator may
-  /// be viewing UploadStatusPage, or the engine's "some files were not
+  /// be viewing TransferStatusPage, or the engine's "some files were not
   /// transferred" warning may be showing).
   Future<void> _popSelfWithResult() async {
     while (true) {
@@ -246,7 +246,7 @@ class _UploaderPageState extends State<UploaderPage> {
               // Fallback auto-close only (the upload flow pops this dialog
               // itself once the result is definitive). Guarded so it can
               // only ever pop THIS route — a blind Get.back here used to
-              // dismiss the engine's error dialog or UploadStatusPage when
+              // dismiss the engine's error dialog or TransferStatusPage when
               // one of those was on top — and never before the result is in.
               Future.delayed(const Duration(seconds: 3), () {
                 if (mounted && _result != null) {
@@ -264,7 +264,7 @@ class _UploaderPageState extends State<UploaderPage> {
 
             return GestureDetector(
               onTap: () {
-                Get.to(() => UploadStatusPage());
+                Get.to(() => TransferStatusPage());
               },
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
@@ -331,7 +331,7 @@ class _UploaderPageState extends State<UploaderPage> {
                         ),
                         onPressed: () {
                           if (uploading || preparing) {
-                            Get.to(() => UploadStatusPage());
+                            Get.to(() => TransferStatusPage());
                           } else {
                             _popSelf(_result);
                           }

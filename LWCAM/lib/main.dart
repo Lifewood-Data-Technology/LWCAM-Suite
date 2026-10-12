@@ -12,7 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:lwcam/auth/auth_controller.dart';
-import 'package:lwcam/controllers/upload_controller.dart';
+import 'package:lwcam/controllers/transfer_controller.dart';
 import 'package:lwcam/pages/capture_box_list_page.dart';
 import 'package:lwcam/pages/gallery_page.dart';
 import 'package:lwcam/pages/home_page.dart';
@@ -324,9 +324,9 @@ class _AppWindowListener extends WindowListener {
       await AdbDeviceService().killServer();
 
       // Bounded cleanup — nothing here may delay process exit indefinitely.
-      if (Get.isRegistered<UploadController>()) {
+      if (Get.isRegistered<TransferController>()) {
         try {
-          await Get.find<UploadController>().cleanupTempFiles().timeout(
+          await Get.find<TransferController>().cleanupTempFiles().timeout(
             const Duration(seconds: 3),
           );
         } catch (e) {

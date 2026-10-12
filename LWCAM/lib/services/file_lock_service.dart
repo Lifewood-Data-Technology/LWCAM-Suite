@@ -1,6 +1,6 @@
 // Exclusive file locks for the capture app (LWCAM), held while a box is being
 // transferred so data files (for example Excel sheets) cannot be opened or
-// changed mid-copy. Used by UploadController during transfers.
+// changed mid-copy. Used by TransferController during transfers.
 // Know before editing: it is a process-wide singleton; a locked file raises
 // FileLockedError.
 

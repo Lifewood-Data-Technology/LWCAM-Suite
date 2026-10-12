@@ -1,11 +1,11 @@
 // Per-file progress list for a running transfer in the capture app (LWCAM,
 // first stage of the pipeline: capture app -> LWIP -> QC -> Upload). It only
-// displays the observable UploadStatus rows kept by UploadController, and
+// displays the observable UploadStatus rows kept by TransferController, and
 // scrolls to the newest one; it starts and stops nothing itself.
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../controllers/upload_controller.dart';
+import '../controllers/transfer_controller.dart';
 import '../theme/app_colors.dart';
 
 // Model inside page
@@ -27,15 +27,15 @@ class UploadStatus {
   UploadStatus({required this.filename, required this.size});
 }
 
-class UploadStatusPage extends StatefulWidget {
-  const UploadStatusPage({super.key});
+class TransferStatusPage extends StatefulWidget {
+  const TransferStatusPage({super.key});
 
   @override
-  State<UploadStatusPage> createState() => _UploadStatusPageState();
+  State<TransferStatusPage> createState() => _TransferStatusPageState();
 }
 
-class _UploadStatusPageState extends State<UploadStatusPage> {
-  final UploadController c = Get.find<UploadController>();
+class _TransferStatusPageState extends State<TransferStatusPage> {
+  final TransferController c = Get.find<TransferController>();
   late ScrollController _scrollController;
 
   @override

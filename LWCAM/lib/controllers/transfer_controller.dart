@@ -12,7 +12,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:lwcam/pages/upload_status_page.dart';
+import 'package:lwcam/pages/transfer_status_page.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:lwcam/pages/settings_page.dart';
@@ -62,7 +62,7 @@ class BoxFolderInfo {
   });
 }
 
-/// Marks a call to [UploadController.uploadAll] as a capture-box transfer
+/// Marks a call to [TransferController.uploadAll] as a capture-box transfer
 /// (Box→Folders workflow, metadata keying ON). Guarded `if (box != null)`
 /// branches are the ONLY behavior differences: images land in one destination
 /// subfolder per keyed folder, and CSV/DB rows carry the owning folder's
@@ -82,7 +82,7 @@ class BoxTransferContext {
   });
 }
 
-/// Outcome of one [UploadController.uploadAll] batch.
+/// Outcome of one [TransferController.uploadAll] batch.
 class UploadBatchResult {
   final int completed;
   final int failed;
@@ -173,7 +173,7 @@ class _BatchArtifacts {
 /// next stage reads from) with progress, retries, reconnect handling and size
 /// verification, and writes the per-batch CSV and logs. Despite the name this
 /// is the local transfer step, not the S3 upload service.
-class UploadController extends GetxController {
+class TransferController extends GetxController {
   final SettingsController s = Get.find<SettingsController>();
   final AuthController auth = Get.find<AuthController>();
   final FileLockService fileLockService = FileLockService();

@@ -3155,7 +3155,7 @@ class UploadStatsDB {
   /// record exists only for a copy that completed and passed its size check —
   /// so a destination file whose name is NOT in this set is an orphan from an
   /// interrupted run (power loss/crash mid-copy) and safe to overwrite; see
-  /// the name allocator in upload_controller.dart.
+  /// the name allocator in transfer_controller.dart.
   Future<Set<String>> getUploadedFilenames(String deviceId) async {
     final result = <String>{};
     for (final db in await _allDeviceUploadDatabases(deviceId)) {

@@ -73,9 +73,9 @@ the chooser; with ZERO projects it is blocked by the "No Project Assigned"
 modal; everything else lands on Home.
 
 Data flow: **GalleryPage or CaptureBoxListPage/BoxTransferFlow (ADB pull → temp
-staging) → UploadController (copy to destination) → UploadStatsDB (local
+staging) → TransferController (copy to destination) → UploadStatsDB (local
 per-device DB) → optional PostgreSQL sync (SyncService)**.
-(`UploadController` copies to the local/NAS destination. It does not upload to S3.)
+(`TransferController` copies to the local/NAS destination. It does not upload to S3.)
 
 - `lib/main.dart` bootstraps sqflite FFI, window_manager and global error
   handling. An uncaught error writes `lwcam_log_<timestamp>.txt` to the user's
@@ -126,7 +126,7 @@ per-device DB) → optional PostgreSQL sync (SyncService)**.
   embedding crash-loops). `shutter_hotkey_service.dart` arms a global hotkey
   (`hotkey_manager`) that taps the phone's shutter through the mirror.
 
-- `lib/controllers/upload_controller.dart` (~1900 lines) is the batch transfer
+- `lib/controllers/transfer_controller.dart` (~1900 lines) is the batch transfer
   engine for both modes. `uploadAll()` takes an optional `BoxTransferContext`;
   `if (box != null)` branches are the only differences (images land in one
   destination subfolder per keyed folder, CSV/DB rows carry the folder's

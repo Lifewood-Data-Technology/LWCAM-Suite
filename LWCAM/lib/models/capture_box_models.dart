@@ -26,7 +26,7 @@ import '../services/path_utils.dart' show sanitizeWindowsName;
 /// sanitization. Nothing is prefixed, parsed or appended in the normal case.
 ///
 /// Uniqueness is still enforced, because this string becomes a real DIRECTORY
-/// under the destination — `UploadController._destPathFor` joins it as one —
+/// under the destination — `TransferController._destPathFor` joins it as one —
 /// so two folders resolving to the same name would silently merge their images
 /// into a single directory, and the CSV would carry two rows pointing at it.
 /// Two cases need a fallback, and only these two:

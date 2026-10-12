@@ -16,8 +16,7 @@ import 'package:lwcam/services/node_config_service.dart';
 /// it.
 ///
 /// The file keeps its historical name (`settings_page.dart`) because half
-/// a dozen imports across gallery/upload/box flows depend on it — same
-/// convention as the `upload_controller.dart` typo.
+/// a dozen imports across gallery/upload/box flows depend on it.
 class SettingsController extends GetxController {
   /// The image destination root transfers land in — read from
   /// `NodeConfig.destinationPath`, set only by LWCam Admin's Station Setup.

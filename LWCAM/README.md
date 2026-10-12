@@ -47,7 +47,7 @@ Work weeks run Monday to Friday. A weekend date falls into the work week before 
 | --- | --- |
 | `lib/main.dart` | Start-up, error handling, routes (`/`, `/home`, `/boxes`, `/gallery`) |
 | `lib/pages/` | Screens. `gallery_page.dart` (about 6300 lines) holds the ADB code and the rework loop. |
-| `lib/controllers/` | GetX controllers. `upload_controller.dart` copies files to the destination. |
+| `lib/controllers/` | GetX controllers. `transfer_controller.dart` copies files to the destination. |
 | `lib/services/` | ADB, transfer queue, sync to PostgreSQL, file locks, node config, scrcpy, rework |
 | `lib/db/` | Local SQLite database of captures and transfers (`upload_stats_db.dart`) |
 | `lib/auth/`, `lib/models/` | Login and data classes |
@@ -112,7 +112,7 @@ Read these before you change the transfer path.
 
 - **Timeouts.** A file copy has a 10-minute limit. A copy that makes no progress
   for 30 seconds is a stall. The constants are at the top of
-  `lib/controllers/upload_controller.dart`.
+  `lib/controllers/transfer_controller.dart`.
 - **Crash recovery uses the database, not a checkpoint.** An `upload_records`
   row is written only after a verified copy. A restarted batch skips names that
   already have a row. A resume-by-index checkpoint was removed on purpose,

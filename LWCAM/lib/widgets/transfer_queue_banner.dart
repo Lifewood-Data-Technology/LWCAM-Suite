@@ -7,8 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../controllers/upload_controller.dart';
-import '../pages/upload_status_page.dart';
+import '../controllers/transfer_controller.dart';
+import '../pages/transfer_status_page.dart';
 import '../services/transfer_queue_service.dart';
 import '../theme/app_colors.dart';
 
@@ -39,13 +39,13 @@ class TransferQueueBanner extends StatelessWidget {
         final fg = isWaiting ? lw.onWarningContainer : cs.onPrimary;
         // One shared engine, one job at a time — the engine's overall
         // fraction is the running box's fraction.
-        final progress = !isWaiting && Get.isRegistered<UploadController>()
-            ? Get.find<UploadController>().progress.value
+        final progress = !isWaiting && Get.isRegistered<TransferController>()
+            ? Get.find<TransferController>().progress.value
             : null;
         return Material(
           color: isWaiting ? lw.warningContainer : cs.primary,
           child: InkWell(
-            onTap: () => Get.to(() => const UploadStatusPage()),
+            onTap: () => Get.to(() => const TransferStatusPage()),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(

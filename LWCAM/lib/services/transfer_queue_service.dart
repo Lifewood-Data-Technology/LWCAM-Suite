@@ -11,7 +11,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
 import '../controllers/box_session_controller.dart';
-import '../controllers/upload_controller.dart';
+import '../controllers/transfer_controller.dart';
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';
 import '../pages/settings_page.dart';
@@ -139,7 +139,7 @@ Map<String, Object?> transferWaitBacklog(
 /// One-at-a-time background transfer queue for box-mode boxes. Staging
 /// (phone verify + pulls) stays a short FOREGROUND step (see
 /// box_staging_dialog.dart) — only the destination copy, via
-/// `UploadController.uploadAll`, runs here in the background, so the
+/// `TransferController.uploadAll`, runs here in the background, so the
 /// existing 470-line reliability engine (timeout/stall/checkpoint/verify) is
 /// reused unchanged, shared with Normal Mode.
 class TransferQueueService extends GetxController {
@@ -227,9 +227,9 @@ class TransferQueueService extends GetxController {
   }
 
   Future<void> _run(BoxTransferJob job) async {
-    final u = Get.isRegistered<UploadController>()
-        ? Get.find<UploadController>()
-        : Get.put(UploadController(), permanent: true);
+    final u = Get.isRegistered<TransferController>()
+        ? Get.find<TransferController>()
+        : Get.put(TransferController(), permanent: true);
 
     // A concurrent Normal-Mode modal transfer holds the shared engine state
     // (files/uploads) — wait it out before claiming it for this job.

@@ -41,7 +41,7 @@ LWCAM (capture)  ->  LWIP (deskew/crop)  ->  QC Platform (review, export)  ->  U
 | --- | --- |
 | `lib/main.dart` | 启动、错误处理、路由（`/`、`/home`、`/boxes`、`/gallery`） |
 | `lib/pages/` | 各界面。`gallery_page.dart`（约 6300 行）包含 ADB 代码和返工循环。 |
-| `lib/controllers/` | GetX 控制器。`upload_controller.dart` 负责把文件复制到目标位置。 |
+| `lib/controllers/` | GetX 控制器。`transfer_controller.dart` 负责把文件复制到目标位置。 |
 | `lib/services/` | ADB、传输队列、同步到 PostgreSQL、文件锁、节点配置、scrcpy、返工 |
 | `lib/db/` | 采集与传输的本地 SQLite 数据库（`upload_stats_db.dart`） |
 | `lib/auth/`、`lib/models/` | 登录与数据类 |
@@ -93,7 +93,7 @@ LWCAM 只会向共享数据库写入少量内容：采集记录、用户自己�
 
 修改传输路径之前请先读这一节。
 
-- **超时。** 单个文件的复制上限为 10 分钟。复制超过 30 秒没有进展即视为停滞。相关常量在 `lib/controllers/upload_controller.dart` 的开头。
+- **超时。** 单个文件的复制上限为 10 分钟。复制超过 30 秒没有进展即视为停滞。相关常量在 `lib/controllers/transfer_controller.dart` 的开头。
 - **崩溃恢复依赖数据库，而不是检查点。** 只有在复制校验通过之后才会写入 `upload_records` 行。重启后的批次会跳过已有记录的文件名。按索引续传的检查点是有意删除的，因为文件名每次运行都从磁盘重新分配。不要再加回来。
 - **采集完整性。** 每张图像的 `capture_images` 行是"图像属于哪个箱"的唯一记录。如果这次写入失败，应用会把已拉取的字节存入基于文件的"孤儿台账"（orphan ledger；不用数据库表，因为失败的正是数据库）。箱被标记为已传输之前，必须通过 `verifyBoxComplete`。不一致时，该箱保持 `partial` 状态。
 - **加锁。** 批次运行期间，由操作系统文件锁和 SQLite WAL 检查点保护本地数据库（`lib/services/file_lock_service.dart`）。

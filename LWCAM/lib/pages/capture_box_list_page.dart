@@ -15,7 +15,7 @@ import 'package:get/get.dart';
 
 import '../auth/auth_controller.dart';
 import '../controllers/box_session_controller.dart';
-import '../controllers/upload_controller.dart';
+import '../controllers/transfer_controller.dart';
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';
 import '../services/open_rework_cache.dart';
@@ -625,8 +625,8 @@ class _CaptureBoxListPageState extends State<CaptureBoxListPage> {
           job == null && !transferred && box.lastTransferState != null;
       // One shared engine, one job at a time (see TransferQueueService._run),
       // so the engine's overall fraction IS this box's fraction.
-      final progress = isRunning && Get.isRegistered<UploadController>()
-          ? Get.find<UploadController>().progress.value
+      final progress = isRunning && Get.isRegistered<TransferController>()
+          ? Get.find<TransferController>().progress.value
           : null;
       final cs = Theme.of(context).colorScheme;
       final lw = LifewoodColors.of(context);

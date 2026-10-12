@@ -15,7 +15,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
 import '../auth/auth_controller.dart';
-import '../controllers/upload_controller.dart'
+import '../controllers/transfer_controller.dart'
     show BoxFolderInfo, BoxTransferContext;
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';

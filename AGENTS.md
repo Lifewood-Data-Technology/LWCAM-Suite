@@ -251,7 +251,7 @@ Each has a longer record in `docs/decisions/`. The summary:
 ### Other decisions
 
 - **Volume is free text; the folder name IS the Volume.** Uniqueness holds
-  because the name becomes a real directory that `UploadController._destPathFor`
+  because the name becomes a real directory that `TransferController._destPathFor`
   joins: compared case-insensitively (Windows does not distinguish `Register 12`
   from `register 12`); names taken by OTHER groups are reserved
   (`UploadStatsDB.reservedFolderNames`); a blank Volume is detected on the RAW

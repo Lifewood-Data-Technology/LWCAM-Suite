@@ -56,7 +56,7 @@ abstract final class AuditActions {
 /// DB's monthly rotation): `<deviceId>_audit_<YYYY-MM>.log` and
 /// `<deviceId>_replacements_<YYYY-MM>.log`, both under
 /// `getApplicationSupportDirectory()/LWCAM/` (the existing fallback-log
-/// location — see upload_controller.dart's `_getFallbackLogFile`).
+/// location — see transfer_controller.dart's `_getFallbackLogFile`).
 class AuditLogService {
   final Future<Directory> Function() _resolveBaseDir;
   final DateTime Function() _now;
@@ -93,7 +93,7 @@ class AuditLogService {
   }
 
   /// All file writes go through one chained queue (the established
-  /// `_runSerializedArtifactWrite` idiom from upload_controller.dart) so
+  /// `_runSerializedArtifactWrite` idiom from transfer_controller.dart) so
   /// concurrent async call sites can never interleave/shear lines. A failed
   /// write doesn't wedge later ones.
   Future<void> _serialize(Future<void> Function() action) {

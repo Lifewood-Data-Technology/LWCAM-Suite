@@ -16,7 +16,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:get/get.dart';
-import 'package:lwcam/controllers/upload_controller.dart';
+import 'package:lwcam/controllers/transfer_controller.dart';
 import 'package:lwcam/auth/auth_controller.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
 import 'package:lwcam/services/transfer_destination_service.dart';
@@ -273,7 +273,7 @@ class GalleryPage extends StatefulWidget {
 class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   final GalleryController c = Get.put(GalleryController(), permanent: true);
   final SettingsController s = Get.put(SettingsController(), permanent: true);
-  final UploadController u = Get.put(UploadController(), permanent: true);
+  final TransferController u = Get.put(TransferController(), permanent: true);
   final AuthController auth = Get.find<AuthController>();
 
   AuditLogService? get _auditOrNull =>

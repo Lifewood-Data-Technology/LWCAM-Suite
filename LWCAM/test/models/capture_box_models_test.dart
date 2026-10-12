@@ -29,7 +29,7 @@ void main() {
     });
 
     // Not cosmetic: the name becomes a real directory under the destination
-    // (UploadController._destPathFor joins it), so two folders sharing one
+    // (TransferController._destPathFor joins it), so two folders sharing one
     // name would merge their images into a single directory.
     test('a repeated Volume is disambiguated, the first keeping the bare name', () {
       final names = computeFolderNames('BOX A', [
