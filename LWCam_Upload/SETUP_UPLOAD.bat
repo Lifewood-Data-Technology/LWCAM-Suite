@@ -97,7 +97,7 @@ set "PIP_WHL="
 for %%W in ("%WHEELS%\pip-*.whl") do set "PIP_WHL=%%~fW"
 if not defined PIP_WHL (
     echo [ERROR] No pip wheel in %WHEELS%. Re-stage the wheels - see
-    echo         installer\README.txt.
+    echo         docs\RELEASING.md.
     exit /b 1
 )
 
