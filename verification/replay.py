@@ -1,6 +1,6 @@
 import sys, glob, os, importlib.util, tempfile
 import cv2, numpy as np
-spec=importlib.util.spec_from_file_location("image_ops", r"C:/Users/operator/Desktop/Taiping All Saints Church/DEV/{app}/LWCAM/LWIP/backend/deskew_crop_tool/image_ops.py")
+spec=importlib.util.spec_from_file_location("image_ops", os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'LWIP', 'backend', 'deskew_crop_tool', 'image_ops.py'))
 io_=importlib.util.module_from_spec(spec); spec.loader.exec_module(io_)
 src_dir,out_dir=sys.argv[1],sys.argv[2]
 S_=sorted(glob.glob(os.path.join(src_dir,'*.jpg'))); O_=sorted(glob.glob(os.path.join(out_dir,'*.tif')))

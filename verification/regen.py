@@ -1,5 +1,5 @@
 import cv2, numpy as np, glob, importlib.util, os, sys
-spec=importlib.util.spec_from_file_location('io_', r'C:/Users/operator/Desktop/Taiping All Saints Church/DEV/All-In-One/apps/LWCAM/LWIP/backend/deskew_crop_tool/image_ops.py')
+spec=importlib.util.spec_from_file_location('io_', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'LWIP', 'backend', 'deskew_crop_tool', 'image_ops.py'))
 io_=importlib.util.module_from_spec(spec); spec.loader.exec_module(io_)
 pat,out,n = sys.argv[1], sys.argv[2], int(sys.argv[3])
 def skew(path):

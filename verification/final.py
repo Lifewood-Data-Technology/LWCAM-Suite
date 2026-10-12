@@ -1,7 +1,7 @@
 import cv2, numpy as np, glob, os, importlib.util, json
 from PIL import Image
 Image.MAX_IMAGE_PIXELS=None
-spec=importlib.util.spec_from_file_location('io_', r'C:/Users/operator/Desktop/Taiping All Saints Church/DEV/All-In-One/apps/LWCAM/LWIP/backend/deskew_crop_tool/image_ops.py')
+spec=importlib.util.spec_from_file_location('io_', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'LWIP', 'backend', 'deskew_crop_tool', 'image_ops.py'))
 io_=importlib.util.module_from_spec(spec); spec.loader.exec_module(io_)
 OUT=r'C:/LWCamDev/scratch/final4'
 os.makedirs(OUT, exist_ok=True)
