@@ -333,8 +333,6 @@ export interface AiSettings {
 }
 
 export interface PathSettingsVO {
-  captureImageStoredPrefix: PathSettingVO
-  captureImageLocalRoot: PathSettingVO
   qcImagesRoot: PathSettingVO
   exportTempDir: PathSettingVO
   exportOutputDir: PathSettingVO
@@ -349,8 +347,6 @@ export interface PathSettingsVO {
 
 export interface UpdatePathSettingsRequest {
   qcImagesRoot: string
-  captureImageStoredPrefix?: string
-  captureImageLocalRoot?: string
   exportTempDir?: string
   exportOutputDir?: string
 }

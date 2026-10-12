@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session, lazyload, selectinload
 from app.core import netlogin, runtime_settings
 from app.core.config import Settings, settings
 from app.core.errors import ApiCodes, BusinessError
-from app.core.paths import fs_path, relocate_under, resolve_with
+from app.core.paths import fs_path, relocate_under
 from app.core.responses import ApiResponse, PageResult, ok
 from app.core.security import end_user_sessions, hash_password
 from app.core.server_settings import CONTROL_CHARACTERS, write_server_settings
@@ -724,9 +724,9 @@ def check_directory(
 
 
 def count_resolved_folders(
-    db: Session, stored_prefix: str, local_root: str, images_root: str = ""
+    db: Session, images_root: str = ""
 ) -> tuple[int, int]:
-    """How many folders waiting for QC a candidate mapping resolves to a real directory.
+    """How many folders waiting for QC a candidate input root resolves to a real directory.
 
     This is the check that tells an admin whether a remap is actually correct,
     rather than merely well-formed. Only PENDING folders count - the ones a
@@ -751,7 +751,7 @@ def count_resolved_folders(
             # or it reassures an admin about a mapping that then fails.
             candidate = relocate_under(str(stored), images_root)
             if candidate is None:
-                candidate = resolve_with(str(stored), stored_prefix, local_root)
+                candidate = Path(str(stored)).expanduser()
             if fs_path(candidate).is_dir():
                 resolved += 1
         except OSError:
@@ -776,28 +776,8 @@ def validate_path_settings(db: Session, request: UpdatePathSettingsRequest) -> P
         check_directory("exportTempDir", request.exportTempDir, require_writable=True),
         check_directory("exportOutputDir", request.exportOutputDir, require_writable=True),
     ]
-    # The retired host/container pair has no field in the console any more, so
-    # it is reported only when a caller actually sends it - listing it as
-    # "Not set" under a green "every path is fine" read as a failure.
-    if request.captureImageLocalRoot.strip():
-        checks.insert(0, check_directory("captureImageLocalRoot", request.captureImageLocalRoot, require_writable=False))
     # An unset path is not a failure — it just falls back to the configured value.
-    ok_so_far = all(
-        check.exists and (check.writable or check.key == "captureImageLocalRoot")
-        for check in checks
-        if check.path
-    )
-    stored_prefix = request.captureImageStoredPrefix.strip()
-    local_root = request.captureImageLocalRoot.strip()
-    if bool(stored_prefix) != bool(local_root):
-        ok_so_far = False
-        checks.append(PathCheckVO(
-            key="captureImageStoredPrefix",
-            path=stored_prefix,
-            exists=bool(stored_prefix),
-            writable=False,
-            message="The stored prefix and the local root must be set together, or both left blank.",
-        ))
+    ok_so_far = all(check.exists and check.writable for check in checks if check.path)
     images_root = (request.qcImagesRoot or "").strip()
     if images_root:
         # Writable, not just readable: approval writes qc_ops.json into each
@@ -819,7 +799,7 @@ def validate_path_settings(db: Session, request: UpdatePathSettingsRequest) -> P
                         "output root, not inside either, and not containing either.",
             ))
             break
-    resolved, total = count_resolved_folders(db, stored_prefix, local_root, images_root)
+    resolved, total = count_resolved_folders(db, images_root)
     return PathValidationVO(
         ok=ok_so_far,
         checks=checks,

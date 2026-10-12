@@ -78,20 +78,6 @@ def _prefixes() -> tuple[str, str] | None:
     return host.replace("\\", "/").rstrip("/"), container.replace("\\", "/").rstrip("/")
 
 
-def resolve_with(db_value: str, host: str, container: str) -> Path:
-    """`to_local` against an explicit prefix pair instead of the stored one.
-
-    Exists so the Admin console can probe how many folders a CANDIDATE pair would
-    resolve before saving it — the answer has to be computed with the exact same
-    matching rules the real lookup uses, not an approximation of them.
-    """
-    host = (host or "").replace("\\", "/").rstrip("/")
-    container = (container or "").replace("\\", "/").rstrip("/")
-    if not host or not container:
-        return Path(db_value).expanduser()
-    return _remap(db_value, host, container)
-
-
 # A capture date folder: LWIP writes <batches root>\YYYYMMDD\<folder name>, and
 # the thumbnails one level deeper again. Anchoring on the date is what lets a
 # single setting handle both without being told where the old root ended.

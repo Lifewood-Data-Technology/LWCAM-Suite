@@ -75,9 +75,6 @@ async function runValidation(): Promise<PathValidation | undefined> {
   try {
     const { data } = await adminApi.validatePathSettings({
       qcImagesRoot: form.qcImagesRoot,
-      // Keep Station Setup mappings in the probe when no image root overrides them.
-      captureImageStoredPrefix: settings.value?.captureImageStoredPrefix.value || '',
-      captureImageLocalRoot: settings.value?.captureImageLocalRoot.value || '',
       exportTempDir: form.exportTempDir,
       exportOutputDir: form.exportOutputDir,
     })

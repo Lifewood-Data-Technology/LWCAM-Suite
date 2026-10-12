@@ -294,8 +294,30 @@ class AdminServerSettingsTests(unittest.TestCase):
             UpdatePathSettingsRequest(exportTempDir=str(self.export_temp), exportOutputDir=str(self.export_output)),
         )
         self.assertIn("upper(capture_folders.qc_status) = 'PENDING'", seen[0])
-        # The retired prefix pair is not reported unless someone sends it.
-        self.assertNotIn("captureImageLocalRoot", [check.key for check in validation.checks])
+        self.assertEqual(
+            [check.key for check in validation.checks], ["exportTempDir", "exportOutputDir"]
+        )
+
+    def test_retired_capture_image_pair_in_old_files_and_requests_is_ignored(self) -> None:
+        """An old config.txt or settings request still carrying the retired pair loads without error."""
+        self.config_path.write_text(
+            "captureImageStoredPrefix=C:\\old\\batches\n"
+            "captureImageLocalRoot=D:\\new\\batches\n"
+            "captureImageHostPath=C:\\old\n"
+            "captureImageContainerPath=D:\\new\n"
+            f"exportWorkRoot={self.export_temp}\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(load_server_settings_overrides(), {"export_temp_dir": str(self.export_temp)})
+        request = UpdatePathSettingsRequest(
+            exportTempDir=str(self.export_temp),
+            exportOutputDir=str(self.export_output),
+            captureImageStoredPrefix="C:\\old",
+            captureImageLocalRoot="D:\\new",
+        )
+        validation = validate_path_settings(EmptyDb(), request)
+        self.assertTrue(validation.ok)
+        self.assertEqual([c.key for c in validation.checks], ["exportTempDir", "exportOutputDir"])
 
     def test_older_request_shape_leaves_ai_values_unchanged(self) -> None:
         settings.ai_review_enabled = True

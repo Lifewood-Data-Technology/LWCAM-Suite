@@ -104,8 +104,6 @@ class AiSettingVO(BaseModel):
 
 
 class PathSettingsVO(BaseModel):
-    captureImageStoredPrefix: PathSettingVO
-    captureImageLocalRoot: PathSettingVO
     qcImagesRoot: PathSettingVO
     exportTempDir: PathSettingVO
     exportOutputDir: PathSettingVO
@@ -141,8 +139,6 @@ class UpdatePathSettingsRequest(BaseModel):
 
     # Blank on a single-PC station, where the stored path already resolves.
     qcImagesRoot: str = Field(default="", max_length=10800)
-    captureImageStoredPrefix: str = Field(default="", max_length=10800)
-    captureImageLocalRoot: str = Field(default="", max_length=10800)
     exportTempDir: str = Field(default="", max_length=10800)
     exportOutputDir: str = Field(default="", max_length=10800)
 
