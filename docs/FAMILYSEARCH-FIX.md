@@ -53,7 +53,7 @@ and `LWCamAdmin\CHANGELOG.txt` (2026-09-09 entries).
 | `config.py` | `jpeg_quality` default 100; new `deskew_min_degrees` (0.5 since 2026-09-10, was 0.2; validated 0–10) |
 | `orchestrator.py` | passes `deskew_min_degrees` through to the worker |
 | `tests/test_deskew_crop_tool.py` | +4 regression tests (`OutputFidelityTests`) |
-| `config/deskew_crop_config.json`, `README.txt` | shipped defaults + docs |
+| `config/deskew_crop_config.json`, `README.md` | shipped defaults + docs |
 
 ### QC engine — `DEV\{app}\QC\backend\app\` (also copied to `LWCam_QC_Platform\`)
 | file | change |
