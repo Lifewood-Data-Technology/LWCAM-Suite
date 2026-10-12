@@ -2,11 +2,11 @@ python/
 runtime/
 venv/
 
-# Offline wheelhouse staged at build time (see installer/README.txt).
+# Offline wheelhouse staged at build time (see docs/RELEASING.md).
 # Recovered from LWSuite.exe 2026-08-18; re-stage with pip download.
 wheels/
 
-# Bundled CPython installer for the offline LWIP runtime (see installer/README.txt).
+# Bundled CPython installer for the offline LWIP runtime (see docs/RELEASING.md).
 # python-3.13.14-amd64.exe is no longer used - the runtime comes
 # from the shared embeddable zip. Left ignored so an old copy in a
 # working tree never gets committed.
