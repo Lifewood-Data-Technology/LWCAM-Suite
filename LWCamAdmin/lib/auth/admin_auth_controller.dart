@@ -1,3 +1,7 @@
+// Login controller of LWCam Admin, the SuperAdmin app that manages users,
+// projects and station setup. It holds the password field state and checks the
+// password against the best available hash (database, local copy, factory
+// value). Wrong-password delays come from LoginLock.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

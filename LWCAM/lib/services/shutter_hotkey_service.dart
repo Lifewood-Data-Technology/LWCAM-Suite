@@ -1,5 +1,11 @@
 // ignore_for_file: avoid_print
 
+// Global keyboard hotkey that fires the phone shutter from the PC, for the
+// capture page in LWCAM (the action itself goes through AdbDeviceService).
+// Know before editing: the hotkey must be global because the embedded scrcpy
+// window takes keyboard focus, and it is registered only while LWCAM is the
+// foreground window so it does not steal the key from other apps.
+
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:window_manager/window_manager.dart';

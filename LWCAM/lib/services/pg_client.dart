@@ -1,3 +1,6 @@
+// Shared PostgreSQL connection rules for LWCAM: TLS mode by host, a query
+// timeout, and telling link failures from statement errors. Used by every
+// service that opens a connection (sync, device registry, rework).
 import 'dart:async';
 import 'dart:io' show SocketException;
 

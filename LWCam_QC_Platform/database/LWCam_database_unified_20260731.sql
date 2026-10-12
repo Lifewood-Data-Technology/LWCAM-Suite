@@ -2,7 +2,7 @@
 -- LWCam suite - UNIFIED schema (all 10 tables, constraints, indexes, triggers)
 --
 -- Provenance: pg_dump --schema-only of the live schema on 2026-07-31, i.e.
--- LWCam_database_20260720.sql (base, in the LWCAM repo)
+-- LWCam_database_20260720.sql (the original capture schema, since retired)
 --   + migrations/001_qc_platform_deltas.sql
 --   + migrations/002_role_case_normalization.sql
 -- all applied. NO schema change has happened since 002 - every fix after it

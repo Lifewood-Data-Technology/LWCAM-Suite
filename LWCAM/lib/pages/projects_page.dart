@@ -1,3 +1,6 @@
+// Project list screen in the LWCAM capture app, opened from home_page.dart.
+// Picking a project leads to project_area_page.dart. Data comes from
+// projects_controller.dart.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

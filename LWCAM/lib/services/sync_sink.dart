@@ -1,3 +1,5 @@
+// Interface between LWCAM's sync loop and the database it writes to.
+// Implemented by pg_sync_sink.dart; tests use a fake.
 import '../models/app_user.dart';
 import 'sync_models.dart';
 

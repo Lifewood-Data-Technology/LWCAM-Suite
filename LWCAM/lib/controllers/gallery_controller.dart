@@ -1,5 +1,10 @@
 // ignore_for_file: avoid_print
 
+// State for the capture gallery in the capture app (LWCAM): the images pulled
+// from the phone, grouped for display, with a thumbnail cache.
+// Things to know before editing: the controller is permanent, so the
+// thumbnail cache survives reopening a box.
+
 import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';

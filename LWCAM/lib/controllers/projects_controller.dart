@@ -1,5 +1,7 @@
 // ignore_for_file: avoid_print
 
+// GetX controller behind projects_page.dart (LWCAM capture app).
+// Loads the signed-in account's projects from the local users snapshot.
 import 'package:get/get.dart';
 
 import '../auth/auth_controller.dart';

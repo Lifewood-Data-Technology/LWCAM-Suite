@@ -1,3 +1,8 @@
+<!-- Admin Settings page of the QC Platform web console: folder paths, export switches, network-share logins, AI review. -->
+<!-- Settings are read from and saved to the QC server (adminApi.pathSettings / updateServerSettings); the server writes them to its config file. -->
+<!-- Form keys keep older names: qcImagesRoot is the "QC input root" (LWIP output), exportTempDir the temporary work folder, exportOutputDir the QC output root. -->
+<!-- Save first validates the paths on the server (runValidation) and refuses a failing set; turning off TIFF output or auto export asks for confirmation. -->
+<!-- The network-logins card stores a username/password per file-server PC so the server can reach UNC folders; passwords are sent, never shown. -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

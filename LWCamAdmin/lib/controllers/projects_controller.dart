@@ -1,3 +1,8 @@
+// Controller for the Projects page of LWCam Admin: create, update and delete
+// projects and set their metadata templates. It holds no data of its own;
+// every call goes to AdminStoreService, which handles database and offline
+// storage. Edits are recorded under the signed-in admin's name.
+
 import 'package:get/get.dart';
 
 import '../auth/super_admin.dart';

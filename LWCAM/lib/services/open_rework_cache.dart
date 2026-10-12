@@ -1,5 +1,11 @@
 // ignore_for_file: avoid_print
 
+// In-memory cache of open QC recapture requests per box, for the capture app
+// (LWCAM). QC rejects images, PostgreSQL records them, and this cache feeds the
+// box list's "Needs Rework" badge and the box view's rework mode.
+// Know before editing: a failed read is swallowed on purpose so the box list
+// works offline; use lastError and lastRefreshed to show staleness.
+
 import 'rework_service.dart';
 
 /// In-memory cache of the QC recapture requests still open for the logged-in

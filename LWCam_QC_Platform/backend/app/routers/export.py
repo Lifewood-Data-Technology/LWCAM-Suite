@@ -1,3 +1,11 @@
+"""Admin API for the export step (approved folders -> delivery package).
+
+QC Platform stage, after QC review. Exposes preflight checks, the list of
+folders, start/retry of an export run, the failure ledger and the current run.
+The heavy work is in app.services.export (export_coordinator); this router only
+validates the folder state and maps ExportError to the API error format.
+All routes need an admin account.
+"""
 from typing import Any
 
 from fastapi import APIRouter, Body, Query

@@ -1,5 +1,11 @@
 // ignore_for_file: avoid_print
 
+// PostgreSQL access for LWCam Admin: the AdminGateway interface and its real
+// implementation. Used only by AdminStoreService, which pushes and pulls the
+// users, projects and settings that LWCAM and the QC engine also read.
+// A push is one transaction, with deletes applied before upserts.
+// Tests swap in a fake gateway instead of a real database.
+
 import 'dart:convert';
 
 import 'package:postgres/postgres.dart';

@@ -1,3 +1,13 @@
+// Box list screen of the capture app (LWCAM, first stage of the pipeline:
+// capture app -> LWIP -> QC -> Upload). Shows the capture boxes of the signed-in
+// operator with their transfer state and any QC rework badge, and routes each
+// tap: open a box for capture, open a transferred box read-only, or open a box
+// QC sent back into rework mode on the gallery page.
+// Things to know before editing: this page registers BoxSessionController as
+// permanent, and that registration is the signal the gallery page uses to
+// switch into box mode; a damaged device database is recovered here before the
+// list loads.
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,7 +15,7 @@ import 'package:get/get.dart';
 
 import '../auth/auth_controller.dart';
 import '../controllers/box_session_controller.dart';
-import '../controllers/upload_contoller.dart';
+import '../controllers/upload_controller.dart';
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';
 import '../services/open_rework_cache.dart';

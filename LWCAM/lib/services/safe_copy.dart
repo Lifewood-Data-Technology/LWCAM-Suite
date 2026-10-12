@@ -1,3 +1,5 @@
+// File-copy helpers for LWCAM transfers to network shares: long-path
+// handling and a copy that never leaves a half-written file under its final name.
 import 'dart:io';
 
 /// Paths this long (MAX_PATH is 260, minus room for a file name / `.part`)

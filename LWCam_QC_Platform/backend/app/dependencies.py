@@ -1,3 +1,10 @@
+"""FastAPI dependencies: who is calling, and are they allowed.
+
+Authentication checks the bearer token, then that the account is active, the
+session is not revoked or displaced by a newer sign-in, and (for most routes)
+that no password change is owed. Routers use the ready-made aliases at the
+bottom: CurrentUser, AdminUser, QcUser, SuperAdminUser, DbSession.
+"""
 from typing import Annotated
 
 from fastapi import Depends

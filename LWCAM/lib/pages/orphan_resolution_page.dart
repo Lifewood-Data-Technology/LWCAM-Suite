@@ -1,3 +1,9 @@
+// Admin-only screen in the capture app (LWCAM, first stage of the pipeline:
+// capture app -> LWIP -> QC -> Upload) for orphan images: captures that never
+// got filed into a box folder. The admin assigns each one to a folder or
+// discards it. Only boxes that are still open can receive an image; a
+// transferred box is never changed after the fact.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

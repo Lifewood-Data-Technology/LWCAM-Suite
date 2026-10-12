@@ -1,3 +1,5 @@
+// App-wide toast helper for LWCAM: one scaffold-messenger key and
+// showAppSnackBar, so controllers can show messages without a BuildContext.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

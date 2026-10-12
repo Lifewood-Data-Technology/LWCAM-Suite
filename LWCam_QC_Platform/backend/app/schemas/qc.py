@@ -1,3 +1,12 @@
+"""Request/response shapes (pydantic) for the QC review API.
+
+Describes a review task (folder metadata, image list, template), every edit a
+reviewer can make (crop, rotate, deskew, luminance, delete, reorder, separation
+markers, metadata), approve/reject, and the AI review job. Field names are
+camelCase because they are the JSON the Vue console uses. Every mutating
+request carries `sourceHash`, the fingerprint of the folder as the reviewer saw
+it; the server answers 409 if the folder has changed since (stale-edit guard).
+"""
 from datetime import datetime
 from typing import Literal
 

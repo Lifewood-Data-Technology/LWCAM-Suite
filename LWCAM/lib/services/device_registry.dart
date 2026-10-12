@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Checks and records which project a capture device belongs to in the
+// shared PostgreSQL database (LWCAM). Called by auth_controller.dart when
+// an operator enters a project; it never blocks when PostgreSQL is unreachable.
 import 'package:get/get.dart';
 import 'package:postgres/postgres.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,7 +12,7 @@ import '../models/project.dart';
 import 'node_config_service.dart';
 import 'pg_client.dart';
 
-/// Cloud device registry (`devices` in LWCam_database_20260720.sql): each
+/// Cloud device registry (`devices` in LWCam_database_unified_*.sql): each
 /// capture device (its operator ID) is bound to exactly ONE project via
 /// `country_location_code` — the FK to projects IS the device→project lock.
 ///

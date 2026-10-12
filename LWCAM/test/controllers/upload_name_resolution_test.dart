@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lwcam/controllers/upload_contoller.dart';
+import 'package:lwcam/controllers/upload_controller.dart';
 import 'package:path/path.dart' as p;
 
 /// UploadController.generateUniqueTargetFile is static and pure file I/O, so

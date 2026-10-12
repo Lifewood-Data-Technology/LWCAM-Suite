@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// File access for lwcam_node_config.json, the per-PC settings file that
+// LWCam Admin and the capture app (LWCAM) both read and write. Pure file I/O,
+// so it can be created before the UI starts. Change the config through update(),
+// which re-reads the file first so one app does not overwrite the other.
 import 'dart:convert';
 import 'dart:io';
 

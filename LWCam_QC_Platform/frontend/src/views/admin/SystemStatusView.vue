@@ -1,3 +1,7 @@
+<!-- Admin "System status" page of the QC Platform web console: health of every part of the suite. -->
+<!-- Each capture PC, LWIP, QC and Upload service reports a heartbeat to the database; this page lists them (state, version, last error, backlog). -->
+<!-- Polled every 30 s through useSystemStatus; the same data feeds the red banner in AppShell. "Forget this PC" removes a stale row. -->
+<!-- The backlog sentences below are plain English on purpose (operator diagnostics, not translated). -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'

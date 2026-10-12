@@ -1,3 +1,6 @@
+// Polling logic for AI review jobs in the QC Platform console: backoff delays,
+// what counts as progress, and which HTTP errors stop the polling. Used by
+// useAiReview.ts; the decision functions are pure so they are easy to test.
 import type { AiReviewJob } from '@/types'
 import type { ApiError } from '@/api/client'
 

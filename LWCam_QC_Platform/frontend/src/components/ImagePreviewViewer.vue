@@ -1,3 +1,6 @@
+<!-- Full-screen image viewer for the QC Platform web console (used by the QC review screen). -->
+<!-- Opened and closed with v-model; wheel zooms (0.25x to 5x), dragging pans once zoomed in, buttons rotate in 90 degree steps. -->
+<!-- The view (zoom, rotation, offset) is only for looking: it never changes the stored image, and it resets each time the viewer opens or the image changes. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

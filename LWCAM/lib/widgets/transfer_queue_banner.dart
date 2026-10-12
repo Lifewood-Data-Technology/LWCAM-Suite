@@ -1,7 +1,13 @@
+// Status strip for the background box transfer queue in the capture app
+// (LWCAM), shown on the box list and the box-mode gallery. The state comes from
+// TransferQueueService.
+// Things to know before editing: it hides itself when the service is not
+// registered yet or the queue is idle with nothing to report.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../controllers/upload_contoller.dart';
+import '../controllers/upload_controller.dart';
 import '../pages/upload_status_page.dart';
 import '../services/transfer_queue_service.dart';
 import '../theme/app_colors.dart';

@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// Admin-side access to the devices table: lists capture devices and moves one
+// to another project. The capture app (LWCAM) registers devices at login; this
+// is where a SuperAdmin fixes a wrong binding. Each call opens its own short
+// database connection.
 import 'package:get/get.dart';
 import 'package:postgres/postgres.dart';
 
@@ -8,7 +12,7 @@ import 'node_config_service.dart';
 import 'admin_login.dart';
 import 'pg_client.dart';
 
-/// Cloud device registry (`devices` in LWCam_database_20260720.sql): each
+/// Cloud device registry (`devices` in LWCam_database_unified_*.sql): each
 /// capture device (its operator ID) is bound to exactly ONE project via
 /// `country_location_code` — the FK to projects IS the device→project lock.
 /// LWCAM owns the login-time gate/registration (DeviceRegistry.registerOrCheck

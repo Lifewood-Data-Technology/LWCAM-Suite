@@ -1,3 +1,8 @@
+// Light and dark ThemeData for LWCam Admin, built from the brand palette in
+// app_colors.dart and applied in main.dart. Colour schemes are written out
+// explicitly rather than generated from a seed, so brand hues stay exact.
+// This theme folder is copied between apps; keep the copies in step.
+
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';

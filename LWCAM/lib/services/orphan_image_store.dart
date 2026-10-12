@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Safety net for captured images in LWCAM: a small retry helper for the
+// capture-time DB write, plus a store that keeps images whose DB write
+// failed so they can be resolved later. See box_integrity.dart for healing.
 import 'dart:convert';
 import 'dart:io';
 

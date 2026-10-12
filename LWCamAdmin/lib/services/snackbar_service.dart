@@ -1,3 +1,6 @@
+// One place for toast messages in LWCam Admin. showAppSnackBar draws a compact
+// floating snackbar that follows the active theme; pages call it instead of
+// building their own.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

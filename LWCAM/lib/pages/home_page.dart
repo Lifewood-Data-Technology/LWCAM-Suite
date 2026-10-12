@@ -1,3 +1,6 @@
+// Landing screen after login in the LWCAM capture app.
+// Shows who is signed in and the cards that account may use; leads on to
+// projects_page.dart.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

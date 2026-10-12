@@ -1,3 +1,10 @@
+// App Settings screen of LWCam Admin (the app that manages users, projects,
+// devices and this station's database connection for the LWCAM suite). These
+// are suite-wide settings that capture PCs read: whether metadata keying is
+// required, which key fires the phone shutter and how, and two passwords.
+// Each change is saved straight away through AppSettingsController (no Save
+// button); passwords are stored only as hashes, so they cannot be shown again.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -157,6 +164,8 @@ class AppSettingsPage extends StatelessWidget {
     );
   }
 
+  /// Text field for a 0-100 screen position; saves on Enter, rejects anything
+  /// outside the range.
   Widget _percentField(
       BuildContext context, String label, double value, Future<void> Function(double) onSet) {
     return TextFormField(
@@ -176,6 +185,7 @@ class AppSettingsPage extends StatelessWidget {
     );
   }
 
+  /// Runs a settings save and shows a "Saved" or error snackbar.
   void _run(Future<void> Function() action, String successMsg) {
     action().then((_) {
       showAppSnackBar('Saved', successMsg, duration: const Duration(seconds: 2));

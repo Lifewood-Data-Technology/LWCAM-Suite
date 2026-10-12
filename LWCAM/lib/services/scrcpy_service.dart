@@ -1,5 +1,13 @@
 // ignore_for_file: avoid_print
 
+// Phone screen mirror for the capture page in LWCAM: runs scrcpy and embeds its
+// window inside the app so the operator sees and controls the phone camera.
+// Capture is the first step of the pipeline (capture -> LWIP -> QC -> upload).
+// Know before editing: the mirror is a native Win32 child window, so it draws
+// above Flutter and ScrcpyPane hides it when another route covers the page. It
+// is tied to a kill-on-close job object (win32_job.dart) so it cannot outlive
+// the app.
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';

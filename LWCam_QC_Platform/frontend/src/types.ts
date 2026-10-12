@@ -1,3 +1,9 @@
+// Shared TypeScript shapes for the QC Platform web console.
+// They mirror the JSON the QC server (backend/app/routers) returns, field for field
+// and in camelCase; change one side only together with the other.
+// Main groups: auth/user, export runs and failures, system status heartbeats,
+// the QC task (MetadataQcTask with its images, metadata and template), settings, and AI review jobs.
+// A QC "task" is one folder of scanned pages waiting for review.
 export interface ApiResponse<T> {
   code: number
   message: string

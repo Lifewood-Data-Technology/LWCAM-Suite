@@ -1,6 +1,11 @@
+// Per-file progress list for a running transfer in the capture app (LWCAM,
+// first stage of the pipeline: capture app -> LWIP -> QC -> Upload). It only
+// displays the observable UploadStatus rows kept by UploadController, and
+// scrolls to the newest one; it starts and stops nothing itself.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../controllers/upload_contoller.dart';
+import '../controllers/upload_controller.dart';
 import '../theme/app_colors.dart';
 
 // Model inside page

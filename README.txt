@@ -19,8 +19,6 @@ Chinese version of this file: README_CN.txt
 
   LWCamAdmin\           Flutter/Windows. Administration app.
   LWCAM\                Flutter/Windows. Capture app.
-    LWCAM\LWCam Workflow & SQL update\
-                        Capture-side database schema SQL + ERD.
   LWIP\                 Python. Deskew/crop/thumbnail watcher. Its own
                         top-level product since 2026-09-25 (formerly nested
                         inside LWCAM).
@@ -254,7 +252,7 @@ Two capture workflows behind a per-account metadata-keying toggle:
 Reliability machinery you should understand before touching the transfer path:
   * 10-minute per-copy timeout, 30-second stall detection checked every 5 s,
     destination-availability polling with a reconnect dialog. Constants live
-    at the top of lib/controllers/upload_contoller.dart.
+    at the top of lib/controllers/upload_controller.dart.
   * Crash recovery is DB-based, not checkpoint-based. An upload_records row is
     written only after a verified copy; a restarted batch skips already
     recorded base names. A resume-by-index checkpoint was deliberately removed
@@ -268,7 +266,7 @@ Reliability machinery you should understand before touching the transfer path:
 
 Two filenames are misspelled and the misspellings are load-bearing —
 imports depend on them. Do not "fix" them casually:
-    lib/controllers/upload_contoller.dart      (sic — "contoller")
+    lib/controllers/upload_controller.dart      (sic — "contoller")
     lib/pages/settings_page.dart               (holds only SettingsController;
                                                 there is no settings page)
 
@@ -453,16 +451,10 @@ The files:
         applies the unified schema when public.capture_folders is absent,
         otherwise applies both migrations, then verifies that
         capture_folders.qc_locked_by exists and fails loudly if it does not.
-  LWCAM\LWCam Workflow & SQL update\LWCam_database_20260720.sql
-        The capture-side authority referenced throughout LWCAM's AGENTS.md.
-        LWCAM's local SQLite capture tables mirror this file column for
-        column. When you change one, change the other.
-  LWCAM\LWCam Workflow & SQL update\LWCam_database_20260720_updated_ERD.drawio
-  LWCAM\LWCam Workflow & SQL update\...drawio.svg
-        Entity-relationship diagram. Open the .drawio in diagrams.net; the
-        .svg is for quick viewing.
-  LWCAM\LWCam Workflow & SQL update\LWCam software development.xlsx
-        Development tracking spreadsheet, included for context.
+
+  LWCAM's local SQLite capture tables mirror the capture tables of the unified
+  schema (capture_boxes, capture_folders, capture_images, devices) column for
+  column. When you change one, change the other.
 
 Applying it:
 
@@ -593,7 +585,7 @@ clean.
 Several things in this codebase look like mistakes and are not. Before
 "cleaning up", check this list and the AGENTS.md History sections.
 
-  * `upload_contoller.dart` and `settings_page.dart` — see section 4.
+  * `upload_controller.dart` and `settings_page.dart` — see section 4.
   * print() logging with emoji prefixes is the established style across all
     three Flutter apps. avoid_print, deprecated_member_use and
     no_leading_underscores_for_local_identifiers are deliberately ignored in
@@ -653,7 +645,7 @@ Several things in this codebase look like mistakes and are not. Before
      the two files under database\migrations\ are hand-written idempotent SQL.
      Putting the schema under real migration control would be a high-value
      early contribution.
-  3. LWCAM's local SQLite capture tables mirror LWCam_database_20260720.sql by
+  3. LWCAM's local SQLite capture tables mirror the unified schema by
      hand. Nothing enforces that they stay in step.
   4. Column ownership across the three apps is enforced by convention and code
      review only, not by database permissions.

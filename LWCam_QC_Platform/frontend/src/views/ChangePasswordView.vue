@@ -1,3 +1,6 @@
+<!-- Change-password page of the QC Platform web console (route /change-password). -->
+<!-- The router guard sends a signed-in user here whenever their account is flagged mustChangePassword (for example after a reset in LWCam Admin). -->
+<!-- On success the refreshed user is stored and the user goes to their home page; Log out is offered as the only other exit. -->
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'

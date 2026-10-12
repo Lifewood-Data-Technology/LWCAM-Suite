@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/auth/auth_controller.dart';
 import 'package:lwcam/controllers/box_session_controller.dart';
-import 'package:lwcam/controllers/upload_contoller.dart' show BoxTransferContext;
+import 'package:lwcam/controllers/upload_controller.dart' show BoxTransferContext;
 import 'package:lwcam/models/capture_box_models.dart';
 import 'package:lwcam/services/transfer_queue_service.dart';
 

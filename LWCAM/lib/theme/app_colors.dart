@@ -1,3 +1,10 @@
+// Colour definitions for the capture app (LWCAM): the raw Lifewood brand
+// palette (AppColors) and LifewoodColors, a theme extension with the status
+// colours (success, warning and so on) for light and dark mode. AppTheme in
+// app_theme.dart builds the Flutter themes from these.
+// Things to know before editing: values were contrast-checked, so read the
+// notes on LifewoodColors before using Saffron or Earth Yellow as text colours.
+
 import 'package:flutter/material.dart';
 
 /// Raw Lifewood brand palette (official Color Palette sheet).

@@ -1,3 +1,7 @@
+// Pinia store holding the signed-in user and API token for the QC Platform web console.
+// The token and user are mirrored to localStorage so a page reload keeps the session;
+// the router guard and the axios client (api/client.ts) both read from here.
+// clear() is the logout path.
 import { defineStore } from 'pinia'
 import type { UserInfo } from '@/types'
 

@@ -1,3 +1,10 @@
+"""ORM models for what the capture stations produce: boxes, folders, images.
+
+capture_boxes -> capture_folders -> capture_images. A folder is the unit QC
+reviews: LWCAM creates it, LWIP marks deskew/crop done, QC moves qc_status
+(PENDING -> PASS / REWORK), export sets is_exported, Upload sets is_ingested or
+upload_error. The shared schema is applied from database/; keep these in step.
+"""
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text

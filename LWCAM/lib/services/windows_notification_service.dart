@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Singleton that shows native Windows toast notifications for the capture app
+// (LWCAM) through flutter_local_notifications. It does nothing on other
+// platforms, and initialize() must run once before any toast is shown.
 import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 

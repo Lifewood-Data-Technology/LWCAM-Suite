@@ -1,3 +1,7 @@
+// State and actions for the QC Platform's AI metadata review: start a job for
+// the folder on screen, watch it through AiReviewPoller, and apply selected
+// suggestions. QcAiReviewPanel.vue is the view; the review screen merges the
+// task returned by an apply.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { qcApi } from '@/api'
 import type { ApiError } from '@/api/client'

@@ -1,3 +1,16 @@
+"""Preview and thumbnail rendering for QC review, with an on-disk cache.
+
+QC Platform stage. The console shows a downscaled JPEG (max 1600 px) of each
+page. Edits (crop, rotate, deskew, ...) are deferred "pending ops"; they are
+replayed on the small preview rather than on the full page, so an edit click is
+instant. Ideas to know before editing:
+- the cache key covers the source file's path/size/mtime and the ops chain, so
+  stale entries are never served, only left behind and swept by size;
+- files are published by rename under a per-key lock, so a concurrent reader
+  never sees a half-written or briefly missing file (this matters on Windows);
+- the op replay function is injected by the router (set_pending_op_replay) to
+  avoid a circular import.
+"""
 import logging
 import os
 import threading
@@ -305,6 +318,10 @@ def generate_preview_image(
 def generate_thumbnail_file(
     source_path: Path, target_path: Path, ops: "list[dict] | None" = None
 ) -> Path | None:
+    """Render a page's thumbnail to [target_path], overwriting any existing one.
+
+    Unlike generate_preview_image this is not cached by content: it writes the
+    real thumbnail file the pipeline keeps next to the page."""
     source_path = source_path.expanduser().resolve()
     target_path = target_path.expanduser().resolve()
     if not fs_path(source_path).is_file():

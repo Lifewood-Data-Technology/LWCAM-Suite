@@ -1,3 +1,7 @@
+// Light and dark Material themes for the capture app (LWCAM), built from the
+// Lifewood brand colours in app_colors.dart. Colour schemes are written out as
+// literals on purpose, so change a colour here (and check contrast), not by
+// reseeding. After the schemes comes a long list of component themes.
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';

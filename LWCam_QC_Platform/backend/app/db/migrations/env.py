@@ -1,3 +1,10 @@
+"""Alembic environment for the QC Platform database migrations.
+
+Takes the database URL from app.core.config.settings (not alembic.ini) and uses
+the model metadata from app.db.base.Base, so every model must be imported via
+`app.models` for autogenerate to see it. Runs offline (emits SQL) or online.
+The deployed schema is applied by scripts/setup_qc_db.py from database/migrations.
+"""
 from logging.config import fileConfig
 
 from alembic import context

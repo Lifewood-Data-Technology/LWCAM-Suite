@@ -1,3 +1,6 @@
+<!-- Admin "QC tasks" page of the QC Platform web console: lists folders currently claimed by reviewers. -->
+<!-- An admin can release a claim (adminApi.releaseQcTask) so the folder returns to the pending queue, e.g. when a reviewer left without releasing it. -->
+<!-- Supports keyword and project filters and server-side paging; the time-held column re-renders every minute from a local clock. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

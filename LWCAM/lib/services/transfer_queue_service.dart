@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// Background queue that copies staged boxes to the destination share in
+// LWCAM, so the operator can keep capturing. It tracks each job's state,
+// waits when the destination is unreachable, and reports progress to the UI.
+// Feeds the LWIP input folder; staging is done by box_session_controller.dart.
 import 'dart:async';
 import 'dart:io';
 
@@ -7,7 +11,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
 import '../controllers/box_session_controller.dart';
-import '../controllers/upload_contoller.dart';
+import '../controllers/upload_controller.dart';
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';
 import '../pages/settings_page.dart';

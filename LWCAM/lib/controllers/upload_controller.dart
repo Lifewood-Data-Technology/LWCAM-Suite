@@ -1,3 +1,11 @@
+// Transfer engine of the capture app (LWCAM). Takes the staged photos and copies
+// them into the destination folder that the next pipeline stage (LWIP deskew/
+// crop) watches, one YYYYMMDD folder per day. In box mode each keyed folder
+// gets its own subfolder and its metadata goes into the CSV and database rows.
+// Things to know before editing: a reconnect after a dropped share does not
+// use up one of the 3 attempts per file (but is capped), a copy counts only
+// after its size is verified, and Normal Mode (keying off) must behave as it
+// always did, so every box-mode difference sits behind `if (box != null)`.
 // ignore_for_file: unnecessary_brace_in_string_interps, avoid_print, unused_field
 
 import 'dart:async';
@@ -161,6 +169,10 @@ class _BatchArtifacts {
   });
 }
 
+/// Copies staged photos to the transfer destination (a share or drive that the
+/// next stage reads from) with progress, retries, reconnect handling and size
+/// verification, and writes the per-batch CSV and logs. Despite the name this
+/// is the local transfer step, not the S3 upload service.
 class UploadController extends GetxController {
   final SettingsController s = Get.find<SettingsController>();
   final AuthController auth = Get.find<AuthController>();
@@ -1442,6 +1454,8 @@ class UploadController extends GetxController {
       );
     }
   }
+
+  // --- Batch artifacts: CSV, transfer record and summary/error logs --------
 
   Future<void> _initializeBatchArtifacts(
     _BatchArtifacts artifacts, {

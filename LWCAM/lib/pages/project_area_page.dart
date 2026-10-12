@@ -1,3 +1,6 @@
+// Per-project task chooser in the LWCAM capture app, between the project
+// list (projects_page.dart) and the work itself (dashboard or capture).
+// Cards depend on the roles held on the chosen project.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

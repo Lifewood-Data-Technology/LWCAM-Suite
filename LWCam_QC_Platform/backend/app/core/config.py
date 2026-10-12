@@ -1,3 +1,13 @@
+"""Server settings for the QC Platform backend (the `settings` singleton).
+
+One Settings class holds every tunable: database login, JWT, preview/work/audit
+folders, AI review, export, and network binding/TLS. Values come from defaults,
+then a dev .env, then the config.txt overrides that
+app.core.server_settings.load_server_settings_overrides() returns (config.txt
+keys are camelCase, fields here are snake_case). Settings are read once at
+process start. Secrets have no usable default on purpose. The long comments on
+the AI review fields record measurements behind the chosen defaults.
+"""
 from functools import cached_property
 from typing import Literal
 

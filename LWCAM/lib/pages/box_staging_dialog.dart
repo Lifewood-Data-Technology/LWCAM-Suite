@@ -1,3 +1,9 @@
+// Modal progress dialog shown while a capture box is staged for transfer in the
+// capture app (LWCAM): the images are verified and pulled from the phone before
+// the background transfer queue takes over. Opened by box_transfer_flow.dart.
+// Things to know before editing: the dialog cannot be dismissed by tapping
+// outside, and it returns null on failure or cancel (the caller shows errors).
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

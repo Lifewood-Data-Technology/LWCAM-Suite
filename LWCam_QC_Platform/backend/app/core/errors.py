@@ -1,3 +1,10 @@
+"""Uniform API error format and the global exception handlers.
+
+Every error leaves the API as {"code", "message", "data"}. Raise BusinessError
+from routers/services for expected failures (the console reads `code` and
+`data.errorKey`); register_exception_handlers() turns validation, unique-key
+and unexpected errors into the same shape so no raw traceback reaches a client.
+"""
 from typing import Any
 
 from fastapi import FastAPI, Request, status

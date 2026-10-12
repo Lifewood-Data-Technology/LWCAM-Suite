@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Loads and saves the per-station node config file shared by LWCAM and
+// LWCam Admin: PostgreSQL connection, sync switch, destination path.
+// LWCam Admin's Station Setup writes it; LWCAM mostly reads it.
 import 'dart:convert';
 import 'dart:io';
 

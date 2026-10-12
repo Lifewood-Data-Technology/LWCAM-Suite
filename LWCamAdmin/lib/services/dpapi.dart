@@ -1,3 +1,6 @@
+// Windows DPAPI encrypt/decrypt over dart:ffi, used to store database
+// passwords in config files. The same file exists in the capture app (LWCAM);
+// keep the two identical, since LWCAM reads the blobs this app writes.
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';

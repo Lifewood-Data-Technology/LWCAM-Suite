@@ -1,3 +1,6 @@
+<!-- Page thumbnail for the QC Platform image rail. It fetches the preview with the login -->
+<!-- token and shows it as a blob, but only once scrolled into view, because a folder -->
+<!-- can have 100+ pages. -->
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Document } from '@element-plus/icons-vue'

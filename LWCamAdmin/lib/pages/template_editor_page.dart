@@ -1,3 +1,9 @@
+// Page where a SuperAdmin edits a project's metadata template, the field list
+// the capture app (LWCAM) shows when filling in a box's metadata. Reached from
+// the Projects page; the result is saved on the project through the store
+// service. Volume is always locked on, and edits only affect newly created
+// groups (details in the class comment).
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

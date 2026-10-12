@@ -1,3 +1,10 @@
+// Typed wrappers for every QC Platform REST endpoint the web console calls.
+// Part of the QC Platform web console (the QC review/export step of the pipeline).
+// Three groups: authApi (login / password), adminApi (stats, system status,
+// export, settings, network logins) and qcApi (review tasks, image edits, drafts, AI review).
+// All calls go through the axios instance in api/client.ts, which adds the auth
+// token and turns error responses into ApiError.
+// Image-edit calls take the task's sourceHash; the server refuses a stale one (version conflict).
 import request from '@/api/client'
 import type {
   AdminQcTask,

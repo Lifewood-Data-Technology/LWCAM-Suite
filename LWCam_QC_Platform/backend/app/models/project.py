@@ -1,3 +1,11 @@
+"""ORM models for projects and who may work on them.
+
+Tables: projects, user_projects (user x project x role), roles, devices (capture
+stations that logged in for a project). The schema is shared with LWCAM and
+LWCam Admin, which write most of these rows; QC Platform mostly reads them.
+The real DDL lives in database/ (applied by scripts/setup_qc_db.py); these
+classes must be kept in step with it.
+"""
 from datetime import datetime
 from typing import Any
 

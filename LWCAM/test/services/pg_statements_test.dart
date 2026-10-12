@@ -605,7 +605,7 @@ void main() {
           endsWith('ORDER BY b.box_name, f.folder_seq, i.image_created_at, i.id'));
       // ReworkService reads these two positionally at
       // 12 + kFolderMetadataColumns.length, so they must be the LAST selected
-      // columns 鈥?this fails if anyone inserts a column ahead of them.
+      // columns — this fails if anyone inserts a column ahead of them.
       final selected = stmt.sql
           .substring(0, stmt.sql.indexOf(' FROM ('))
           .split(',')

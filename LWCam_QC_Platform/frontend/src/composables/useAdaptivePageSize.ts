@@ -1,3 +1,8 @@
+// Works out how many table rows fit the browser window, so admin list pages
+// (QC tasks, exports) fill the screen without a page scrollbar.
+// The caller passes the pixel heights of a row, the header, the footer and some padding;
+// the result is a reactive pageSize (never below minRows, default 5), recomputed
+// 160 ms after the window stops resizing.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 interface AdaptivePageSizeOptions {

@@ -1,3 +1,29 @@
+"""AI-assisted metadata review: ask a vision model what the pages say and compare it to what was keyed.
+
+Part of the QC Platform (capture -> LWIP -> QC Platform -> Upload). A reviewer
+can run it from the console, and the background scanner (ai_preanalysis.py)
+runs it automatically on pending folders. Calls go to OpenRouter through the
+OpenAI client. Results are suggestions only; applying one is a separate,
+reviewer-driven step (routers/qc.py).
+
+Flow, in two model stages per job:
+1. Extracting: pages are sent in batches; the model returns observations
+   (field, value, confidence, the image and the text it saw).
+2. Comparing: the model compares the observations with the current metadata
+   and returns a review for each field. sanitize_comparison then checks the
+   answer (real pages cited, plausible values, enough confidence) before
+   anything is shown.
+
+Ideas to know before editing:
+- A job is a JSON file under the AI review cache folder (jobs/ and results/),
+  so jobs survive a restart; AiReviewCoordinator resumes them.
+- The input hash (calculate_input_hash) covers metadata, template, page files,
+  models and prompt version. Same hash means the cached result is reused, and a
+  result whose hash no longer matches is reported as stale.
+- A bad observation or citation is dropped, not fatal. Only an invalid
+  structured output or provider failure fails the job.
+- Fields that are fixed or mapped in the template are never analysed.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -101,29 +127,36 @@ def describe_provider_failure(error: Exception | None) -> str:
     return f"OpenRouter analysis failed ({name})."
 
 
+# --- Errors and data shapes ---------------------------------------------------
 class AiReviewError(RuntimeError):
+    """Base class for AI review failures."""
     pass
 
 
 class AiReviewDisabledError(AiReviewError):
+    """AI review is switched off, or has no API key or client library."""
     pass
 
 
 class AiReviewNotFoundError(AiReviewError):
+    """The requested job or result does not exist."""
     pass
 
 
 class AiReviewTimeoutError(AiReviewError):
+    """A model request ran past its time limit."""
     pass
 
 
 class AiReviewCancelledError(AiReviewError):
+    """The job was cancelled; cancellation_point says where it was noticed."""
     def __init__(self, cancellation_point: str) -> None:
         super().__init__("AI review was cancelled.")
         self.cancellation_point = cancellation_point
 
 
 class AiReviewOutputError(AiReviewError):
+    """The model answered, but not with a valid structured result."""
     def __init__(self, failure_type: str) -> None:
         super().__init__("OpenRouter returned an invalid structured result.")
         self.failure_type = failure_type
@@ -131,6 +164,7 @@ class AiReviewOutputError(AiReviewError):
 
 @dataclass(frozen=True)
 class AiReviewRequestPolicy:
+    """How one stage calls the model: which model, reasoning mode and output mode."""
     model: str
     reasoning_mode: AiReviewReasoningMode
     output_mode: AiReviewOutputMode
@@ -138,6 +172,7 @@ class AiReviewRequestPolicy:
 
 @dataclass(frozen=True)
 class AiReviewImageSource:
+    """One page given to the review: its file plus the size and mtime seen at snapshot time."""
     id: int
     filename: str
     path: Path
@@ -172,6 +207,7 @@ class AiReviewImageSource:
 
 @dataclass(frozen=True)
 class AiReviewSnapshot:
+    """Everything a review job needs, frozen when the job is queued (metadata, template, pages, hashes)."""
     folder_id: int
     user_id: str
     source_hash: str
@@ -232,11 +268,14 @@ class AiReviewSnapshot:
         }
 
 
+# --- Structured model output (schemas the model must fill in) -----------------
 class StrictReviewModel(BaseModel):
+    """Base for model output schemas: unknown keys are rejected."""
     model_config = ConfigDict(extra="forbid")
 
 
 class BatchObservation(StrictReviewModel):
+    """One thing the extraction stage saw: a candidate value for a field, with its evidence."""
     fieldKey: str = Field(
         min_length=1,
         description="Exact metadata field key from the supplied fieldContract.",
@@ -258,6 +297,7 @@ class BatchObservation(StrictReviewModel):
 
 
 class BatchExtraction(StrictReviewModel):
+    """The extraction stage's whole answer for one batch of pages."""
     observations: list[BatchObservation] = Field(
         description="Direct visual metadata observations. Use an explicit empty array when none are found.",
     )
@@ -293,6 +333,7 @@ def batch_extraction_model(field_keys: tuple[str, ...]) -> type[BatchExtraction]
 
 
 class ModelEvidence(StrictReviewModel):
+    """A citation in the comparing stage: it must point back to a real extraction observation."""
     imageId: int = Field(description="Image ID copied from an input observation.")
     filename: str = Field(min_length=1, description="Filename copied from the same input observation.")
     observation: str = Field(
@@ -302,6 +343,7 @@ class ModelEvidence(StrictReviewModel):
 
 
 class ModelFieldReview(StrictReviewModel):
+    """The comparing stage's verdict on one metadata field."""
     key: str = Field(min_length=1, description="Exact metadata field key from fieldContract.")
     suggestedValue: str | None = Field(
         description="Concrete replacement value for mismatch; explicitly null for every other verdict.",
@@ -320,11 +362,13 @@ class ModelFieldReview(StrictReviewModel):
 
 
 class ModelComparison(StrictReviewModel):
+    """The comparing stage's whole answer: a review per field."""
     fieldReviews: list[ModelFieldReview] = Field(
         description="Exactly one review for every field in fieldContract.",
     )
 
 
+# --- Hashing, settings and job files ------------------------------------------
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -364,6 +408,7 @@ def evidence_match_key(image_id: int, filename: str, observation: str) -> tuple[
 
 
 def canonical_metadata_value(key: str, value: Any) -> str | None:
+    """A metadata value as trimmed text (None if empty); date fields are also case-folded for comparison."""
     if value is None:
         return None
     text = str(value).strip()
@@ -384,6 +429,7 @@ def calculate_input_hash(
     images: tuple[AiReviewImageSource, ...],
     draft_version: int | None,
 ) -> str:
+    """Fingerprint of everything that decides a review's outcome. Same hash means the cached result is valid."""
     payload = {
         "provider": "openrouter",
         "api": "chat.completions",
@@ -415,6 +461,7 @@ def calculate_input_hash(
 
 
 def _configured_models() -> dict[str, str]:
+    """The model name configured for each stage."""
     return {
         "extracting": settings.openrouter_extract_model,
         "comparing": settings.openrouter_compare_model,
@@ -424,6 +471,7 @@ def _configured_models() -> dict[str, str]:
 def _stage_request_settings(
     stage: Literal["extracting", "comparing"],
 ) -> AiReviewRequestPolicy:
+    """The model and modes configured for a stage."""
     if stage == "extracting":
         return AiReviewRequestPolicy(
             model=settings.openrouter_extract_model,
@@ -454,6 +502,7 @@ def ai_review_available() -> bool:
 
 
 def ai_review_root() -> Path:
+    """The cache folder holding job and result files (created if missing)."""
     root = Path(settings.ai_review_cache_dir).expanduser()
     if not root.is_absolute():
         root = BACKEND_ROOT / root
@@ -463,6 +512,7 @@ def ai_review_root() -> Path:
 
 
 def _atomic_json_write(path: Path, value: dict[str, Any]) -> None:
+    """Write JSON through a temp file and replace, so readers never see a half-written file."""
     fs_path(path.parent).mkdir(parents=True, exist_ok=True)
     temp_path = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
     try:
@@ -483,6 +533,7 @@ def _atomic_json_write(path: Path, value: dict[str, Any]) -> None:
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
+    """Read a JSON object, retrying briefly if it is being replaced; None if unreadable."""
     for attempt in range(3):
         try:
             value = json.loads(fs_path(path).read_text(encoding="utf-8"))
@@ -523,6 +574,7 @@ def _template_fields(snapshot: AiReviewSnapshot) -> dict[str, dict[str, Any]]:
 
 
 def _job_stage(job: dict[str, Any]) -> AiReviewStage | None:
+    """The job's current stage, worked out from progress for older job files that lack one."""
     stage = job.get("stage")
     if stage in {"queued", "extracting", "comparing"}:
         return stage
@@ -537,6 +589,7 @@ def _job_stage(job: dict[str, Any]) -> AiReviewStage | None:
 
 
 def _public_job(job: dict[str, Any], *, stale: bool = False) -> dict[str, Any]:
+    """The job fields the API returns to the console (leaves out the stored snapshot)."""
     models = job.get("models")
     return {
         "jobId": job["jobId"],
@@ -562,6 +615,7 @@ def output_contract_instruction(
     text_format: type[BaseModel],
     output_mode: AiReviewOutputMode,
 ) -> str:
+    """Prompt text telling the model to answer with exactly one JSON object matching the schema."""
     if output_mode == "json_schema":
         return (
             "Return exactly one JSON object that conforms to the response JSON Schema supplied with this "
@@ -590,6 +644,7 @@ def messages_with_output_contract(
     text_format: type[BaseModel],
     output_mode: AiReviewOutputMode,
 ) -> list[dict[str, Any]]:
+    """Copy the messages with the output-contract text added to the system message."""
     prepared = [dict(message) for message in messages]
     instruction = output_contract_instruction(text_format, output_mode)
     for message in prepared:
@@ -601,7 +656,13 @@ def messages_with_output_contract(
     return prepared
 
 
+# --- Provider: talking to OpenRouter ------------------------------------------
 class OpenRouterReviewProvider:
+    """Runs the two model stages (extract_batch, compare) against OpenRouter.
+
+    _call_parse does the request with retries, back-off, cancellation checks and a
+    reasoning-off retry; the coordinator below supplies the request limit and cancel event.
+    """
     def __init__(self) -> None:
         key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
         if not key:
@@ -636,6 +697,7 @@ class OpenRouterReviewProvider:
             raise AiReviewCancelledError(cancellation_point)
 
     def _acquire_request_slot(self) -> bool:
+        """Wait for a free slot under the shared request limit, staying responsive to cancellation."""
         semaphore = self.request_semaphore
         if semaphore is None:
             self._raise_if_cancelled("capacity_wait")
@@ -1087,10 +1149,12 @@ class OpenRouterReviewProvider:
 
     @staticmethod
     def _is_timeout(error: Exception) -> bool:
+        """True for a timeout-type error."""
         return "timeout" in type(error).__name__.lower()
 
     @staticmethod
     def _is_transient(error: Exception) -> bool:
+        """True for errors worth retrying: rate limits, server errors, timeouts, connection problems."""
         status_code = getattr(error, "status_code", None)
         if status_code == 429 or (isinstance(status_code, int) and status_code >= 500):
             return True
@@ -1099,6 +1163,7 @@ class OpenRouterReviewProvider:
 
     @staticmethod
     def _retry_delay(error: Exception, attempt: int) -> float:
+        """Seconds to wait before a retry: the provider's Retry-After (capped at 2 minutes) or exponential back-off."""
         response = getattr(error, "response", None)
         headers = getattr(response, "headers", None) or getattr(error, "headers", None)
         retry_after = (headers.get("retry-after") or headers.get("Retry-After")) if headers else None
@@ -1117,6 +1182,7 @@ class OpenRouterReviewProvider:
 
     @staticmethod
     def _encoded_image(path: Path) -> str:
+        """Shrink a page to a JPEG within the configured longest edge and return it base64-encoded."""
         temp_root = ai_review_root() / "tmp"
         fs_path(temp_root).mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="image-", dir=fs_path(temp_root)) as directory:
@@ -1153,6 +1219,10 @@ class OpenRouterReviewProvider:
         snapshot: AiReviewSnapshot,
         images: list[AiReviewImageSource],
     ) -> list[dict[str, Any]]:
+        """Stage 1: send a batch of pages and return the validated observations.
+
+        Observations that cite an unknown field or image are dropped, not fatal.
+        """
         fields = _template_fields(snapshot)
         if not fields:
             logger.warning(
@@ -1332,6 +1402,7 @@ class OpenRouterReviewProvider:
         snapshot: AiReviewSnapshot,
         observations: list[dict[str, Any]],
     ) -> ModelComparison:
+        """Stage 2: send the current metadata and the observations; the model reviews each field."""
         fields = _template_fields(snapshot)
         current = {
             key: canonical_metadata_value(key, snapshot.metadata.get(key))
@@ -1684,7 +1755,14 @@ class OpenRouterReviewProvider:
         return parsed
 
 
+# --- Result checking and job coordination -------------------------------------
 def sanitize_comparison(snapshot: AiReviewSnapshot, comparison: ModelComparison) -> dict[str, Any]:
+    """Turn the model's comparison into the result the console shows.
+
+    Only template fields are kept. Evidence must cite a real page, and a suggested value is
+    dropped unless it is plausible (date shape, allowed option, length) and confident enough
+    (APPLY_CONFIDENCE); otherwise the verdict falls back to "uncertain".
+    """
     fields = _template_fields(snapshot)
     image_map = {image.id: image for image in snapshot.images}
     reviews_by_key = {review.key: review for review in comparison.fieldReviews if review.key in fields}
@@ -1755,6 +1833,11 @@ def sanitize_comparison(snapshot: AiReviewSnapshot, comparison: ModelComparison)
 
 
 class AiReviewCoordinator:
+    """Queues, runs, cancels and resumes review jobs.
+
+    Jobs are JSON files, run on two thread pools (reviewer-started and background) that share one
+    cap on concurrent model requests. The module-level instance is ai_review_coordinator.
+    """
     def __init__(self, provider_factory: Callable[[], OpenRouterReviewProvider] = OpenRouterReviewProvider) -> None:
         self.provider_factory = provider_factory
         self._manual_executor: ThreadPoolExecutor | None = self._new_executor("manual")
@@ -1858,6 +1941,11 @@ class AiReviewCoordinator:
         trigger: AiReviewTrigger = "manual",
         force: bool = False,
     ) -> dict[str, Any]:
+        """Queue a review for the snapshot, or reuse what exists.
+
+        A cached result or a job already running for the same input hash is returned instead of
+        starting another; force re-runs a failed job. Raises if AI review is off or has no key.
+        """
         if not settings.ai_review_enabled:
             raise AiReviewDisabledError("AI metadata review is disabled.")
         if not api_key_configured():
@@ -1932,6 +2020,7 @@ class AiReviewCoordinator:
             return _public_job(job)
 
     def active_preanalysis_count(self) -> int:
+        """How many background (preanalysis) jobs are queued or running."""
         return len(self.active_preanalysis_folder_ids(include_duplicates=True))
 
     def active_preanalysis_folder_ids(self, *, include_duplicates: bool = False) -> list[int]:
@@ -1972,6 +2061,7 @@ class AiReviewCoordinator:
         return descriptors
 
     def has_known_preanalysis(self, snapshot: AiReviewSnapshot) -> bool:
+        """True if a result or a job (any state except cancelled) already exists for this exact input."""
         with self._lock:
             if _read_json(self._result_path(snapshot.folder_id, snapshot.input_hash)):
                 return True
@@ -1994,6 +2084,7 @@ class AiReviewCoordinator:
         reason: str,
         triggers: set[AiReviewTrigger] | None = None,
     ) -> int:
+        """Ask every queued or running job of a folder (optionally only some triggers) to stop. Returns how many."""
         cancelled = 0
         with self._lock:
             jobs_dir = ai_review_root() / "jobs"
@@ -2041,6 +2132,7 @@ class AiReviewCoordinator:
         return self.cancel_active_jobs(folder_id, reason=reason, triggers={"preanalysis"})
 
     def get_job(self, folder_id: int, job_id: str, *, current_input_hash: str | None = None) -> dict[str, Any]:
+        """One job's public view; marked stale if the folder's input hash has since changed."""
         job = self._load_job(job_id)
         if not job or int(job.get("folderId", -1)) != folder_id:
             raise AiReviewNotFoundError("AI review job was not found.")
@@ -2106,6 +2198,7 @@ class AiReviewCoordinator:
         return state
 
     def latest(self, snapshot: AiReviewSnapshot) -> dict[str, Any] | None:
+        """The review to show for this folder: the exact-match result, else the newest matching job, else the newest older result (marked stale)."""
         exact_result = _read_json(self._result_path(snapshot.folder_id, snapshot.input_hash))
         if exact_result:
             return _public_job(exact_result)
@@ -2162,6 +2255,7 @@ class AiReviewCoordinator:
                 self._save_job(job)
 
     def resume_if_needed(self) -> None:
+        """At server start: clean old files, then re-queue jobs that were queued or running when it stopped."""
         with self._lock:
             self.cleanup_expired()
             self._cleanup_temp_files()
@@ -2228,6 +2322,7 @@ class AiReviewCoordinator:
                 logger.warning("AI review temporary file cleanup failed; path=%s", path.name)
 
     def cleanup_expired(self) -> None:
+        """Delete job and result files older than the configured retention."""
         root = ai_review_root()
         cutoff = utc_now() - timedelta(days=settings.ai_review_cache_retention_days)
         for directory in (root / "jobs", root / "results"):
@@ -2242,6 +2337,7 @@ class AiReviewCoordinator:
                     continue
 
     def shutdown(self) -> None:
+        """Stop accepting work and wait for the thread pools to finish what is running."""
         with self._lock:
             manual_executor = self._manual_executor
             preanalysis_executor = self._preanalysis_executor
@@ -2278,6 +2374,7 @@ class AiReviewCoordinator:
             return True
 
     def _run_job(self, job_id: str) -> None:
+        """Thread body for one job: check the pages are unchanged, extract batch by batch (resumable), compare, save the result."""
         started = time.monotonic()
         cancellation_event: threading.Event | None = None
         try:

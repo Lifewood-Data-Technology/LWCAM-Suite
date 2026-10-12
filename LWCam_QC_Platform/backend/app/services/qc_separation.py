@@ -1,3 +1,13 @@
+"""Physical file move for QC "Separation": splitting one folder into children.
+
+QC Platform stage. When a reviewer marks first pages, one captured folder is
+split into several child folders on disk. SeparationFileTransaction does the
+file work: it stages each child under a hidden temp name, moves the pages and
+thumbnails in, writes each child its own copy of the LWIP manifest (so deskew
+and crop still apply there), and only then renames the temp folders into place.
+Any failure rolls every file back to the parent. The database side (new folder
+rows) is done by the router, not here.
+"""
 from __future__ import annotations
 
 import json
@@ -23,6 +33,7 @@ class SeparationFileError(RuntimeError):
 
 
 def child_directory_path(parent: Path, index: int) -> Path:
+    """Sibling folder for child number [index]: <name>_001, or <stem>_001_path."""
     # No `thumbnail=` variant any more: a child's thumbnails nest under its own
     # image directory, so nothing derives a name from the parent thumbnail dir.
     suffix = "_path"

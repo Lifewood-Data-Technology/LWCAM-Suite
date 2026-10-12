@@ -1,3 +1,10 @@
+"""Request/response shapes (pydantic) for the admin API.
+
+Covers user management, the admin task list, dashboard statistics, and the
+server settings and path checks behind the console's Settings page. Field names
+are camelCase because they are the JSON the Vue console sends and reads. The
+settings requests are persisted to config.txt by app/core/server_settings.py.
+"""
 from datetime import datetime
 from typing import Any
 

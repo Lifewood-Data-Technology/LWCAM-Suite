@@ -1,3 +1,12 @@
+"""FastAPI application entry point for the QC Platform server.
+
+Builds the app: CORS rules, error handlers, the /api routers, and the built
+console (frontend/dist) served as a single-page app. The lifespan hook starts
+the background sweeps (resume interrupted work, AI pre-analysis, auto export,
+heartbeat). Normally launched through run_server.py (see the backend AGENTS.md
+for why); running this file directly is plain http on settings.bind_host.
+Router mounting order matters, see the SPA mount comment in create_app().
+"""
 from contextlib import asynccontextmanager
 from pathlib import Path
 

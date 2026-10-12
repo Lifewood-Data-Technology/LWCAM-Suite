@@ -1,4 +1,12 @@
+<!-- QC review screen: the main page of the QC Platform web console (pipeline: capture -> LWIP -> QC -> export -> upload). -->
+<!-- One component serves three routes: the Available queue (pending), the review desk (qc-my-tasks / qc-review) and the Completed history. -->
+<!-- `active` (pending | mine | completed) is derived from the route and picks which of the three template blocks renders. -->
+<!-- Image edits (rotate, crop, deskew, delete, ...) are not applied at once: the server keeps them as a draft on the task, -->
+<!-- and every call sends task.sourceHash so a stale copy is refused with a version conflict (see handleVersionOrActionError). -->
+<!-- Metadata is edited in a local form (metadataForm) and saved separately; approve saves it first, reject needs a remark per page. -->
+<!-- Layout: this <script> comes first, then the <template> (page header, queue, desk, completed history, dialogs), then scoped CSS. -->
 <script setup lang="ts">
+// --- Imports and state --------------------------------------------------------
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -93,6 +101,7 @@ function nudgeDeskewStep(direction: 1 | -1) {
 }
 const deskewStepLabel = computed(() => formatDeskewStep(deskewStep.value))
 
+// --- Reject remarks, page selection and split state ---------------------------
 const rejectedImageIds = ref<number[]>([])
 const rejectReasons = reactive<Record<number, string>>({})
 
@@ -118,6 +127,7 @@ const aiReview = useAiReview(
   },
 )
 
+// --- Route flags and display data ---------------------------------------------
 const isReviewRoute = computed(() => route.name === 'qc-review')
 const isWorkbenchRoute = computed(() => route.name === 'qc-my-tasks' || route.name === 'qc-review')
 const isStandaloneQcRoute = computed(() => isWorkbenchRoute.value || route.name === 'qc-completed')
@@ -212,6 +222,7 @@ const summaryItems = computed(() => [
   { label: t('qc.completed'), value: scopeTotals.completed ?? (active.value === 'completed' ? tasks.value.length : '-') },
 ])
 
+// --- Crop box, batch selection and tool enablement ----------------------------
 const cropSelectionStyle = computed(() => ({
   left: `${Math.min(cropSelection.x, cropSelection.x + cropSelection.width)}px`,
   top: `${Math.min(cropSelection.y, cropSelection.y + cropSelection.height)}px`,
@@ -262,6 +273,7 @@ function batched(label: string) {
   const count = targetImageIds.value.length
   return count > 1 ? `${label} (${count} pages)` : label
 }
+// --- Folder separation (splitting one folder into several) ---------------------
 const separationMarkerIds = computed(() => current.value?.images.filter((item) => item.separationStart).map((item) => item.id) || [])
 // The server sends page 1 as a start too once any extra marker exists; the
 // extras are what the PUT carries and what the preview toggles.
@@ -304,6 +316,7 @@ function splitRanges(): string[] {
   return ranges
 }
 
+// --- Metadata form: fields, template, dirty check, validation ------------------
 // The fields shown in the metadata panel/dialog. Whether each one is REQUIRED
 // comes from the template (the backend ships archivalRefNo as optional), not
 // from membership in this list.
@@ -388,6 +401,8 @@ const metadataDirty = computed(() => {
 const hasUnsavedChanges = computed(() => Boolean(current.value?.hasDraft) || metadataDirty.value)
 const savingChanges = computed(() => draftSaving.value || metadataSaving.value)
 
+// Merge a task returned by any draft-changing call into the screen: keeps the
+// selected page (or its position), hides draft-deleted pages, prunes stale ticks.
 function applyTaskUpdate(task: MetadataQcTask, selectedImageId?: number | null) {
   const visibleImages = task.images.filter((item) => item.draftState !== 'deleted')
   const visibleTask = { ...task, images: visibleImages, imageCount: visibleImages.length }
@@ -505,6 +520,8 @@ function validateCurrentBeforeApprove() {
   return true
 }
 
+// --- Loading, claiming and routing --------------------------------------------
+// Fills the Pending / Mine / Completed counters (page size 1: only the total is used).
 async function loadScopeTotals() {
   const scopes: QcScope[] = ['pending', 'mine', 'completed']
   const results = await Promise.allSettled(
@@ -702,6 +719,7 @@ async function promptNextTaskOrClose() {
   }
 }
 
+// --- Approve, revert and reject -----------------------------------------------
 async function approve() {
   if (current.value?.status !== 'reviewing') return
   if (!validateCurrentBeforeApprove()) return
@@ -827,6 +845,7 @@ async function submitReject() {
   }
 }
 
+// --- Metadata save and error handling -----------------------------------------
 function fillMetadataFormFromCurrent() {
   if (!current.value) return
   const metadata = current.value.metadata
@@ -920,6 +939,7 @@ async function handleVersionOrActionError(error: unknown) {
   else await load()
 }
 
+// --- Preview viewer, crop mode and page keyboard navigation -------------------
 function openViewer() {
   if (cropMode.value) return // the overlay blocks clicks anyway — insurance
   if (previewSrc.value) viewerVisible.value = true
@@ -1163,6 +1183,7 @@ async function submitCrop() {
   }
 }
 
+// --- Page selection, reject remarks and image tools ---------------------------
 function toggleImageSelection(imageId: number, checked: boolean) {
   if (!batchableImageIds.value.includes(imageId)) return
   if (checked && !selectedImageIds.value.includes(imageId)) {
@@ -1424,6 +1445,7 @@ async function moveCurrentImage(offset: -1 | 1) {
   )
 }
 
+// --- Separation mode: mark pages that start a new child folder -----------------
 function enterSeparationMode() {
   if (current.value?.status !== 'reviewing') return
   if (cropMode.value) exitCropMode()
@@ -1508,6 +1530,7 @@ async function confirmSplit(bodyKey: string, confirmKey: string): Promise<boolea
   }
 }
 
+// --- Draft save / discard and leaving the desk --------------------------------
 /** Returns whether the image draft was saved; saveChanges stops on false. */
 async function saveDraft(options: { silent?: boolean } = {}): Promise<boolean> {
   if (current.value?.status !== 'reviewing' || !current.value.hasDraft) return false
@@ -1615,6 +1638,7 @@ async function returnToQcTasks() {
   await router.push('/qc/tasks')
 }
 
+// --- Small display helpers, watchers and lifecycle ----------------------------
 function displayValue(value: unknown) {
   return value === null || value === undefined || value === '' ? t('common.notFilled') : String(value)
 }
@@ -1670,6 +1694,7 @@ onBeforeUnmount(() => {
 
 <template>
   <AppShell>
+    <!-- Page header: title and Pending / Mine / Completed counters (list pages only) -->
     <div v-if="showListChrome" class="qc-page-header">
       <div class="page-title qc-page-title">
         <div><h1>{{ pageTitle }}</h1><p>{{ t('qc.subtitle') }}</p></div>
@@ -1685,6 +1710,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- Available (pending) queue: table of folders waiting to be claimed -->
     <section v-if="active === 'pending'" v-loading="loading || detailLoading" class="panel pending-queue-panel">
       <div class="queue-heading">
         <div>
@@ -1709,8 +1735,11 @@ onBeforeUnmount(() => {
       </el-table>
     </section>
 
+    <!-- Review desk (My tasks / review route): header, page rail, preview, side panel, tool strip.
+         The desk is a CSS grid; each child below is placed by area in the style block. -->
     <div v-else-if="active === 'mine'" class="qc-desk" :class="{ 'qc-desk--compact': isWorkbenchRoute }">
       <template v-if="current">
+        <!-- Desk header: back, folder name, Release / Reject / Pass -->
         <header class="qc-desk-header">
           <el-button class="qc-back-button" :icon="'ArrowLeft'" :loading="actionLoading" @click="returnToQcTasks">
             {{ t('common.back') }}
@@ -1752,6 +1781,7 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
+        <!-- Left rail: page thumbnails, tick boxes for batch actions, split-folder grouping -->
         <aside
           v-loading="loading"
           class="qc-image-rail"
@@ -1832,6 +1862,7 @@ onBeforeUnmount(() => {
           </div>
         </aside>
 
+        <!-- Preview stage: the page image, with the crop overlay and split-marking bar on top -->
         <section
           v-loading="detailLoading || previewLoading"
           class="qc-preview-stage"
@@ -1926,6 +1957,7 @@ onBeforeUnmount(() => {
           <el-empty v-else :description="t('qc.selectImage')" />
         </section>
 
+        <!-- Right panel: current page, reject remark, metadata form, AI review -->
         <aside class="qc-review-panel">
           <!-- Always rendered: the panel's grid rows are positional, so a
                conditional first card would shift the other two into the wrong
@@ -2070,6 +2102,7 @@ onBeforeUnmount(() => {
 
         </aside>
 
+        <!-- Bottom tool strip: image edit tools (rotate, crop, deskew, ...) -->
         <footer class="qc-tool-strip">
           <input ref="replaceInputEl" class="hidden-file-input" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff" @change="handleReplaceUpload" />
           <input ref="insertInputEl" class="hidden-file-input" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff" @change="handleInsertUpload" />
@@ -2222,6 +2255,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- Completed history: read-only three-column view of finished folders -->
     <div v-else class="completed-history-redesign" :class="{ 'completed-history-redesign--compact': route.name === 'qc-completed' }">
       <!-- Task list, left rail -->
       <aside v-loading="loading" class="completed-sidebar">
@@ -2362,6 +2396,7 @@ onBeforeUnmount(() => {
       </aside>
     </div>
 
+    <!-- Reject dialog: choose the pages sent back for recapture and a remark for each -->
     <el-dialog v-model="rejectDialogVisible" :title="t('qc.rejectImages')" width="520px">
       <p class="qc-reject-intro">{{ t('qc.rejectIntro') }}</p>
       <p v-if="selectedBatchIds.length" class="qc-reject-intro">{{ t('qc.rejectTickedHint', { count: selectedBatchIds.length }) }}</p>
@@ -2388,11 +2423,13 @@ onBeforeUnmount(() => {
       </template>
     </el-dialog>
 
+    <!-- Full-screen zoom viewer, opened by clicking the preview image -->
     <ImagePreviewViewer v-model="viewerVisible" :src="previewSrc" :alt="image?.filename" />
   </AppShell>
 </template>
 
 <style scoped>
+/* --- Page header and summary counters ------------------------------------- */
 .qc-page-header {
   display: grid;
   gap: 20px;
@@ -2556,6 +2593,7 @@ onBeforeUnmount(() => {
   margin-right: auto;
 }
 
+/* --- Pending queue table -------------------------------------------------- */
 .pending-queue-panel {
   /* .panel (lifewood.css) already supplies the flat hairline border */
   padding: 28px;
@@ -2603,6 +2641,7 @@ onBeforeUnmount(() => {
   padding: 12px 8px;
 }
 
+/* --- Preview, toolbar and detail styles shared with the Completed view ----- */
 /* Current layout: image-centric */
 /* Thumbnail sidebar, left */
 .sidebar-header {
@@ -2876,6 +2915,8 @@ onBeforeUnmount(() => {
 /* Fixed action bar, bottom */
 /* Sized and typed like the el-buttons it sits between (14px / 500 / 4px radius) */
 
+/* --- Legacy workbench styles: the classes below are not used by the current
+   template (qc-workbench, tree-*, review-actions, ...). Candidates for removal. */
 /* Kept: the old layout still backs the other tabs */
 .qc-workbench {
   display: grid;
@@ -3253,6 +3294,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+/* --- Completed history view ------------------------------------------------ */
 /* Completed view - redesigned */
 .completed-history-redesign {
   position: relative;
@@ -4002,6 +4044,7 @@ onBeforeUnmount(() => {
   font-size: 16px;
 }
 
+/* --- Review desk: grid, header, left rail, preview stage ------------------- */
 .qc-desk {
   /* The review cards' edge. Local on purpose: --lw-line (0.14) and
      --lw-line-strong (0.24) are shared with other screens, and this is the one
@@ -4417,6 +4460,7 @@ onBeforeUnmount(() => {
   right: 18px;
 }
 
+/* --- Review desk: right panel (current page, remark, metadata form) -------- */
 .qc-review-panel {
   grid-column: 3;
   grid-row: 2 / 4;
@@ -4720,6 +4764,7 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
+/* --- Review desk: bottom tool strip ----------------------------------------- */
 .qc-tool-strip {
   grid-column: 2;
   grid-row: 3;

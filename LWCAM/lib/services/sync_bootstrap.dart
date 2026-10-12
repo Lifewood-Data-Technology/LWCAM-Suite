@@ -1,3 +1,5 @@
+// Starts or stops background capture sync in LWCAM to match the node
+// config. Called at startup (main.dart) and at login (auth_controller.dart).
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 

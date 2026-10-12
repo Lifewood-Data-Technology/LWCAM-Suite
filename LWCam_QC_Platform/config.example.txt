@@ -1,0 +1,59 @@
+# LWCam QC server configuration - EXAMPLE
+#
+# Copy this file to `config.txt` in the same folder (LWCam_QC_Platform\config.txt)
+# and fill in the values. `config.txt` is ignored by git: never commit it.
+# An installed server keeps its copy in <install folder>\config\config.txt;
+# the LWCAM_QC_SERVER_CONFIG environment variable can point anywhere else.
+#
+# Every key is listed in backend\app\core\server_settings.py (SETTINGS_BY_KEY),
+# which also explains each one. A blank value means "use the default".
+#
+# Secrets (dbPassword, jwtSecret, openrouterApiKey) may be typed in plain text.
+# On Windows the server encrypts them on its first start (they become
+# `dpapi:...` values that only work on that PC).
+
+# --- Database (PostgreSQL) ---
+dbHost = localhost
+dbPort = 5432
+dbName = lwcam
+dbUser = lwcam_user
+dbPassword = <your database password>
+dbUseSsl = false
+
+# --- Login ---
+# At least 32 random characters. The server refuses to start without one.
+# Make one with:  python -c "import secrets; print(secrets.token_urlsafe(48))"
+jwtSecret =
+jwtExpireMinutes = 480
+
+# --- Web console ---
+# 127.0.0.1 = this PC only, 0.0.0.0 = the whole LAN.
+bindHost = 127.0.0.1
+port = 8080
+# Blank = plain http. The installer fills these in for https.
+tlsCertFile =
+tlsKeyFile =
+
+# --- Folders (local path or UNC share, never a mapped drive letter) ---
+# LWIP's output (2.Batches): the folders QC reviews. QC needs write access.
+qcInputRoot = C:\LWCamDev\2.Batches
+# Scratch folder for building export packages. Keep it local and separate.
+exportWorkRoot = C:\LWCamDev\ExportWork
+# Where finished delivery packages are published.
+qcOutputRoot = C:\LWCamDev\3.Export
+
+# --- Export ---
+exportZipOutput = true
+exportTiffOutput = true
+exportAutoEnabled = true
+exportWorkerCount = 0
+exportTempRetentionHours = 24
+luminanceEnabled = false
+previewCacheMaxMb = 2048
+
+# --- AI metadata review (OpenRouter), off by default ---
+aiReviewEnabled = false
+aiPreanalysisEnabled = false
+openrouterApiKey =
+openrouterExtractModel =
+openrouterCompareModel =

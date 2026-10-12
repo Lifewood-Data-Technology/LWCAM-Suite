@@ -1,3 +1,7 @@
+// Wrong-password lock for the LWCam Admin login. Keeps its state in a small
+// JSON file next to the other local Admin files so a restart does not reset it.
+// The clock and the elapsed timer are injectable so tests can drive them; see
+// the class comment for what the lock does and does not protect against.
 import 'dart:convert';
 import 'dart:io';
 

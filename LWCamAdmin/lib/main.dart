@@ -1,5 +1,13 @@
 // ignore_for_file: avoid_print
 
+// Entry point of LWCam Admin, the Windows app that manages users, projects,
+// devices and this station's database connection for the suite. Registers the
+// node-config, store and theme services, sizes the window to the screen, then
+// shows the login page. Any unhandled error is written to a log file in the
+// user's Downloads folder and shown in a message box.
+// Services are registered here before runApp; the store service is built
+// without awaiting its first sync so an unreachable database never delays launch.
+
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';

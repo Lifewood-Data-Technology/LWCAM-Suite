@@ -1,3 +1,10 @@
+// The box transfer flow of the capture app (LWCAM): checks, confirmation,
+// staging, then hand-off to the background transfer queue, which copies the
+// box to its destination folder for the next pipeline stage (LWIP).
+// Things to know before editing: runBoxTransferFlow is shared by the box list
+// and the QC view, and returns true when the box is queued, not when it has
+// finished transferring.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

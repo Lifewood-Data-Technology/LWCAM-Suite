@@ -1,3 +1,5 @@
+// English UI text for the QC Platform web console, grouped by area (common, nav, auth, qc, admin, ...).
+// Keys are looked up with t('group.key'); this is the only locale file.
 export default {
   common: {
     appSubtitle: 'Image and metadata quality control platform',

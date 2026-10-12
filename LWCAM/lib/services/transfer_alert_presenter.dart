@@ -1,3 +1,10 @@
+// Decides how transfer problems are shown to the operator in LWCAM: modal
+// dialogs for the foreground Normal Mode transfer (DialogAlertPresenter), or job
+// state updates for queued box transfers (QueueAlertPresenter, in
+// transfer_queue_service.dart).
+// Know before editing: UploadController.uploadAll calls this interface, so a new
+// alert type needs a method here and in both presenters.
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

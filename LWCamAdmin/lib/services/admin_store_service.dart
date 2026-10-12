@@ -1,5 +1,11 @@
 // ignore_for_file: avoid_print
 
+// The store behind every LWCam Admin screen: users, projects and app settings,
+// kept in PostgreSQL with a local JSON snapshot as the offline fallback.
+// Controllers call it; it talks to the database through AdminGateway.
+// Always sync (push pending edits, then pull) before applying a change, so a
+// stale local copy cannot overwrite newer database rows.
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

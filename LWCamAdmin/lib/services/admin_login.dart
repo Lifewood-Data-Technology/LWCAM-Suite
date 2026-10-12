@@ -1,3 +1,6 @@
+// Reads the database logins that LWCam Admin stores in the node config. Each
+// password is saved DPAPI-encrypted, so it opens only for the Windows account
+// that saved it; the functions here decrypt it or report that it cannot be read.
 import 'package:get/get.dart';
 
 import '../models/node_config.dart';

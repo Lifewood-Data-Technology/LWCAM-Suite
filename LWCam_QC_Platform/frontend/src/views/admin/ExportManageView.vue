@@ -1,3 +1,7 @@
+<!-- Admin Export page of the QC Platform web console: runs and monitors export of approved folders (delivery packages for upload). -->
+<!-- Shows a preflight check, a start/progress panel, a ledger of failed exports with retry, and a paged list of folders with per-folder export. -->
+<!-- A run is a background job on the server: while its status is QUEUED or RUNNING the page polls adminApi.currentExport every 3 s (schedulePoll / poll). -->
+<!-- Page size follows the window height (useAdaptivePageSize); error text is looked up by the server's errorKey in the admin.exports.errors i18n group. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

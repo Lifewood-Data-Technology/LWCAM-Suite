@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "interval_seconds": 60,
+  "watch_root": "C:/LWCamDev/3.Export",
+  "done_root": "C:/LWCamDev/Uploaded",
+  "summary_root": "C:/LWCamDev/UploadSummary",
+  "state_file": "runtime/uploads.json",
+  "log_file": "logs/upload.log",
+
+  "s3_path": "s3://<bucket>/<prefix>",
+  "s3_region": "<region, e.g. us-east-1>",
+  "s3_access_key": "<access key id>",
+  "s3_secret_key": "<secret access key>",
+  "https_proxy": "",
+
+  "db_host": "localhost",
+  "db_port": 5432,
+  "db_name": "lwcam",
+  "db_user": "lwcam_user",
+  "db_password": "<your database password>",
+  "db_use_ssl": false,
+
+  "ui_bind": "127.0.0.1",
+  "ui_port": 8091,
+  "tls_cert_file": "",
+  "tls_key_file": ""
+}

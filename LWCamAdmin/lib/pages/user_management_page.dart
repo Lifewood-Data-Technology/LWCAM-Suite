@@ -1,3 +1,9 @@
+// User Management page of LWCam Admin: the list of accounts and the add/edit
+// dialog. These accounts are what LWCAM and the QC review sign in with.
+// All changes go through UserManagementController to the store service, which
+// writes to the database or queues offline. Device ID and project rules are
+// validated here for inline messages and again in the store.
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';

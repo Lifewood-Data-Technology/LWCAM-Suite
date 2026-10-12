@@ -1,3 +1,21 @@
+"""LWIP folder orchestrator: watches the input root and turns each folder into a deskewed/cropped output folder.
+
+Pipeline position: capture app (LWCAM) -> LWIP (this) -> QC Platform -> Upload.
+LWCAM drops a folder of camera images plus a completion marker; this module
+waits until the folder is complete and stable, runs image_ops.deskew_crop_file
+on every image in a shared process pool, then publishes the result atomically
+to the output root together with a manifest (.deskew_crop_manifest.json) that
+QC reads. Finished folders are written to a journal (state.json) and reported
+to the database (see cloud_report.py) so they appear in the QC queue.
+Ideas to know before editing:
+- Source images are never modified; the output folder is built in a work area
+  and swapped into place, and the source is re-checked for changes first.
+- LWIP does not rotate pixels; tilt is recorded as ops in the manifest that QC
+  replays (see image_ops.py).
+- Scheduling is per image, round-robin across active folders, but a folder only
+  publishes once all of its own images are done.
+- Failures back off per folder and are retried; nothing is silently dropped.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -45,6 +63,7 @@ class WorkerStalled(BrokenExecutor):
     """An image job ran past its deadline; the supervisor restarts the worker."""
 
 
+# --- Filesystem helpers: links, walking, thumbnail names ----------------------
 def _is_link(info: os.stat_result) -> bool:
     """A symlink or junction. Followed, they could leave the input tree or loop.
     ponytail: only the LINK reparse tags, so dedup / cloud-placeholder files
@@ -103,8 +122,12 @@ def _thumb_rel(relative: str) -> str:
     return PurePosixPath(relative).with_suffix(".jpg").as_posix()
 
 
+# --- Folder snapshots and the state journal -----------------------------------
 @dataclass(frozen=True)
 class FileSnapshot:
+    """What an input folder looked like at one moment: (name, size, mtime) per
+    image plus a fingerprint. Used to detect that a folder has stopped changing."""
+
     folder: Path
     files: tuple[tuple[str, int, int], ...]
     fingerprint: str
@@ -122,6 +145,9 @@ class StabilityRecord:
 
 
 class StateStore:
+    """The state.json journal: which folders are completed (and reported) and
+    which keep failing, so a restart never reprocesses finished work."""
+
     def __init__(self, path: Path, input_root: Path | None = None):
         self.path = path
         # When this process read the journal: the line between "completed before
@@ -322,6 +348,7 @@ class StateStore:
             LOGGER.warning("Could not update integrity state backup: %s", exc)
 
 
+# --- Errors and per-folder work state -----------------------------------------
 class FolderChangedError(RuntimeError):
     pass
 
@@ -354,7 +381,10 @@ class ActiveFolder:
         return self.snapshot.image_count
 
 
+# --- The orchestrator ---------------------------------------------------------
 class FolderOrchestrator:
+    """Watches the input root and processes ready folders; see the module header."""
+
     # How long a starting orchestrator waits for a live one to release the lock.
     # Station Setup's save asks the running LWIP to stop and starts this one
     # right away; the old one finishes the folder it is publishing first, which
@@ -463,6 +493,7 @@ class FolderOrchestrator:
             requested = True
         return requested
 
+    # --- Run loop and scheduler -----------------------------------------------
     def run_forever(
         self,
         *,
@@ -657,6 +688,7 @@ class FolderOrchestrator:
             " - marked failed" if item["failed"] else "",
         )
 
+    # --- Admitting folders and running image jobs -----------------------------
     def _admit_ready_folders(
         self, active: list[ActiveFolder], active_limit: int, attempted: set[Path]
     ) -> None:
@@ -893,6 +925,7 @@ class FolderOrchestrator:
                 shutil.rmtree(fs_path(item.work_folder), ignore_errors=True)
                 active.remove(item)
 
+    # --- Publishing finished folders ------------------------------------------
     def _publish_active_folder(self, item: ActiveFolder) -> tuple[Path, str]:
         self._require_unchanged(item.snapshot)
         output_folder = self.config.output_root / item.snapshot.folder.relative_to(
@@ -1074,6 +1107,7 @@ class FolderOrchestrator:
         shutil.rmtree(fs_path(previous), ignore_errors=True)
         return manifest_checksum
 
+    # --- Adopting existing output, and readiness checks -----------------------
     def _try_adopt(self, snapshot: FileSnapshot) -> bool:
         """Journal an input folder whose output ALREADY holds a matching, valid
         manifest — without reprocessing it.
@@ -1219,6 +1253,7 @@ class FolderOrchestrator:
 
     INPUT_LIST_TIMEOUT = 10.0
 
+    # --- Finding candidate folders, stop files, signals -----------------------
     def _candidate_folders(self) -> list[Path]:
         """Bounded, and reports an unreachable input root: a dead share must not
         freeze the scheduler, and must be visible (heartbeat last_error).
@@ -1341,6 +1376,7 @@ class FolderOrchestrator:
             if value is not None:
                 signal.signal(value, request_stop)
 
+    # --- Reporting completed folders to the database --------------------------
     def _sweep_unreported(self) -> None:
         """Reports every completed folder that has not reached the database yet.
 
@@ -1527,6 +1563,7 @@ class FolderOrchestrator:
             time.sleep(min(0.25, max(0, deadline - time.monotonic())))
 
 
+# --- Snapshots and output verification ----------------------------------------
 def build_snapshot(folder: Path, config: ToolConfig) -> FileSnapshot | None:
     values: list[tuple[str, int, int]] = []
     # Enumerated through fs_path, relative_to the SAME prefixed root: a long
@@ -1712,6 +1749,7 @@ def _verify_thumbnails(
             raise OutputIntegrityError(f"thumbnail checksum mismatch: {relative}")
 
 
+# --- Logging, single-instance lock, small file helpers ------------------------
 def configure_logging(config: ToolConfig, *, verbose: bool = False) -> None:
     config.log_file.parent.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO

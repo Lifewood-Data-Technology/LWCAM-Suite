@@ -1,3 +1,9 @@
+// Projects screen of LWCam Admin (the app that manages users, projects, devices
+// and this station's database connection for the LWCAM suite). Lists projects
+// and offers create, edit, delete and "Edit template" (opens the metadata
+// template editor). All data changes go through ProjectsController, which
+// saves via the admin store; this file holds only the list and the dialogs.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -61,6 +67,7 @@ class ProjectsPage extends StatelessWidget {
     );
   }
 
+  /// One project card with its Edit / Edit template / Delete menu.
   Widget _projectTile(BuildContext context, ProjectsController c, Project p) {
     final dateText =
         '${p.startDate.year}-${p.startDate.month.toString().padLeft(2, '0')}-${p.startDate.day.toString().padLeft(2, '0')}';

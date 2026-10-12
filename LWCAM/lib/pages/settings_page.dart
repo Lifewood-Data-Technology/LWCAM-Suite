@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Holds station-level settings for the LWCAM capture app. There is no page
+// here despite the name; only SettingsController lives in this file.
+// Values come from the node config written by LWCam Admin.
 import 'package:get/get.dart';
 import 'package:lwcam/services/node_config_service.dart';
 
@@ -14,7 +17,7 @@ import 'package:lwcam/services/node_config_service.dart';
 ///
 /// The file keeps its historical name (`settings_page.dart`) because half
 /// a dozen imports across gallery/upload/box flows depend on it — same
-/// convention as the `upload_contoller.dart` typo.
+/// convention as the `upload_controller.dart` typo.
 class SettingsController extends GetxController {
   /// The image destination root transfers land in — read from
   /// `NodeConfig.destinationPath`, set only by LWCam Admin's Station Setup.

@@ -1,3 +1,6 @@
+// App-bar actions shared by every page of the capture app (LWCAM): version
+// label, dark/light toggle and Logout. Pages add them to their AppBar so the
+// controls look the same everywhere.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

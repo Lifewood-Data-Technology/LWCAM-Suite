@@ -1,3 +1,9 @@
+// Dialog that forces a new password on a user's first login to the capture app
+// (LWCAM). It checks the new password against the confirmation and against the
+// temporary one, and hands the result back to AuthController, which stores it.
+// Things to know before editing: the dialog compares against the current
+// password hash, so it never needs the plain temporary password.
+
 import 'package:flutter/material.dart';
 
 import '../services/password_hasher.dart';

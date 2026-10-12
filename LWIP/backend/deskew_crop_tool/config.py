@@ -1,3 +1,13 @@
+"""Configuration for LWIP (the deskew/crop stage), loaded from a JSON file.
+
+load_config() reads config/deskew_crop_config.json into the frozen ToolConfig
+dataclass and validates it. The installer writes this file once and it is not
+overwritten on upgrade. Relative paths resolve against the install directory.
+Things to know: input_root/output_root/work_root must not overlap; database
+settings are only required when cloud_report is true; the DB password may be
+stored encrypted (see lwcam_secrets); the new ToolConfig fields are defaulted
+so older callers and tests that build one by keyword keep working.
+"""
 from __future__ import annotations
 
 import json

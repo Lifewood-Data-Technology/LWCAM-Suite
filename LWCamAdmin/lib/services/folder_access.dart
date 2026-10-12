@@ -1,3 +1,6 @@
+// Folder check behind Station Setup's "test folder access" button. It tells a
+// missing folder, a refused login and an unreachable PC apart, so an operator
+// finds a bad share before the capture app (LWCAM) or QC trips over it.
 import 'dart:async';
 import 'dart:io';
 

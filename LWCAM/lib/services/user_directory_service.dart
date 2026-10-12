@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// The few direct PostgreSQL writes LWCAM makes about users: password change,
+// last login and a new-box flag. Everything else about users is managed in
+// LWCam Admin and only pulled here.
 import 'package:get/get.dart';
 import 'package:postgres/postgres.dart';
 

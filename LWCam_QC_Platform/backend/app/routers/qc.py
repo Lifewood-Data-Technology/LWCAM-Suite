@@ -1,3 +1,22 @@
+"""QC review API: every endpoint under /qc/metadata-tasks.
+
+This is the main router of the QC Platform. In the pipeline (capture app
+LWCAM -> LWIP deskew/crop -> QC Platform -> Upload to S3) it serves the review
+console: list and claim folders, edit metadata and pages, run AI review, then
+approve, reject or revert. The first half of the file is helpers (paths,
+metadata template, snapshots, draft commit); the endpoints start near the
+bottom at list_tasks.
+
+Ideas to know before editing:
+- Edits are drafts. Page changes go to a per-user draft (services/qc_drafts.py)
+  and only reach the official files when the draft is saved or the folder is
+  approved (commit_current_draft). Rotate, crop and deskew are recorded as
+  pending ops and baked into pixels later.
+- Every mutating call carries a sourceHash (source_hash). If the folder changed
+  underneath the reviewer the call is refused with a conflict.
+- A folder is locked to one reviewer (qc_locked_by). Mutating endpoints load it
+  with lock=True and then call assert_lock_owner.
+"""
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -213,6 +232,7 @@ METADATA_FIELD_MAP = {
 }
 
 
+# --- Small shared helpers and visibility rules --------------------------------
 def now() -> datetime:
     """Return the current UTC time."""
     return datetime.now(timezone.utc)
@@ -261,10 +281,13 @@ def safe_filename(value: str) -> str:
 
 
 def safe_backup_part(value: str) -> str:
+    """Make a string safe to use inside a backup file name."""
     return "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
 
 
+# --- Image file paths and availability ----------------------------------------
 def thumbnail_target_path(folder: CaptureFolder, image: CaptureImage) -> Path | None:
+    """Where an image's thumbnail belongs, or None if the folder has no thumbnail directory."""
     if not folder.thumbnail_path:
         return None
     directory = to_local(folder.thumbnail_path).resolve()
@@ -308,6 +331,7 @@ def resolve_image_file(folder: CaptureFolder, image: CaptureImage, thumbnail: bo
 
 
 def image_available(folder: CaptureFolder, image: CaptureImage) -> bool:
+    """True if the image file exists on disk."""
     try:
         resolve_image_file(folder, image)
         return True
@@ -404,7 +428,9 @@ def image_available_in(names: set[str] | None, image: CaptureImage) -> bool:
     return os.path.normcase(filename) in names
 
 
+# --- Metadata template, normalisation and snapshots ---------------------------
 def metadata_snapshot(folder: CaptureFolder) -> dict:
+    """The folder's metadata columns as a camelCase dict (feeds source_hash)."""
     box = folder.box
     project = box.project
     return {
@@ -436,6 +462,7 @@ def metadata_snapshot(folder: CaptureFolder) -> dict:
 
 
 def metadata_template(folder: CaptureFolder) -> MetadataTemplateVO:
+    """The project's metadata form definition, falling back to DEFAULT_METADATA_TEMPLATE."""
     project_template = (folder.box.project.template if folder.box and folder.box.project else None) or {}
     raw_fields = project_template.get("fields") if isinstance(project_template, dict) else None
     raw_mapping = project_template.get("titleRecordTypeMap") if isinstance(project_template, dict) else None
@@ -493,6 +520,7 @@ def metadata_template(folder: CaptureFolder) -> MetadataTemplateVO:
 
 
 def derive_record_type(title: str | None, template: MetadataTemplateVO) -> str | None:
+    """Look up the record type that goes with a title in the template's title map."""
     if not title:
         return None
     return template.titleRecordTypeMap.get(title) or TITLE_RECORD_TYPE_MAP.get(title)
@@ -528,6 +556,7 @@ def apply_template_mappings(values: dict, template: MetadataTemplateVO) -> dict:
 
 
 def normalize_metadata_values(values: dict, template: MetadataTemplateVO) -> dict:
+    """Clean keyed values and fill the template-derived ones (fixed fields, record type)."""
     result = dict(values)
     for field in template.fields:
         if field.input == "fixed":
@@ -573,6 +602,7 @@ def normalize_metadata_values(values: dict, template: MetadataTemplateVO) -> dic
 
 
 def metadata_date(value):
+    """Parse an ISO date string to a datetime; empty text becomes None and unparseable text passes through."""
     if isinstance(value, datetime) or value is None:
         return value
     if isinstance(value, str):
@@ -682,6 +712,7 @@ def validate_batch_delete(current_order: list[int], requested_ids: list[int]) ->
 
 
 def effective_metadata_snapshot(folder: CaptureFolder, manifest: dict | None, template: MetadataTemplateVO) -> dict:
+    """The folder's metadata with this reviewer's unsaved draft values laid on top."""
     snapshot = normalize_metadata_values(metadata_snapshot(folder), template)
     draft_values = metadata_values_from_manifest(manifest)
     if draft_values:
@@ -690,6 +721,7 @@ def effective_metadata_snapshot(folder: CaptureFolder, manifest: dict | None, te
 
 
 def editable_metadata_to_dict(values) -> dict:
+    """Flatten the request's metadata model into the camelCase dict used everywhere else."""
     return {
         "coverTag": values.coverTag,
         "imageTags": values.imageTags,
@@ -709,6 +741,7 @@ def editable_metadata_to_dict(values) -> dict:
 
 
 def apply_metadata_to_folder(folder: CaptureFolder, values: dict, template: MetadataTemplateVO) -> None:
+    """Write normalised metadata values onto the folder row (camelCase key -> column via METADATA_FIELD_MAP)."""
     normalized = normalize_metadata_values(values, template)
     for api_key, model_key in METADATA_FIELD_MAP.items():
         if api_key in normalized:
@@ -716,6 +749,7 @@ def apply_metadata_to_folder(folder: CaptureFolder, values: dict, template: Meta
 
 
 def validate_metadata_for_approval(values: dict, template: MetadataTemplateVO) -> None:
+    """Refuse approval while any mandatory field of the template is empty."""
     normalized = normalize_metadata_values(values, template)
     missing = [
         field.label
@@ -727,6 +761,7 @@ def validate_metadata_for_approval(values: dict, template: MetadataTemplateVO) -
 
 
 def image_snapshot(folder: CaptureFolder, disk_stats: dict[str, tuple[int, int]] | None = None) -> list[dict]:
+    """Per-image id, name and on-disk (mtime, size), in page order. The image half of source_hash."""
     if disk_stats is None:
         disk_stats = image_disk_stats(folder)
     entries = []
@@ -754,7 +789,9 @@ def source_hash(folder: CaptureFolder, disk_stats: dict[str, tuple[int, int]] | 
     return sha256(raw.encode("utf-8")).hexdigest()
 
 
+# --- AI review inputs, locking and queue search -------------------------------
 def ai_review_snapshot(folder: CaptureFolder, user_id: str) -> AiReviewSnapshot:
+    """Build the AI review input from what the reviewer currently sees (draft metadata, pages and order)."""
     template = metadata_template(folder)
     manifest = read_manifest(folder.id, user_id)
     effective_metadata = effective_metadata_snapshot(folder, manifest, template)
@@ -837,6 +874,7 @@ def assert_lock_owner(folder: CaptureFolder, user_id: str) -> None:
 
 
 def cancel_ai_jobs_after_finalization(folder_id: int, *, reason: str) -> None:
+    """Best-effort: stop pending AI work for a folder that was just approved or rejected."""
     try:
         ai_preanalysis_scheduler.cancel_for_finalization(folder_id, reason=reason)
     except Exception:
@@ -850,6 +888,7 @@ def cancel_ai_jobs_after_finalization(folder_id: int, *, reason: str) -> None:
 
 
 def cancel_manual_ai_after_release(folder_id: int) -> None:
+    """Best-effort: stop reviewer-started AI jobs for a folder that was just released."""
     try:
         ai_preanalysis_scheduler.cancel_manual_for_release(folder_id)
     except Exception:
@@ -1028,7 +1067,9 @@ def to_task_vo(db, folder: CaptureFolder, viewer_user_id: str) -> MetadataQcTask
     )
 
 
+# --- Draft file helpers and uploads -------------------------------------------
 def verify_reviewable_folder(folder: CaptureFolder, source_hash_value: str) -> None:
+    """Conflict (409) unless the client's sourceHash is current and the folder is still pending."""
     current_hash = source_hash(folder)
     if source_hash_value != current_hash:
         raise BusinessError(ApiCodes.CONFLICT, "This folder has changed. Refresh it and review again.", 409)
@@ -1037,6 +1078,7 @@ def verify_reviewable_folder(folder: CaptureFolder, source_hash_value: str) -> N
 
 
 def ordered_official_images(folder: CaptureFolder) -> list[CaptureImage]:
+    """The folder's committed images in page order (capture time, then id)."""
     return sorted(folder.images, key=lambda item: (item.image_created_at or datetime.min.replace(tzinfo=timezone.utc), item.id))
 
 
@@ -1045,6 +1087,7 @@ def official_image_ids(folder: CaptureFolder) -> list[int]:
 
 
 def draft_or_official_path(folder: CaptureFolder, user_id: str, image_id: int) -> Path:
+    """The reviewer's draft copy of an image if one exists, else the official file."""
     source_path = draft_image_path(folder.id, user_id, image_id)
     if source_path is not None:
         return source_path
@@ -1055,6 +1098,10 @@ def draft_or_official_path(folder: CaptureFolder, user_id: str, image_id: int) -
 
 
 def ensure_editable_work_path(folder: CaptureFolder, user_id: str, image_id: int) -> tuple[Path, str]:
+    """Return (path, name) of the draft file to edit, copying the official file into the draft first if needed.
+
+    Negative image ids are pages that exist only in the draft (inserted or replaced).
+    """
     manifest = read_manifest(folder.id, user_id)
     draft_item = draft_image_item(manifest, image_id)
     if image_id < 0:
@@ -1109,6 +1156,7 @@ MAX_UPLOAD_PIXELS = 300_000_000  # a 600 dpi A0 scan is ~ 250 MP; above this is 
 
 
 def save_upload_to_temp(folder_id: int, user_id: str, file: UploadFile, filename: str) -> Path:
+    """Stream an uploaded image into the reviewer's draft uploads folder, enforcing size and that Pillow can read it."""
     upload_dir = draft_dir(folder_id, user_id) / "uploads"
     fs_path(upload_dir).mkdir(parents=True, exist_ok=True)
     target = (upload_dir / f"{int(now().timestamp() * 1000000)}_{safe_filename(filename)}").resolve()
@@ -1371,7 +1419,9 @@ def run_image_batch(operation: Callable[[Any], None], items: Sequence[Any]) -> N
         list(pool.map(operation, items))
 
 
+# --- Separation (split a folder into several) and draft commit ----------------
 def deleted_root(folder_id: int, user_id: str) -> Path:
+    """A fresh timestamped folder under qc_deleted where removed page files are parked rather than erased."""
     path = draft_dir(folder_id, user_id).parent.parent / "qc_deleted" / str(folder_id) / str(int(now().timestamp() * 1000))
     fs_path(path).mkdir(parents=True, exist_ok=True)
     return path
@@ -1395,6 +1445,7 @@ def child_group_id(parent_group_id: str | None, index: int) -> str | None:
 
 
 def unique_official_name(folder: CaptureFolder, preferred_name: str, existing_names: set[str]) -> str:
+    """A file name not used by any image row or file in the folder, adding _1, _2 ... if needed."""
     preferred = safe_filename(preferred_name)
     stem = Path(preferred).stem
     suffix = Path(preferred).suffix or ".tif"
@@ -1416,6 +1467,7 @@ def apply_separation_commit(
     commit_time: datetime,
     pending_names: set[str] | None = None,
 ) -> SeparationFileTransaction:
+    """Split the folder at the marked pages into child folders (DB rows now, files staged in the returned transaction)."""
     # [marker_ids] are the EXTRA start pages: the first page starts the first
     # folder without being marked, so a stray mark on it changes nothing.
     marker_set = set(marker_ids) - set(ordered_ids[:1])
@@ -1962,10 +2014,12 @@ def commit_current_draft(
             finalize_steps.append(lambda s=staged_qc_ops, o=qc_ops_target: os.replace(fs_path(s), fs_path(o)))
 
     def finalize() -> None:
+        """Make the staged file changes visible. Run only after the DB commit succeeded."""
         for step in finalize_steps:
             step()
 
     def abort() -> None:
+        """Undo the staged file changes. Run when the DB commit failed."""
         # Reverse order: undo the most recently staged change first, though
         # each step only ever touches its own file so the order is not load
         # bearing. Broad catch - this already runs from an except block, and
@@ -1980,6 +2034,7 @@ def commit_current_draft(
     return separation_transaction, finalize, abort
 
 
+# --- Endpoints: queue, claim, approve, reject, revert -------------------------
 @router.get("", response_model=ApiResponse[PageResult[MetadataQcTaskVO]])
 def list_tasks(
     current_user: QcUser,
@@ -2557,6 +2612,7 @@ def reject_task(folder_id: int, request: RejectRequest, current_user: QcUser, db
     return ok(None)
 
 
+# --- Endpoints: metadata and AI review ----------------------------------------
 @router.put("/{folder_id}/metadata", response_model=ApiResponse[MetadataQcTaskVO])
 def update_metadata(
     folder_id: int,
@@ -2712,6 +2768,7 @@ def apply_ai_review_suggestions(
     return ok(to_task_vo(db, folder, current_user.user_id))
 
 
+# --- Endpoints: page edits (crop, luminance, replace, delete, rotate, reorder) -
 @router.post("/{folder_id}/images/{image_id}/crop", response_model=ApiResponse[MetadataQcTaskVO])
 def crop_image(
     folder_id: int,
@@ -2880,6 +2937,7 @@ def replace_image(
     sourceHash: str = Form(...),
     file: UploadFile = File(...),
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Swap a page for an uploaded image in the draft (the original is kept)."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, sourceHash)
@@ -2914,6 +2972,7 @@ def insert_image_before(
     sourceHash: str = Form(...),
     file: UploadFile = File(...),
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Insert an uploaded image as a new page before the given page, in the draft."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, sourceHash)
@@ -2935,6 +2994,7 @@ def delete_qc_image(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Delete one page in the draft; at least one page must remain."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -2980,6 +3040,7 @@ def rotate_qc_image(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Rotate one page by 90, -90 or 180 degrees (recorded as a pending op)."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -3005,6 +3066,7 @@ def rotate_qc_batch(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Rotate several pages in one draft revision."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -3034,6 +3096,7 @@ def deskew_qc_image(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Nudge one page level by a small angle (recorded as a pending op)."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -3086,6 +3149,7 @@ def reorder_qc_images(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Set a new page order in the draft; the list must match the current pages exactly."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -3106,6 +3170,7 @@ def restore_qc_image(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Put a page back to its original file and drop its pending edits."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -3118,8 +3183,10 @@ def restore_qc_image(
     return ok(to_task_vo(db, folder_or_404(db, folder_id, current_user.id), current_user.user_id))
 
 
+# --- Endpoints: draft undo/redo, separation, save and discard -----------------
 @router.post("/{folder_id}/draft/undo", response_model=ApiResponse[MetadataQcTaskVO])
 def undo_qc_draft(folder_id: int, current_user: QcUser, db: DbSession) -> ApiResponse[MetadataQcTaskVO]:
+    """Undo the last draft edit (page or metadata) for this reviewer."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     undo_manifest(folder.id, current_user.user_id)
@@ -3130,6 +3197,7 @@ def undo_qc_draft(folder_id: int, current_user: QcUser, db: DbSession) -> ApiRes
 
 @router.post("/{folder_id}/draft/redo", response_model=ApiResponse[MetadataQcTaskVO])
 def redo_qc_draft(folder_id: int, current_user: QcUser, db: DbSession) -> ApiResponse[MetadataQcTaskVO]:
+    """Redo the draft edit that was last undone."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     redo_manifest(folder.id, current_user.user_id)
@@ -3145,6 +3213,7 @@ def update_separation_markers(
     current_user: QcUser,
     db: DbSession,
 ) -> ApiResponse[MetadataQcTaskVO]:
+    """Store the pages marked as the start of a new folder. The split itself happens on save."""
     folder = folder_or_404(db, folder_id, current_user.id, lock=True)
     assert_lock_owner(folder, current_user.user_id)
     verify_reviewable_folder(folder, request.sourceHash)
@@ -3180,6 +3249,7 @@ def save_draft(
     parent_folder_id = folder.id
 
     def response_folder_after_save() -> CaptureFolder:
+        """The folder to return to the client: the first pending child after a split, else this folder."""
         # Only a split that actually ran has children to move on to: marks
         # alone (e.g. one a reorder left on page 1) split nothing.
         if separation_transaction is None:
@@ -3295,6 +3365,7 @@ def discard_current_draft(
     return ok(to_task_vo(db, refreshed, current_user.user_id))
 
 
+# --- Image preview ------------------------------------------------------------
 def preview_ops(
     folder: CaptureFolder,
     image: CaptureImage | None,

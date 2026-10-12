@@ -1,3 +1,12 @@
+// Local SQLite store for the capture app (LWCAM, first stage of the pipeline:
+// capture app -> LWIP -> QC -> Upload). One singleton, UploadStatsDB, owns one
+// STABLE database per device/operator (capture boxes, folders, image
+// assignments, replacement records, the sync outbox) plus MONTHLY databases
+// that hold only the high-volume upload_records and daily_summary tables.
+// Things to know before editing: capture changes are written to the outbox in
+// the same transaction as the change, and SyncService later drains the outbox
+// to PostgreSQL using natural keys (never local ids); schema upgrades are
+// additive and run on every open, so keep them safe to repeat.
 // ignore_for_file: avoid_print
 
 import 'dart:convert';
@@ -678,6 +687,8 @@ class UploadStatsDB {
     }
   }
 
+  // --- Schema helpers and legacy migrations --------------------------------
+
   Future<bool> _tableExists(DatabaseExecutor db, String table) async {
     final rows = await db.rawQuery(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
@@ -1316,6 +1327,8 @@ class UploadStatsDB {
     }
   }
 
+  // --- Transfer protection: lock file + WAL while a box transfer runs ------
+
   Future<TransferProtectionHandle> acquireTransferProtection({
     required String deviceId,
     required String scanningOpr,
@@ -1760,7 +1773,7 @@ class UploadStatsDB {
   // Per-device operational state, mirrored to Postgres only via the
   // capture_boxes/capture_folders sync outbox entries below.
 
-  /// Local mirrors of the cloud entities in LWCam_database_20260720.sql —
+  /// Local mirrors of the cloud entities in LWCam_database_unified_*.sql —
   /// same column names, full-CAPS statuses — plus local-only columns grouped
   /// at the bottom of each table (excluded from sync payload consumption by
   /// the sink). The QC-owned pipeline columns (group_id, client_qc_status,
@@ -1863,7 +1876,7 @@ class UploadStatsDB {
   // which is a human-editable label LWCam Admin can rename freely),
   // devices.device_id, capture_boxes (project, box_name),
   // capture_folders (box, folder_seq), capture_images (folder, image_name)
-  // — matching the UNIQUE constraints in LWCam_database_20260720.sql.
+  // — matching the UNIQUE constraints in LWCam_database_unified_*.sql.
 
   // =======================================================
   // INDEXES (device DB)
@@ -2506,6 +2519,8 @@ class UploadStatsDB {
     );
   }
 
+  // --- Rework requests: closing and folder metadata fixes ------------------
+
   /// Queues the CLOSED row that retires a QC recapture request.
   ///
   /// Called AFTER the recaptured image has been written to LWIP's input folder —
@@ -2641,6 +2656,8 @@ class UploadStatsDB {
       return {};
     }
   }
+
+  // --- Deleting folders and boxes ------------------------------------------
 
   /// Deletes a folder only when no images are assigned to it. Returns false
   /// (and deletes nothing) otherwise.
@@ -3138,7 +3155,7 @@ class UploadStatsDB {
   /// record exists only for a copy that completed and passed its size check —
   /// so a destination file whose name is NOT in this set is an orphan from an
   /// interrupted run (power loss/crash mid-copy) and safe to overwrite; see
-  /// the name allocator in upload_contoller.dart.
+  /// the name allocator in upload_controller.dart.
   Future<Set<String>> getUploadedFilenames(String deviceId) async {
     final result = <String>{};
     for (final db in await _allDeviceUploadDatabases(deviceId)) {

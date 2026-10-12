@@ -1,3 +1,6 @@
+// Encrypts and decrypts the stored database password with Windows DPAPI
+// (used by LWCAM and LWCam Admin; the two copies must stay identical).
+// The encrypted value lives in the node config file, never plaintext.
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';

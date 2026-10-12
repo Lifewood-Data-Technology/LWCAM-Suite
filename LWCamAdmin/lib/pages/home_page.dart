@@ -1,3 +1,9 @@
+// Landing screen of LWCam Admin (the app that manages users, projects, devices
+// and this station's database connection for the suite). Shows a status bar,
+// a warning banner if the saved admin login cannot be read, and one card per
+// admin area: User Management, Projects, Devices, App Settings, Station Setup.
+// Each card just opens its page; the work happens on those pages.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -13,6 +19,7 @@ import 'projects_page.dart';
 import 'station_setup_page.dart';
 import 'user_management_page.dart';
 
+/// The signed-in home screen: app bar (theme toggle, logout) plus the cards.
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 

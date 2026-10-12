@@ -1,3 +1,11 @@
+"""Passwords, JWT access tokens and the one-live-sign-in-per-account rule.
+
+QC Platform stage. Password hashes are bcrypt in the same format LWCAM and
+LWCam Admin write, because `users.password` is shared. Sign-in state (current
+session per account, revoked sessions) is kept IN MEMORY in this process, so
+it is lost on restart; see the ponytail notes below for the limits. The
+dependencies in app/dependencies.py call the is_* helpers here on every request.
+"""
 import secrets
 import threading
 import time

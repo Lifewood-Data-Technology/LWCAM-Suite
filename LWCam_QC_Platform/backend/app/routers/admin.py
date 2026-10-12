@@ -1,3 +1,21 @@
+"""Admin API under /admin: users, running reviews, dashboard stats, server settings.
+
+Part of the QC Platform server (capture -> LWIP -> QC Platform -> Upload). The
+console's Admin pages call this router. User management and project creation
+are SuperAdmin only (SuperAdminUser); everything else needs an Admin
+(AdminUser). A plain QC reviewer never reaches these endpoints.
+
+Sections: user accounts, reviewing tasks and release, status and stats,
+path validation, network folder logins, and saving server settings.
+
+Ideas to know before editing:
+- users.roles is a comma list shared with LWCAM, so role changes go through
+  merge_roles and role filters run in Python on role_set, not in SQL.
+- Settings are saved to config.txt (write_server_settings) and applied live
+  to the running settings object; secrets are never sent back to the console.
+- Path checks must report why a folder is unreachable (mapped drives, refused
+  network logins) instead of a generic error; see check_directory.
+"""
 import logging
 import os
 import stat
@@ -61,11 +79,13 @@ FOLDER_STATUS_LABELS = {
 }
 
 
+# --- User account helpers -----------------------------------------------------
 def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def user_or_404(db, user_id: int) -> User:
+    """Load a user that is not soft-deleted, or raise 404."""
     user = db.scalar(select(User).options(selectinload(User.projects)).where(User.id == user_id))
     if user is None or user.is_deleted is True:
         raise BusinessError(ApiCodes.NOT_FOUND, "The user does not exist.", 404)
@@ -73,6 +93,7 @@ def user_or_404(db, user_id: int) -> User:
 
 
 def canonical_role(role: str) -> str:
+    """Map the console's role name (admin or qc) to the stored role; anything else is refused."""
     result = ALLOWED_ROLES.get(role.strip().lower())
     if result is None:
         raise BusinessError(ApiCodes.BAD_REQUEST, "Only administrator or QC accounts can be created.")
@@ -80,6 +101,7 @@ def canonical_role(role: str) -> str:
 
 
 def active_projects(db, project_ids: list[int]) -> list[Project]:
+    """Load the given projects; refuses the whole list if any is missing or deleted."""
     ids = list(dict.fromkeys(project_ids))
     if not ids:
         return []
@@ -108,6 +130,7 @@ def merge_roles(existing: str | None, role: str) -> str:
 
 
 def apply_role_projects(user: User, role: str, status: str, projects: list[Project]) -> None:
+    """Set the user's role and active flag; an active QC user must have at least one project."""
     if status not in ALLOWED_STATUSES:
         raise BusinessError(ApiCodes.BAD_REQUEST, "Unsupported user status.")
     if role == ROLE_QC and status == "active" and not projects:
@@ -117,6 +140,7 @@ def apply_role_projects(user: User, role: str, status: str, projects: list[Proje
 
 
 def role_id_for(db, role_name: str) -> int:
+    """Database id of a role by name (case-insensitive), or a 400 if it does not exist."""
     role_id = db.scalar(select(Role.id).where(func.lower(Role.role_name) == role_name.lower()))
     if role_id is None:
         raise BusinessError(ApiCodes.BAD_REQUEST, f"Role {role_name} does not exist")
@@ -124,6 +148,7 @@ def role_id_for(db, role_name: str) -> int:
 
 
 def replace_user_projects(db, user: User, role: str, projects: list[Project]) -> None:
+    """Replace the user's project assignments. Only QC users get any; admins are not project-scoped."""
     db.execute(delete(UserProject).where(UserProject.user_id == user.id))
     if role != ROLE_QC:
         return
@@ -134,6 +159,7 @@ def replace_user_projects(db, user: User, role: str, projects: list[Project]) ->
     ])
 
 
+# --- Endpoints: user management (SuperAdmin only) -----------------------------
 @router.get("/users", response_model=ApiResponse[PageResult[UserAdminVO]])
 def list_users(
     _: SuperAdminUser,
@@ -144,6 +170,7 @@ def list_users(
     role: str | None = None,
     status: str | None = None,
 ) -> ApiResponse[PageResult[UserAdminVO]]:
+    """List accounts, filtered by name, role and status, one page at a time."""
     statement = select(User).options(selectinload(User.projects)).where(User.is_deleted.is_not(True))
     if keyword and keyword.strip():
         statement = statement.where(User.user_id.ilike(f"%{keyword.strip()}%"))
@@ -188,6 +215,7 @@ def list_users(
 
 @router.post("/users", response_model=ApiResponse[UserAdminVO])
 def create_user(request: CreateUserRequest, current_user: SuperAdminUser, db: DbSession) -> ApiResponse[UserAdminVO]:
+    """Create an admin or QC account. The new user must change the password at first sign-in."""
     login_id = request.userId.strip()
     if db.scalar(select(User.id).where(User.user_id == login_id)) is not None:
         raise BusinessError(ApiCodes.CONFLICT, "This account already exists.", 409)
@@ -219,6 +247,7 @@ def update_user(
     current_user: SuperAdminUser,
     db: DbSession,
 ) -> ApiResponse[UserAdminVO]:
+    """Change a user's role, status and projects, and end their sessions so it applies at once."""
     user = user_or_404(db, user_id)
     if user.id == current_user.id and request.status == "disabled":
         raise BusinessError(ApiCodes.BAD_REQUEST, "You cannot disable the account you are signed in with.")
@@ -237,6 +266,7 @@ def update_user(
 
 @router.delete("/users/{user_id}", response_model=ApiResponse[None])
 def delete_user(user_id: int, current_user: SuperAdminUser, db: DbSession) -> ApiResponse[None]:
+    """Soft-delete a user: the row stays, but the account is disabled and loses its projects."""
     if user_id == current_user.id:
         raise BusinessError(ApiCodes.BAD_REQUEST, "You cannot delete the account you are signed in with.")
     user = user_or_404(db, user_id)
@@ -259,6 +289,7 @@ def reset_password(
     current_user: SuperAdminUser,
     db: DbSession,
 ) -> ApiResponse[None]:
+    """Set a new password for a user, who must change it at next sign-in."""
     user = user_or_404(db, user_id)
     user.password = hash_password(request.newPassword)
     user.must_change_password = True
@@ -270,6 +301,7 @@ def reset_password(
 
 @router.get("/projects/options", response_model=ApiResponse[list[ProjectOptionVO]])
 def project_options(_: AdminUser, db: DbSession) -> ApiResponse[list[ProjectOptionVO]]:
+    """Projects that can be assigned to a QC user (for the user form's dropdown)."""
     projects = db.scalars(
         select(Project).where(Project.is_deleted.is_not(True)).order_by(Project.project_name.asc())
     ).all()
@@ -279,6 +311,7 @@ def project_options(_: AdminUser, db: DbSession) -> ApiResponse[list[ProjectOpti
     ])
 
 
+# --- Endpoints: folders under review, system status, dashboard stats ----------
 @router.get("/qc-tasks", response_model=ApiResponse[PageResult[AdminQcTaskVO]])
 def list_reviewing_qc_tasks(
     _: AdminUser,
@@ -288,6 +321,7 @@ def list_reviewing_qc_tasks(
     keyword: str | None = None,
     project_id: int | None = Query(default=None, alias="projectId"),
 ) -> ApiResponse[PageResult[AdminQcTaskVO]]:
+    """List folders a reviewer currently has claimed (pending and locked), oldest claim first."""
     conditions = [
         func.lower(CaptureFolder.qc_status) == "pending",
         CaptureFolder.qc_locked_by.is_not(None),
@@ -360,6 +394,7 @@ def admin_release_qc_task(
     current_user: AdminUser,
     db: DbSession,
 ) -> ApiResponse[None]:
+    """Take a claimed folder away from its reviewer so someone else can claim it."""
     folder = db.scalar(
         select(CaptureFolder)
         .options(lazyload("*"))
@@ -448,6 +483,7 @@ def reviewer_workload(db: Session) -> list[dict[str, Any]]:
 
 @router.get("/system-status", response_model=ApiResponse[dict[str, Any]])
 def system_status_route(_: AdminUser, db: DbSession, all: int = 0) -> ApiResponse[dict[str, Any]]:
+    """Health of every suite part, from the heartbeats each part writes to the database."""
     return ok(system_status(db, show_all=bool(all)))
 
 
@@ -461,6 +497,7 @@ def forget_pc_route(part: str, host: str, _: AdminUser, db: DbSession) -> ApiRes
 
 @router.get("/stats/overview", response_model=ApiResponse[StatsOverviewVO])
 def stats_overview(_: AdminUser, db: DbSession) -> ApiResponse[StatsOverviewVO]:
+    """Dashboard numbers: today's counts, queue sizes, status split, 7-day trend and reviewer workload."""
     today_start = datetime.combine(date.today(), time.min, tzinfo=timezone.utc)
     tomorrow = today_start + timedelta(days=1)
 
@@ -556,6 +593,7 @@ def stats_overview(_: AdminUser, db: DbSession) -> ApiResponse[StatsOverviewVO]:
     ))
 
 
+# --- Settings: path checks, network logins, saving ----------------------------
 def path_settings_vo() -> PathSettingsVO:
     """What this server is actually using, and where each value came from.
 
@@ -628,6 +666,7 @@ def directory_state(directory: Path) -> tuple[bool, OSError | None]:
 
 
 def unreachable_message(value: str, error: OSError) -> str:
+    """Explain why a folder could not be reached, pointing at the network login when that is the likely cause."""
     reason = f"This folder could not be reached: {error.strerror or error}."
     host = netlogin.host_of(value)
     if host and getattr(error, "winerror", None) in (5, 86, 1326):
@@ -646,6 +685,7 @@ def unreachable_message(value: str, error: OSError) -> str:
 def check_directory(
     key: str, raw_value: str, *, require_writable: bool, must_exist: bool = False
 ) -> PathCheckVO:
+    """Check one folder setting: reachable, existing and (if required) writable. Never creates the folder."""
     value = (raw_value or "").strip()
     if not value:
         return PathCheckVO(key=key, path="", exists=False, writable=False, message="Not set.")
@@ -731,6 +771,7 @@ def _same_or_inside(candidate: Path, root: Path) -> bool:
 
 
 def validate_path_settings(db: Session, request: UpdatePathSettingsRequest) -> PathValidationVO:
+    """Check the QC input root, work folder and output folder together, including that the work folder is separate."""
     checks = [
         check_directory("exportTempDir", request.exportTempDir, require_writable=True),
         check_directory("exportOutputDir", request.exportOutputDir, require_writable=True),
@@ -804,6 +845,7 @@ def check_path_settings(
 
 
 def _server_folder_paths() -> list[str]:
+    """The folders this server uses, so the logins list can show which PC each one lives on."""
     return [settings.qc_images_root, settings.export_temp_dir, settings.export_output_dir]
 
 
@@ -879,6 +921,8 @@ def update_server_settings(
             data=validation.model_dump(),
         )
 
+    # Build the full set of values to save: the fixed ones first, then the
+    # optional AI fields below.
     values = {
         "qc_images_root": images_root,
         "export_temp_dir": export_temp_dir,

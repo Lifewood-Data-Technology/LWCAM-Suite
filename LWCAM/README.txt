@@ -23,8 +23,6 @@ DOCUMENTATION
                      every user-visible or behavioural change you make.
   LWIP\README.txt    The bundled Python deskew/crop/thumbnail watcher this app
                      supervises. Chinese version: LWIP\README_CN.txt.
-  LWCam Workflow & SQL update\
-                     Capture-side database schema SQL and the ERD.
 
 
 COMMANDS
@@ -92,7 +90,7 @@ Understand this before touching the transfer path.
   Timeouts       10-minute hard limit per file copy; 30-second stall detection
                  checked every 5 seconds; destination-availability polling with
                  a reconnect dialog. The constants are at the top of
-                 lib/controllers/upload_contoller.dart.
+                 lib/controllers/upload_controller.dart.
 
   Crash recovery Database-based, not checkpoint-based. An `upload_records` row
                  is written only AFTER a verified copy, and a restarted batch
@@ -117,7 +115,7 @@ Understand this before touching the transfer path.
 CONVENTIONS THAT ARE NOT ACCIDENTS
 --------------------------------------------------------------------------------
 
-  * lib/controllers/upload_contoller.dart is misspelled and the misspelling is
+  * lib/controllers/upload_controller.dart is misspelled and the misspelling is
     load-bearing — imports depend on it.
 
   * lib/pages/settings_page.dart holds only `SettingsController`. There is no

@@ -1,12 +1,18 @@
 // ignore_for_file: avoid_print
 
+// Entry point of the LWCAM capture app (Windows desktop).
+// main() installs global error handlers, enforces a single running instance,
+// opens the local SQLite factory, registers the permanent services (audit
+// log, node config) and starts background sync before the first screen.
+// The first screen is the login page; home, projects and capture follow.
+// Startup order matters: see the comments inside main().
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:lwcam/auth/auth_controller.dart';
-import 'package:lwcam/controllers/upload_contoller.dart';
+import 'package:lwcam/controllers/upload_controller.dart';
 import 'package:lwcam/pages/capture_box_list_page.dart';
 import 'package:lwcam/pages/gallery_page.dart';
 import 'package:lwcam/pages/home_page.dart';

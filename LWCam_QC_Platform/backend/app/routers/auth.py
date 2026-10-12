@@ -1,3 +1,10 @@
+"""Sign-in API: login, logout, current user, password change.
+
+Used by the QC console. Login is rate limited per (IP, username) and per IP,
+and always spends one bcrypt check so timing does not reveal valid usernames.
+Token and single-session logic lives in app/core/security.py. The rate-limit
+counters are in memory and reset on restart.
+"""
 import threading
 import time
 from datetime import datetime, timezone
@@ -151,6 +158,7 @@ def reset_login_attempts(client_ip: str, username: str) -> None:
         _login_failures.pop(_login_key(client_ip, username), None)
 
 
+# --- Endpoints ---------------------------------------------------------------
 @router.post("/login", response_model=ApiResponse[AuthResponse])
 def login(request: LoginRequest, http_request: Request, db: DbSession) -> ApiResponse[AuthResponse]:
     """Verify the credentials, record the login time and issue an access token."""

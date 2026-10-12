@@ -1,3 +1,11 @@
+"""Command-line entry point: `python -m deskew_crop_tool`.
+
+Loads the JSON config and runs the folder watcher (FolderOrchestrator) either
+forever (the normal service mode, with the config re-read as it changes) or
+once with --once (process the folders that are ready, then exit; --wait first
+lets them become stable). The installed service starts this through
+START_LWIP.bat; the web console in service.py is a separate supervisor.
+"""
 from __future__ import annotations
 
 import argparse

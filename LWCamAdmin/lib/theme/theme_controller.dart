@@ -1,3 +1,8 @@
+// Holds the Light/Dark/System theme choice and saves it between runs. Loaded
+// in main.dart before the window shows so the window background matches the
+// theme. A corrupt saved value falls back to light. This theme folder is
+// copied between apps; keep the copies in step.
+
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';

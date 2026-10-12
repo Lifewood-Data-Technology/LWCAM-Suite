@@ -1,5 +1,7 @@
 // ignore_for_file: avoid_print
 
+// Builds PNG thumbnails for the LWCAM gallery and transferred-box views, and
+// knows where persisted thumbnails are stored on disk.
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;

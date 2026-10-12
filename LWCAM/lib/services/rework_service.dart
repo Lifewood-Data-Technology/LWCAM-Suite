@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Recapture side of QC rejects in LWCAM: reads the list of images the QC
+// Platform sent back, and finds the LWIP input file each new photo replaces.
+// Used by the rework flow in the box list and gallery.
 import 'dart:convert';
 import 'dart:io';
 
@@ -46,7 +49,7 @@ class ReworkItem {
   final Map<String, Object?> folderMetadata;
 
   /// 1-based page position of this image within its folder, and the folder's
-  /// page count. Derived by the worklist query from (image_created_at, id) 鈥?
+  /// page count. Derived by the worklist query from (image_created_at, id) —
   /// the order QC itself pages a folder in, and the order the NEXT reviewer
   /// will see. 0 means unknown (an older query, or an image the folder scan
   /// could not place).

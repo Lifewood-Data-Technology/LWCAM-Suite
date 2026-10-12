@@ -1,7 +1,7 @@
 // ignore_for_file: avoid_print
 
 /// SQL statement builders for the cloud schema in
-/// `LWCam Workflow & SQL update/LWCam_database_20260720.sql`. Pure Dart — no
+/// `LWCam_QC_Platform/database/LWCam_database_unified_*.sql`. Pure Dart — no
 /// postgres import — so every statement's SQL and parameters are unit-testable
 /// without a connection (the CI has no live PG). `PgSyncSink` executes these.
 ///

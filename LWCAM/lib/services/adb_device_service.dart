@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Talks to the capture phone over ADB for the LWCAM capture app: lists and
+// pulls images from the device and fires the shutter. Used by the box
+// session and transfer flows; the shutter method is admin-configured.
 import 'dart:async';
 import 'dart:io';
 

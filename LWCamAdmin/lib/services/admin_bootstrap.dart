@@ -1,3 +1,6 @@
+// Start-up helper of LWCam Admin: finds the local data folder and (re)creates
+// the AdminStoreService from the node config, so a changed database connection
+// takes effect without restarting the app.
 import 'dart:io';
 
 import 'package:get/get.dart';

@@ -58,7 +58,7 @@ void main() {
       // v2 added the stable-schema migration (_migrateStableSchemaV2); a fresh
       // onCreate still lands directly on the current version.
       expect(await database.getVersion(), 2);
-      // Cloud-mirroring columns (LWCam_database_20260720.sql) + local-only.
+      // Cloud-mirroring columns (LWCam_database_unified_*.sql) + local-only.
       final boxColumns = (await database.rawQuery('PRAGMA table_info(capture_boxes)'))
           .map((r) => r['name'] as String)
           .toSet();

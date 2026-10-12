@@ -1,5 +1,11 @@
 // ignore_for_file: avoid_print
 
+// Sign-in and session state for the capture app (LWCAM).
+// Checks the user against the local users snapshot (pulled from PostgreSQL),
+// forces a password change when required, and decides where the account
+// goes next: project choice, then capture. Also binds the capture device to
+// its project (see device_registry.dart) and restarts sync once a device id is known.
+// Logout tears down the box session and the phone mirror.
 import 'dart:async';
 
 import 'package:flutter/material.dart';

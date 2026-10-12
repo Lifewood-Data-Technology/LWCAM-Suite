@@ -1,3 +1,13 @@
+// Logic behind LWCam Admin's Station Setup page (LWCam Admin manages users,
+// projects and devices for the LWCAM suite; this controller sets up THIS PC).
+// It edits lwcam_node_config.json: the PostgreSQL connection, the image
+// destination folder and the capture sync switch. The same file is read by the
+// capture app (LWCAM), so a fresh capture PC is provisioned from here.
+// Things to know before editing: always re-read the file from disk before
+// saving (LWCAM may have changed it), the database password is stored
+// encrypted (DPAPI) and is kept as-is when it cannot be decrypted, and the
+// database itself is created by LWCamDatabaseSetup, never from this app.
+
 import 'dart:async';
 import 'dart:io';
 
@@ -146,6 +156,9 @@ class StationSetupController extends GetxController {
 
   NodeConfigService get _service => Get.find<NodeConfigService>();
 
+  // --- Load and save the station config ------------------------------------
+
+  /// Reads the saved config into the form fields (once, or again with [force]).
   Future<void> ensureLoaded({bool force = false}) async {
     if (_loaded && !force) return;
     _loaded = true;
@@ -296,6 +309,8 @@ class StationSetupController extends GetxController {
       (config.pgDatabase?.trim().isNotEmpty ?? false) &&
       (config.pgUser?.trim().isNotEmpty ?? false) &&
       pgPassword.value.trim().isNotEmpty;
+
+  // --- Password rotation and connection / folder tests ---------------------
 
   /// Rotates the PostgreSQL password: changes it on the SERVER, then saves it
   /// here. Both halves or neither.

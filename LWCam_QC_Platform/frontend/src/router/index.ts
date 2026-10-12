@@ -1,3 +1,10 @@
+// Route table and navigation guard for the QC Platform web console.
+// Admin pages live under /admin/*, reviewer pages under /qc/*; all four /qc/* routes
+// render the same QcIndexView, which reads the route name to pick its mode.
+// meta.requiresAuth / meta.roles / meta.guest drive the guard in router.beforeEach:
+// it sends logged-out users to /login, forces a password change when required,
+// and bounces users without a matching role to their own home page.
+// router.onError at the bottom reloads the page after a redeploy invalidates old chunks.
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 

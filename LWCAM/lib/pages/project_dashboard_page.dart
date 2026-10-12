@@ -1,3 +1,5 @@
+// Placeholder dashboard screen for one project in the LWCAM capture app.
+// Opened from project_area_page.dart; has no data yet.
 import 'package:flutter/material.dart';
 
 import '../models/project.dart';

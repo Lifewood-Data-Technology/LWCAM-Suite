@@ -1,3 +1,9 @@
+// Shared full-size image viewer of the capture app (LWCAM): a zoomable dialog
+// over a local image file, used by the transferred-box viewer, the unresolved
+// images screen and rework mode.
+// Things to know before editing: images are decoded at a capped width to keep
+// large photos from exhausting memory.
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

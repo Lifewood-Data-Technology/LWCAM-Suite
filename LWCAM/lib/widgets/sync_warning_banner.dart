@@ -1,3 +1,6 @@
+// Orange banner of the capture app (LWCAM) shown when the sync to the shared
+// database needs attention. It only reads state from SyncService, so the
+// rules for when to warn live there.
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 

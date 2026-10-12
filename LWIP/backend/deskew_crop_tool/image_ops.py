@@ -1,3 +1,19 @@
+"""Per-image work for LWIP: find the page, measure its tilt, crop, and write the result.
+
+Pipeline position: called by orchestrator.py once per image, inside worker
+processes (deskew_crop_file is the entry point). The output feeds the QC Platform.
+Ideas to know before editing:
+- LWIP never rotates pixels. It MEASURES the page's skew and records the
+  correction as `qc_ops` (deskew, crop, optional matfill) that QC replays once
+  at preview/export time. Rotating here would add a resample that image-quality
+  checks on delivered files have flagged as "enhancement".
+- Where possible the crop is lossless: a JPEG is cut on its block grid with
+  `jpegtran`, and a file with no page found is copied byte for byte.
+- Page detection works on a downscaled grey copy (DETECTION_MAX_DIMENSION);
+  the crop geometry is then scaled back to the full frame.
+- Windows long paths: use fs_path() at every filesystem call, never on a path
+  that is stored.
+"""
 from __future__ import annotations
 
 import logging
@@ -73,6 +89,7 @@ def fs_path(path: Path) -> Path:
     return Path(_EXTENDED_PREFIX + text)
 
 
+# --- Tuning constants ---------------------------------------------------------
 DETECTION_MAX_DIMENSION = 1600
 
 # Below this the page is straight enough that recording a straightening op
@@ -147,6 +164,7 @@ JPEGTRAN_ENV = "LWIP_JPEGTRAN"
 _jpegtran_warned = False
 
 
+# --- Lossless JPEG crop (jpegtran) and atomic writes --------------------------
 def jpegtran_path() -> Path | None:
     """The libjpeg-turbo `jpegtran` shipped beside this package, or None."""
     candidates: list[Path] = []
@@ -304,6 +322,7 @@ def initialise_worker() -> None:
     cv2.setNumThreads(1)
 
 
+# --- Per-image entry point ----------------------------------------------------
 def deskew_crop_file(
     source_value: str,
     destination_value: str,
@@ -315,6 +334,9 @@ def deskew_crop_file(
     deskew_min_degrees: float = DEFAULT_DESKEW_MIN_DEGREES,
     mat_fill: bool = True,
 ) -> dict[str, object]:
+    """Process one image: write the cropped file (and thumbnail) and return a
+    result dict (angle, crop box, qc_ops, lossless flag, ...) that the
+    orchestrator stores in the folder manifest. Raises OSError if unreadable."""
     source = Path(source_value)
     destination = Path(destination_value)
     is_jxl = source.suffix.lower() == ".jxl"
@@ -461,6 +483,7 @@ def deskew_crop_file(
     }
 
 
+# --- Crop geometry and the qc_ops QC replays ----------------------------------
 def _build_qc_ops(
     angle: float,
     width: int,
@@ -755,6 +778,7 @@ def _source_crop_box(
     return left, top, right, bottom
 
 
+# --- Replay, metadata and thumbnails ------------------------------------------
 def apply_qc_ops(image: Image.Image, qc_ops: list[dict[str, object]]) -> Image.Image:
     """Replays LWIP's deferred straightening ops on an already-written output
     frame, exactly as the QC engine does at preview/export time.
@@ -860,6 +884,7 @@ def _write_thumbnail_atomic(
         fs_path(temporary).unlink(missing_ok=True)
 
 
+# --- Page detection and skew measurement --------------------------------------
 def _detection_frame(image: np.ndarray) -> tuple[np.ndarray, float]:
     """Downscaled greyscale used by both detectors, plus the scale applied."""
     height, width = image.shape[:2]
@@ -1125,6 +1150,7 @@ def _largest_content_contour(image: np.ndarray, prepared=None):
 
 
 def _normalise_angle(angle: float) -> float:
+    """Fold a minAreaRect angle into [-45, 45] so a near-90 reading means ~0 tilt."""
     if angle < -45:
         return angle + 90
     if angle > 45:
@@ -1132,6 +1158,7 @@ def _normalise_angle(angle: float) -> float:
     return angle
 
 
+# --- Full re-encode output (when a lossless crop is not possible) -------------
 def _write_image_atomic(
     destination: Path,
     image: np.ndarray,

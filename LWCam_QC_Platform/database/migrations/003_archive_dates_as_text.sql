@@ -9,8 +9,7 @@
 -- 1st, and readers guessed the precision back from day==1 (so a genuine
 -- 1914-01-01 read as "1914"). The type also dragged in time zones: a folder
 -- dated 1877 came back from psycopg in Asia/Kuala_Lumpur local mean time,
--- +06:55:25, an offset Pydantic refuses, and the Completed tab returned 400
--- (see docs\2026-09-09-completed-tab-pre-1901-date-validation.md).
+-- +06:55:25, an offset Pydantic refuses, and the Completed tab returned 400.
 --
 --   psql -h <host> -U <user> -d lwcam -v ON_ERROR_STOP=1 -f 003_archive_dates_as_text.sql
 --

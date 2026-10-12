@@ -1,3 +1,8 @@
+// Loads the page image the QC review screen is showing as a blob and exposes it as a src URL.
+// Preview URLs need the auth token, so they are fetched through the axios client
+// rather than set directly as <img src>.
+// A request counter drops results from an earlier page if the reviewer has already moved
+// on, and the object URL is revoked on every change and on unmount to avoid leaking memory.
 import { onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import request from '@/api/client'
 import { i18n } from '@/i18n'

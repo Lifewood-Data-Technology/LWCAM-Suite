@@ -1,3 +1,8 @@
+// Lifewood brand colour constants and the semantic colour slots (success,
+// warning, info and similar) that Material's ColorScheme does not carry.
+// Used by app_theme.dart; widgets read the slots through the theme extension
+// rather than hard-coding colours. This theme folder is copied between apps.
+
 import 'package:flutter/material.dart';
 
 /// Raw Lifewood brand palette (official Color Palette sheet).

@@ -1,3 +1,12 @@
+"""Background scanner that runs the AI metadata check before a reviewer opens a folder.
+
+QC Platform stage. Every few seconds (settings.ai_preanalysis_*) it looks for
+folders that are PENDING, unclaimed and have images, and queues an AI review
+job for each one the AI coordinator (app.services.ai_review) has not seen yet.
+It only works when both switches are on: AI review (stage 1, plus an API key)
+and pre-analysis (stage 2). On startup it also cancels jobs whose folder is no
+longer reviewable. Started and stopped from app.main's lifespan hook.
+"""
 from __future__ import annotations
 
 import logging
@@ -117,6 +126,8 @@ def load_preanalysis_snapshots(limit: int) -> list[AiReviewSnapshot]:
 
 
 class AiPreanalysisScheduler(PeriodicSweep):
+    """Periodic sweep that queues pre-analysis jobs and reconciles stale ones."""
+
     def __init__(
         self,
         coordinator: AiReviewCoordinator = ai_review_coordinator,

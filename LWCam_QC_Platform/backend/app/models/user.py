@@ -1,3 +1,9 @@
+"""ORM model for platform accounts and role normalization.
+
+The `users` table is shared with LWCAM and LWCam Admin (one login for the whole
+suite). Roles are stored as one comma-joined string; always authorize against
+User.role_set, never User.role (display only). See the role constants below.
+"""
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, text

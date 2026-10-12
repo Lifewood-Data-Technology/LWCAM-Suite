@@ -1,3 +1,6 @@
+// Metadata dialog for one folder of a capture box (LWCAM capture app).
+// Despite the file name it is a dialog, not a page route. The fields come
+// from the project's metadata template; the result goes back to the caller.
 import 'package:flutter/material.dart';
 
 import '../models/capture_box_models.dart';

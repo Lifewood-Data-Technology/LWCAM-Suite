@@ -1,3 +1,9 @@
+// Local audit trail for the capture app (LWCAM): logins, box and folder changes,
+// transfers, image deletions and replacements, written as monthly log files.
+// Not synced to PostgreSQL; the logs stay on the capture PC.
+// Know before editing: add new action names to AuditActions rather than passing
+// ad-hoc strings, and keep this file free of GetX so it stays unit-testable.
+
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -50,7 +56,7 @@ abstract final class AuditActions {
 /// DB's monthly rotation): `<deviceId>_audit_<YYYY-MM>.log` and
 /// `<deviceId>_replacements_<YYYY-MM>.log`, both under
 /// `getApplicationSupportDirectory()/LWCAM/` (the existing fallback-log
-/// location — see upload_contoller.dart's `_getFallbackLogFile`).
+/// location — see upload_controller.dart's `_getFallbackLogFile`).
 class AuditLogService {
   final Future<Directory> Function() _resolveBaseDir;
   final DateTime Function() _now;
@@ -87,7 +93,7 @@ class AuditLogService {
   }
 
   /// All file writes go through one chained queue (the established
-  /// `_runSerializedArtifactWrite` idiom from upload_contoller.dart) so
+  /// `_runSerializedArtifactWrite` idiom from upload_controller.dart) so
   /// concurrent async call sites can never interleave/shear lines. A failed
   /// write doesn't wedge later ones.
   Future<void> _serialize(Future<void> Function() action) {

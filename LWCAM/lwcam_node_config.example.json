@@ -1,0 +1,12 @@
+{
+  "pgConnectionEnabled": true,
+  "pgHost": "localhost",
+  "pgPort": 5432,
+  "pgDatabase": "lwcam",
+  "pgUser": "lwcam_user",
+  "pgPassword": "<your database password>",
+  "pgUseSsl": false,
+  "syncEnabled": true,
+  "syncIntervalSeconds": 30,
+  "destinationPath": "C:/LWCamDev/1.Images"
+}

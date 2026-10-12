@@ -1,3 +1,8 @@
+// Login screen of LWCam Admin (the app that manages users, projects, devices
+// and this station's database connection for the LWCAM suite). The app is
+// guarded by one SuperAdmin password; the check itself lives in
+// AdminAuthController, this file is only the form and the status hints.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -5,6 +10,9 @@ import '../auth/admin_auth_controller.dart';
 import '../services/admin_store_service.dart';
 import '../theme/app_colors.dart';
 
+/// Sign-in screen: a single SuperAdmin password, checked by
+/// AdminAuthController. Also shows a hint when the database schema is out of
+/// date or the station is offline (sign-in then uses the local snapshot).
 class LoginPage extends StatelessWidget {
   LoginPage({super.key});
 

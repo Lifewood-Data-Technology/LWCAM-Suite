@@ -1,3 +1,5 @@
+<!-- Sign-in page of the QC Platform web console (route /login, for logged-out users only). -->
+<!-- Calls authApi.login, stores the token and user in the auth store, then goes to ?redirect=, the user's home page, or the forced password change page. -->
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

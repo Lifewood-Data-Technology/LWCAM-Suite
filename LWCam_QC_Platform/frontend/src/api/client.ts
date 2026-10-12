@@ -1,3 +1,6 @@
+// Shared axios client of the QC Platform web console. Every API call goes
+// through it: it adds the login token, turns error responses into translated
+// messages (ApiError carries the HTTP status) and handles an expired login.
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { i18n } from '@/i18n'
 import router from '@/router'

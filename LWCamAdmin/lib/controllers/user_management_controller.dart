@@ -1,3 +1,8 @@
+// Controller for the User Management page of LWCam Admin: create users, change
+// roles, reset passwords, activate or deactivate, and delete. It holds no
+// data of its own; every call goes to AdminStoreService, which handles
+// database and offline storage. Changes are recorded under the admin's name.
+
 import 'package:get/get.dart';
 
 import '../auth/super_admin.dart';

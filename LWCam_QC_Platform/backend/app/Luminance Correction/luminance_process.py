@@ -1,3 +1,23 @@
+"""Luminance (brightness) correction for page images.
+
+Evens out the brightness of a folder of document images so they look
+consistent. In the pipeline (capture -> LWIP -> QC Platform -> Upload) this is
+an optional QC-step tool: the QC engine loads this file in-process
+(app/services/luminance.py) to correct a page the reviewer picks, and it also
+runs as a standalone script (Run_Luminance_Correction.bat) over a whole folder.
+
+How it works, in short:
+- It measures the page brightness (a percentile of the luminance inside the
+  document area), then scales luminance toward a target, either a matching
+  reference profile or the plain target value.
+- If the page is still too dark, a tone curve is applied, then an optional
+  even-exposure pass lifts shadows (for example the dark centre of a book).
+- The analysis runs on a downscaled copy; the resulting per-pixel scale map is
+  resized back and applied to the full-resolution image.
+- Settings come from config.txt in this folder (key = value lines).
+- Files are replaced in place, but only after a temp file was saved
+  successfully.
+"""
 from __future__ import annotations
 
 import math
@@ -49,7 +69,9 @@ PROFILE_FIELDS = (
 )
 
 
+# --- Config reading and small converters --------------------------------------
 def read_config(config_path: Path) -> dict[str, str]:
+    """Read key = value lines (lower-cased keys, # comments); a missing file gives an empty dict."""
     config: dict[str, str] = {}
     if not fs_path(config_path).exists():
         return config
@@ -70,6 +92,7 @@ def as_bool(value: str | None, default: bool) -> bool:
 
 
 def as_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
+    """Parse an int setting; bad text gives the default, and the result is clamped to the range."""
     try:
         parsed = int(str(value).strip())
     except (TypeError, ValueError):
@@ -78,6 +101,7 @@ def as_int(value: str | None, default: int, minimum: int, maximum: int) -> int:
 
 
 def as_float(value: str | None, default: float, minimum: float, maximum: float) -> float:
+    """Parse a float setting; bad text gives the default, and the result is clamped to the range."""
     try:
         parsed = float(str(value).strip())
     except (TypeError, ValueError):
@@ -85,7 +109,9 @@ def as_float(value: str | None, default: float, minimum: float, maximum: float) 
     return max(minimum, min(maximum, parsed))
 
 
+# --- Image maths helpers ------------------------------------------------------
 def analysis_size(width: int, height: int, max_dimension: int) -> tuple[int, int]:
+    """Size of the downscaled copy used for measuring (the full size if already small, or max_dimension <= 0)."""
     if max_dimension <= 0 or max(width, height) <= max_dimension:
         return width, height
 
@@ -94,17 +120,20 @@ def analysis_size(width: int, height: int, max_dimension: int) -> tuple[int, int
 
 
 def resize_float_plane(values: np.ndarray, size: tuple[int, int], resample=Image.Resampling.BILINEAR) -> np.ndarray:
+    """Resize a 2-D float array (a mask or scale map) to size = (width, height)."""
     image = Image.fromarray(values.astype(np.float32), mode="F")
     return np.asarray(image.resize(size, resample=resample), dtype=np.float32)
 
 
 def correction_scale_map(original_rgb: np.ndarray, corrected_rgb: np.ndarray) -> np.ndarray:
+    """Per-pixel luminance ratio (corrected / original), limited to 0.35-2.5, to replay on the full-size image."""
     original_y = luminance(original_rgb)
     corrected_y = luminance(corrected_rgb)
     return np.clip((corrected_y + 1.0) / (original_y + 1.0), 0.35, 2.5)
 
 
 def parse_curve_points(value: str) -> list[tuple[int, int]]:
+    """Parse a tone curve written as "x,y;x,y;..." (0-255), adding the (0,0) and (255,255) ends if missing."""
     points: list[tuple[int, int]] = []
     for point in value.split(";"):
         point = point.strip()
@@ -127,6 +156,7 @@ def parse_curve_points(value: str) -> list[tuple[int, int]]:
 
 
 def build_curve_lut(points: list[tuple[int, int]]) -> np.ndarray:
+    """Turn curve points into a 256-entry lookup table by linear interpolation."""
     xs = np.array([x for x, _ in points], dtype=np.float32)
     ys = np.array([y for _, y in points], dtype=np.float32)
     lut = np.interp(np.arange(256, dtype=np.float32), xs, ys)
@@ -134,6 +164,7 @@ def build_curve_lut(points: list[tuple[int, int]]) -> np.ndarray:
 
 
 def luminance(rgb: np.ndarray) -> np.ndarray:
+    """Brightness of each pixel (Rec. 601 weights)."""
     return (
         rgb[..., 0] * 0.299
         + rgb[..., 1] * 0.587
@@ -142,11 +173,14 @@ def luminance(rgb: np.ndarray) -> np.ndarray:
 
 
 def rescale_luminance(rgb: np.ndarray, old_y: np.ndarray, new_y: np.ndarray) -> np.ndarray:
+    """Change brightness to new_y by scaling all three channels equally, so colour is kept."""
     scale = (new_y + 1.0) / (old_y + 1.0)
     return np.clip(rgb.astype(np.float32) * scale[..., None], 0, 255)
 
 
+# --- Measuring the document and matching reference profiles -------------------
 def measured_document_luminance(y: np.ndarray, mask: np.ndarray, percentile: float) -> float | None:
+    """The given luminance percentile over document pixels, or None if there are too few of them."""
     doc_pixels = mask > 0.35
     if int(doc_pixels.sum()) < 100:
         return None
@@ -155,6 +189,7 @@ def measured_document_luminance(y: np.ndarray, mask: np.ndarray, percentile: flo
 
 
 def document_statistics(rgb: np.ndarray, mask: np.ndarray) -> dict[str, float] | None:
+    """Brightness percentiles (p72, p85, p95), saturation and colour balance of the document area; None if too small."""
     doc_pixels = mask > 0.35
     if int(doc_pixels.sum()) < 100:
         return None
@@ -177,6 +212,7 @@ def document_statistics(rgb: np.ndarray, mask: np.ndarray) -> dict[str, float] |
 
 
 def parse_reference_profiles(config: dict[str, str]) -> list[dict[str, float | str]]:
+    """Read every reference_profile_<name> config line into a dict keyed by PROFILE_FIELDS."""
     profiles: list[dict[str, float | str]] = []
     for key, value in sorted(config.items()):
         if not key.startswith("reference_profile_") or not value.strip():
@@ -198,6 +234,7 @@ def parse_reference_profiles(config: dict[str, str]) -> list[dict[str, float | s
 
 
 def reference_profile_score(stats: dict[str, float], profile: dict[str, float | str]) -> float:
+    """How far a page's statistics are from a profile (lower is closer; 0 is a perfect match)."""
     saturation_score = abs(stats["saturation"] - float(profile["saturation"])) / 0.08
     red_green_score = abs(stats["red_green"] - float(profile["red_green"])) / 15.0
     blue_green_score = abs(stats["blue_green"] - float(profile["blue_green"])) / 20.0
@@ -216,6 +253,7 @@ def choose_reference_profile(
     profiles: list[dict[str, float | str]],
     max_score: float,
 ) -> dict[str, float | str] | None:
+    """The closest profile, or None if there are none or even the best is farther than max_score."""
     if not profiles:
         return None
 
@@ -227,6 +265,10 @@ def choose_reference_profile(
 
 
 def document_mask(rgb: np.ndarray, protect_black_background: bool) -> np.ndarray:
+    """A 0-1 weight per pixel: about 1 on paper, about 0 on a black photographed border.
+
+    With protect_black_background off the whole image counts as document.
+    """
     height, width = rgb.shape[:2]
     if not protect_black_background:
         return np.ones((height, width), dtype=np.float32)
@@ -246,7 +288,9 @@ def document_mask(rgb: np.ndarray, protect_black_background: bool) -> np.ndarray
     return mask * near_black_gate
 
 
+# --- Correction steps ---------------------------------------------------------
 def apply_curve(rgb: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """Push luminance through the tone-curve lookup table, keeping colour."""
     old_y = luminance(rgb)
     new_y = lut[np.clip(np.rint(old_y), 0, 255).astype(np.uint8)].astype(np.float32)
     return rescale_luminance(rgb, old_y, new_y)
@@ -258,6 +302,11 @@ def apply_even_exposure(
     brightness_level: int,
     center_shadow_fix: bool,
 ) -> np.ndarray:
+    """Even out uneven lighting: compare each area to a blurred local brightness and lift the dark parts.
+
+    brightness_level (1-3) picks the strength; center_shadow_fix strengthens it when the middle
+    of the page (the book gutter) is clearly darker than the rest.
+    """
     doc_pixels = mask > 0.35
     if int(doc_pixels.sum()) < 100:
         return rgb
@@ -298,6 +347,7 @@ def match_target_luminance(
     min_scale: float,
     max_scale: float,
 ) -> np.ndarray:
+    """Scale the page so its measured brightness reaches target_luminance; leave it alone if already within tolerance."""
     y = luminance(rgb)
     current = measured_document_luminance(y, mask, percentile)
     if current is None or current <= 0:
@@ -329,6 +379,11 @@ def match_profile_luminance(
     warm_saturation_threshold: float,
     warm_red_green_threshold: float,
 ) -> np.ndarray:
+    """Nudge the page toward a reference profile's brightness range over a few passes.
+
+    Warm (yellowed, saturated) pages get a lower brightness ceiling. It stops as soon as the page
+    is inside the profile's p72 range and its highlights are not too bright.
+    """
     corrected = rgb
     iterations = max(1, max_iterations)
 
@@ -378,7 +433,9 @@ def match_profile_luminance(
     return corrected
 
 
+# --- Saving, temp files and the per-image pipeline ----------------------------
 def output_save_kwargs(path: Path, image: Image.Image, config: dict[str, str]) -> dict:
+    """Save options that keep the file's format settings: EXIF, ICC profile, JPEG quality, TIFF compression."""
     ext = path.suffix.lower()
     kwargs: dict = {}
 
@@ -402,10 +459,12 @@ def output_save_kwargs(path: Path, image: Image.Image, config: dict[str, str]) -
 
 
 def temp_path_for(path: Path) -> Path:
+    """Hidden sibling file the result is written to before it replaces the original."""
     return path.with_name(f".{path.stem}{TEMP_MARKER}.{os.getpid()}{path.suffix}")
 
 
 def is_temp_file(path: Path) -> bool:
+    """True for leftover temp files from an interrupted run, which must never be processed."""
     name = path.name.lower()
     if TEMP_MARKER in name:
         return True
@@ -417,6 +476,7 @@ def is_temp_file(path: Path) -> bool:
 
 
 def cleanup_temp_files(folder: Path) -> int:
+    """Delete leftover temp files in the folder. Returns how many were removed."""
     removed = 0
     for path in fs_path(folder).iterdir():
         if not path.is_file() or not is_temp_file(path):
@@ -430,6 +490,12 @@ def cleanup_temp_files(folder: Path) -> int:
 
 
 def process_image(path: Path, config: dict[str, str]) -> tuple[Path, str]:
+    """Correct one image file in place.
+
+    Steps: measure on a downscaled copy, match a reference profile or the target brightness,
+    optionally apply the tone curve and even exposure, then apply the resulting scale map to the
+    full-size image (blended by the document mask) and replace the file via a temp file.
+    """
     brightness_level = as_int(config.get("brightness_level"), 2, 1, 3)
     curve_text = config.get("custom_curve_points") or CURVE_PRESETS[brightness_level]
     lut = build_curve_lut(parse_curve_points(curve_text))
@@ -566,7 +632,9 @@ def process_image(path: Path, config: dict[str, str]) -> tuple[Path, str]:
     return path, "ok"
 
 
+# --- Standalone command-line use ----------------------------------------------
 def iter_images(folder: Path) -> Iterable[Path]:
+    """Supported image files in the folder, sorted by name, skipping temp files."""
     for path in sorted(fs_path(folder).iterdir()):
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
             if is_temp_file(path):
@@ -575,6 +643,7 @@ def iter_images(folder: Path) -> Iterable[Path]:
 
 
 def worker(args: tuple[str, dict[str, str]]) -> tuple[str, bool, str]:
+    """Process one image in a worker process. Returns (path, success, message) and never raises."""
     path_text, config = args
     path = Path(path_text)
     try:
@@ -585,6 +654,7 @@ def worker(args: tuple[str, dict[str, str]]) -> tuple[str, bool, str]:
 
 
 def choose_folder(default_folder: Path) -> Path:
+    """Ask for the image folder on the console; Enter alone uses the default."""
     print("Paste the image folder path, then press Enter.")
     print(f"Press Enter without a path to use: {default_folder}")
     folder_text = input("> ").strip().strip('"')
@@ -593,6 +663,7 @@ def choose_folder(default_folder: Path) -> Path:
 
 
 def main() -> int:
+    """Process every image in a chosen folder in parallel. Exit code 0 ok, 1 bad folder, 2 some images failed."""
     script_dir = Path(__file__).resolve().parent
     config = read_config(script_dir / "config.txt")
     folder = choose_folder(script_dir)

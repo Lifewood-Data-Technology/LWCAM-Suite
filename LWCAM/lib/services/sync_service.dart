@@ -1,3 +1,8 @@
+// Background sync loop of the LWCAM capture app. Each local capture database
+// keeps an outbox of changes; this service drains them in batches into
+// PostgreSQL (via a SyncSink) so LWIP and the QC Platform see the capture
+// data, and pulls fresh users, projects and app settings. Failed batches back
+// off and retry.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;

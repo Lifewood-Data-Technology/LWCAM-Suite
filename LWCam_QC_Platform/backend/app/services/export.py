@@ -1,3 +1,30 @@
+"""QC export: turn PASS folders into delivery packages (CSVs plus TIFF or JPEG pages).
+
+In the pipeline (capture app LWCAM -> LWIP deskew/crop -> QC Platform ->
+Upload to S3) this is the last QC step. It writes each approved folder to the
+QC output root; the standalone Upload service then watches that root and sends
+packages to S3. Rotate, crop and straighten edits only become pixels here
+(convert_to_tiff replays them from the saved ops).
+
+Main parts, top to bottom:
+- Constants and CSV headers, TIFF tag handling, and ExportError (error keys
+  and messages).
+- load_folder_snapshot: read a folder and check everything needed to export.
+- build_export_zip and the convert_* helpers: build the package in a work
+  folder (page conversion runs in a shared process pool).
+- publish_zip / publish_folder: verify and publish by atomic rename.
+- ExportCoordinator: runs a batch of folders one at a time in a thread,
+  saves progress to active.json so a restart can resume, and keeps a ledger
+  of unresolved failures.
+- ExportAutoScheduler: a periodic sweep that exports newly approved folders.
+
+Ideas to know before editing:
+- A package is never visible half-written: it is staged, verified, then renamed.
+- A client rework is re-exported under the same Group ID and replaces the old
+  package; the old one is never adopted as finished.
+- Settings that change package shape (TIFF/JPEG, zip/folder) are captured once
+  per run in ExportRuntimeConfig.
+"""
 from __future__ import annotations
 
 import csv
@@ -34,6 +61,7 @@ from app.models.project import Project
 
 logger = logging.getLogger(__name__)
 
+# --- Constants: CSV layout, file names, TIFF tags -----------------------------
 # The two files every package carries. upload_summary reads them back by
 # these names, so they live here and nowhere else.
 GROUP_CSV_NAME = "GroupMetadataImage.csv"
@@ -178,6 +206,9 @@ def sanitise_tiff_tag(tag: int, value: Any) -> Any:
     return value
 
 
+# --- Errors, config and data shapes -------------------------------------------
+# Message templates by error key. The console shows the key and params, so it
+# can translate them; the text here is the English fallback.
 EXPORT_ERROR_MESSAGES = {
     "configInvalid": "Invalid export configuration: {fields}",
     "pathNotWritable": "{setting} is not writable: {path}",
@@ -224,6 +255,8 @@ EXPORT_ERROR_MESSAGES = {
 
 
 class ExportError(RuntimeError):
+    """An expected export failure, identified by a key in EXPORT_ERROR_MESSAGES plus format params."""
+
     def __init__(self, key: str, params: dict[str, Any] | None = None):
         self.key = key
         self.params = params or {}
@@ -236,6 +269,8 @@ class ExportError(RuntimeError):
 
 @dataclass(frozen=True)
 class ExportRuntimeConfig:
+    """Export settings captured once at the start of a run (see runtime_config)."""
+
     temp_dir: Path
     output_dir: Path
     encoding: str
@@ -263,6 +298,8 @@ class ExportRuntimeConfig:
 
 @dataclass(frozen=True)
 class ImageSource:
+    """One page to export: its file, the size/mtime seen at snapshot time, and the ops to replay."""
+
     id: int
     name: str
     path: Path
@@ -277,6 +314,8 @@ class ImageSource:
 
 @dataclass(frozen=True)
 class FolderExportSnapshot:
+    """Everything needed to export one folder, read from the database and disk up front."""
+
     folder_id: int
     project_id: int
     ingest_project_id: str
@@ -305,11 +344,13 @@ class ExportedZip:
     sha256: str
 
 
+# --- Config and path checks ---------------------------------------------------
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def runtime_config() -> ExportRuntimeConfig:
+    """Read and validate the export settings; raises ExportError("configInvalid") naming the bad ones."""
     invalid_fields: list[str] = []
     temp_value = settings.export_temp_dir.strip()
     output_value = settings.export_output_dir.strip()
@@ -358,6 +399,7 @@ def directory_write_error(directory: Path) -> OSError | None:
 
 
 def validate_runtime_paths(config: ExportRuntimeConfig) -> None:
+    """Raise ExportError unless both the work folder and the output folder are writable."""
     for label, directory in (
         ("EXPORT_TEMP_DIR", config.temp_dir),
         ("EXPORT_OUTPUT_DIR", config.output_dir),
@@ -370,7 +412,9 @@ def validate_runtime_paths(config: ExportRuntimeConfig) -> None:
             ) from error
 
 
+# --- Reading a folder: project template, Group ID, snapshot -------------------
 def project_ingest_id(project: Project) -> str:
+    """The project's ingest code (projects.project_id), validated for use in a Group ID."""
     value = str(project.project_id or "").strip()
     if not value:
         raise ExportError("projectIdMissing", {"project": project.project_name})
@@ -391,6 +435,7 @@ def disabled_template_fields(project: Project) -> frozenset[str]:
 
 
 def fixed_template_value(project: Project, key: str) -> str:
+    """The fixed value a project's template gives a field (place, language, ...), or "" if none."""
     template = project.template if isinstance(project.template, dict) else {}
     fields = template.get("fields") if isinstance(template.get("fields"), list) else []
     for item in fields:
@@ -446,6 +491,7 @@ def mapped_record_type(project: Project, title: str, fallback: str = "") -> str:
 
 
 def validate_group_part(label: str, value: str) -> None:
+    """A Group ID part may only hold letters, digits, underscore and hyphen."""
     if not value or not SAFE_GROUP_PART.fullmatch(value):
         raise ExportError("invalidGroupPart", {"label": label})
 
@@ -470,6 +516,7 @@ def parse_source_identity(*filenames: str) -> tuple[str, date]:
 
 
 def allocate_sequence(db: Session, project_id: int) -> int:
+    """Take the next per-project export number (1-999999) under an advisory lock."""
     if project_id <= 0:
         raise ExportError("projectIdInvalid")
     db.execute(
@@ -487,6 +534,7 @@ def allocate_sequence(db: Session, project_id: int) -> int:
 
 
 def build_group_id(snapshot: FolderExportSnapshot, sequence: int) -> str:
+    """Group ID = project ingest id + location code + capture user + YYMMDD + 6-digit sequence."""
     validate_group_part("LocationCode", snapshot.location_code)
     validate_group_part("UserID", snapshot.source_user_id)
     group_id = (
@@ -499,11 +547,17 @@ def build_group_id(snapshot: FolderExportSnapshot, sequence: int) -> str:
 
 
 def ordered_images(folder: CaptureFolder) -> list[CaptureImage]:
+    """The folder's images in page order (capture time, then id)."""
     minimum = datetime.min.replace(tzinfo=timezone.utc)
     return sorted(folder.images, key=lambda item: (item.image_created_at or minimum, item.id))
 
 
 def load_folder_snapshot(db: Session, folder_id: int) -> FolderExportSnapshot:
+    """Load a PASS, not-yet-exported folder and check it is exportable.
+
+    Raises ExportError for a missing source directory or image, an unusable file name, missing
+    required metadata, and similar problems, so a bad folder fails before any conversion work.
+    """
     folder = db.scalar(
         select(CaptureFolder)
         .options(
@@ -604,7 +658,9 @@ def load_folder_snapshot(db: Session, folder_id: int) -> FolderExportSnapshot:
     )
 
 
+# --- Converting pages and building the package --------------------------------
 def md5_file(path: Path) -> str:
+    """MD5 of a file, read in chunks. The package CSV records MD5 for each artifact."""
     digest = hashlib.md5(usedforsecurity=False)
     with fs_path(path).open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -613,6 +669,7 @@ def md5_file(path: Path) -> str:
 
 
 def sha256_file(path: Path) -> str:
+    """SHA-256 of a file, read in chunks. Used to check zip copies."""
     digest = hashlib.sha256()
     with fs_path(path).open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -763,6 +820,7 @@ def write_csv(
     rows: list[dict[str, Any]],
     config: ExportRuntimeConfig,
 ) -> None:
+    """Write a CSV with the configured encoding and line ending."""
     with fs_path(path).open("w", encoding=config.encoding, newline="") as output:
         writer = csv.DictWriter(
             output,
@@ -775,6 +833,7 @@ def write_csv(
 
 
 def verify_sources_unchanged(snapshot: FolderExportSnapshot) -> None:
+    """Fail if any source image was deleted or modified since the snapshot was taken."""
     for source in snapshot.images:
         if not fs_path(source.path).is_file():
             raise ExportError("sourceDeleted", {"filename": source.name})
@@ -835,6 +894,7 @@ def conversion_pool(workers: int) -> ProcessPoolExecutor:
 
 
 def shutdown_conversion_pool() -> None:
+    """Stop the shared conversion pool (at server shutdown, or to replace a broken one)."""
     global _pool, _pool_size
     with _pool_lock:
         pool, _pool, _pool_size = _pool, None, 0
@@ -905,6 +965,10 @@ def build_export_zip(
     run_id: str,
     config: ExportRuntimeConfig,
 ) -> ExportedZip:
+    """Convert every page, write both CSVs and (if zip output is on) the verified zip, all in a work folder.
+
+    Nothing is published here; publish_package does that.
+    """
     work_dir = config.temp_dir / ".lwcam-export" / "work" / run_id / str(snapshot.folder_id)
     if fs_path(work_dir).exists():
         shutil.rmtree(fs_path(work_dir))
@@ -986,9 +1050,11 @@ def build_export_zip(
     )
 
 
+# --- Verifying and publishing the package -------------------------------------
 def verify_published_zip(
     path: Path, group_id: str, artifact_count: int, tiff_output: bool
 ) -> None:
+    """Check a published zip has exactly the expected entries in order and a sound CRC."""
     # No `config` in scope here - `tiff_output` is threaded in by the caller,
     # which has it, rather than read from `settings` (that would disagree with
     # whatever format this run actually captured once at start).
@@ -1009,6 +1075,7 @@ def verify_published_zip(
 
 
 def package_size(path: Path) -> int:
+    """Total bytes of a package: the zip file, or the sum of all files in a folder package."""
     if fs_path(path).is_dir():
         # Walked from the prefixed root, so every yielded child is already
         # extended-form - no need to re-wrap f for the stat()/is_file() below.
@@ -1212,6 +1279,7 @@ def publish_package(
 def verify_published_package(
     path: Path, group_id: str, artifact_count: int, config: ExportRuntimeConfig
 ) -> None:
+    """Verify a published package in whichever form (zip or folder) the config says."""
     if config.zip_output:
         verify_published_zip(path, group_id, artifact_count, config.tiff_output)
     else:
@@ -1276,7 +1344,9 @@ def publish_zip(
     return final_path
 
 
+# --- Database finish and folder lists -----------------------------------------
 def finalize_folder(folder_id: int, group_id: str, tiff_output: bool) -> None:
+    """Mark the folder exported in the database, with its Group ID. Safe to call again for the same Group ID."""
     with SessionLocal() as db:
         folder = db.scalar(
             select(CaptureFolder)
@@ -1302,6 +1372,7 @@ def finalize_folder(folder_id: int, group_id: str, tiff_output: bool) -> None:
 
 
 def eligible_folder_ids(db: Session) -> list[int]:
+    """Ids of PASS folders not yet exported, oldest capture first."""
     return list(
         db.scalars(
             select(CaptureFolder.id)
@@ -1322,6 +1393,7 @@ def list_export_folders(
     page: int = 1,
     size: int = 20,
 ) -> tuple[list[dict[str, Any]], int]:
+    """One page of folders for the Exports screen, with export and upload status. Returns (records, total)."""
     conditions = [
         CaptureFolder.is_deleted.is_not(True),
         func.lower(CaptureFolder.qc_status) != "rework",
@@ -1406,7 +1478,15 @@ def list_export_folders(
     return records, total
 
 
+# --- Export runs: ExportCoordinator -------------------------------------------
 class ExportCoordinator:
+    """Runs one export batch at a time in a background thread.
+
+    Progress lives in memory and in .lwcam-export/active.json (so resume_if_needed can continue after a
+    restart); unresolved failures live in failures.json. A per-folder database advisory lock stops two
+    stations exporting the same folder.
+    """
+
     def __init__(self) -> None:
         self._state_lock = threading.RLock()
         self._start_lock = threading.Lock()
@@ -1464,6 +1544,7 @@ class ExportCoordinator:
         self._failures(config).save(data, best_effort=True)
 
     def _record_failure(self, config: ExportRuntimeConfig, item: dict[str, Any]) -> None:
+        """Add or update this folder's entry in the failures ledger (counting attempts)."""
         data = self._load_failures(config)
         key = str(item.get("folderId"))
         previous = data.get(key) if isinstance(data.get(key), dict) else {}
@@ -1500,6 +1581,7 @@ class ExportCoordinator:
         self._write_failures(config, data)
 
     def _persist(self, config: ExportRuntimeConfig) -> None:
+        """Write the current run state to active.json."""
         with self._state_lock:
             if self._state is None:
                 return
@@ -1508,6 +1590,7 @@ class ExportCoordinator:
         atomic_json(root / "active.json", payload)
 
     def _cleanup_workspaces(self, config: ExportRuntimeConfig) -> None:
+        """Delete run work folders older than the configured retention."""
         work_root = self._state_root(config) / "work"
         if not fs_path(work_root).is_dir():
             return
@@ -1523,6 +1606,7 @@ class ExportCoordinator:
                 continue
 
     def current(self) -> dict[str, Any] | None:
+        """The active run's state (from memory, else from active.json), or None."""
         with self._state_lock:
             if self._state is not None:
                 return json.loads(json.dumps(self._state, ensure_ascii=False, default=str))
@@ -1539,6 +1623,7 @@ class ExportCoordinator:
             return None
 
     def preflight(self, db: Session) -> dict[str, Any]:
+        """Report whether an export could start now: config, writable paths, project ids, and counts."""
         errors: list[dict[str, Any]] = []
         config: ExportRuntimeConfig | None = None
         try:
@@ -1609,6 +1694,7 @@ class ExportCoordinator:
         admin_user_id: str,
         folder_ids: list[int] | None = None,
     ) -> dict[str, Any]:
+        """Queue a run (the given folders, or every eligible one) and start its thread."""
         config = runtime_config()
         validate_runtime_paths(config)
         self._cleanup_workspaces(config)
@@ -1660,6 +1746,7 @@ class ExportCoordinator:
             return self.current() or state
 
     def resume_if_needed(self) -> None:
+        """At server start, continue a run that active.json shows as queued or running."""
         try:
             config = runtime_config()
         except ExportError:
@@ -1737,6 +1824,7 @@ class ExportCoordinator:
             )
 
     def _set_item(self, config: ExportRuntimeConfig, item: dict[str, Any], **values: Any) -> None:
+        """Update one folder's entry in the run state, recount totals, save, and keep the failures ledger in step."""
         run_id: str | None = None
         with self._state_lock:
             item.update(values)
@@ -1776,6 +1864,7 @@ class ExportCoordinator:
             self._discard_workspace(config, run_id, item.get("folderId"))
 
     def _run(self, config: ExportRuntimeConfig) -> None:
+        """Thread body: export each pending folder in turn, recording success or failure per folder."""
         with self._state_lock:
             if not self._state:
                 return
@@ -1838,6 +1927,10 @@ class ExportCoordinator:
         config: ExportRuntimeConfig,
         item: dict[str, Any],
     ) -> None:
+        """Export one folder: lock it, pick or reuse its Group ID, build, publish, then mark it exported.
+
+        Also covers resuming a package that was already published before a crash.
+        """
         with engine.connect() as folder_lock:
             acquired = bool(
                 folder_lock.scalar(
@@ -1979,7 +2072,7 @@ class ExportCoordinator:
                 )
 
 
-
+# --- Automatic export sweep ---------------------------------------------------
 class ExportAutoScheduler(PeriodicSweep):
     """Exports approved folders without anyone asking.
 
@@ -2038,6 +2131,7 @@ class ExportAutoScheduler(PeriodicSweep):
         return len(pending)
 
     def _note_blocked(self, errors: list[dict[str, Any]]) -> None:
+        """Remember (and log, at most every ten minutes) why the sweep cannot start an export."""
         parts = []
         for entry in errors:
             key = str(entry.get("errorKey") or "unexpected")
@@ -2074,6 +2168,7 @@ class ExportAutoScheduler(PeriodicSweep):
         return blocked
 
     def _busy(self) -> bool:
+        """True while an export run is queued or running."""
         current = export_coordinator.current()
         return bool(current and current.get("status") in {"QUEUED", "RUNNING"})
 

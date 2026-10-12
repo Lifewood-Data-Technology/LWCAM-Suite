@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// Local snapshot of users, projects and app settings for LWCAM, plus
+// sign-in checks against it. The sync service refreshes the snapshot from
+// PostgreSQL (data managed in LWCam Admin); LWCAM only reads it, so login
+// works offline. Used by auth_controller.dart.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

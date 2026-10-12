@@ -1,5 +1,8 @@
 // ignore_for_file: avoid_print
 
+// Writes the capture marker file into each transferred folder in LWCAM.
+// This is the hand-off point to LWIP: the marker tells it the folder is
+// complete and carries the folder's identity for later reporting.
 import 'dart:convert';
 import 'dart:io';
 

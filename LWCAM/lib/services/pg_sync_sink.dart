@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// The PostgreSQL side of capture sync in LWCAM: writes drained outbox rows
+// (projects, devices, boxes, folders, images) to the shared database that
+// LWIP and the QC Platform read. Also pulls users and projects back into the
+// local snapshot. Driven by sync_service.dart through the SyncSink interface.
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:postgres/postgres.dart';
 
@@ -10,7 +14,7 @@ import 'sync_models.dart';
 import 'sync_sink.dart';
 
 /// PostgreSQL sink targeting the cloud schema in
-/// `LWCam Workflow & SQL update/LWCam_database_20260720.sql`. One instance is
+/// `LWCam_QC_Platform/database/LWCam_database_unified_*.sql`. One instance is
 /// held for the lifetime of `SyncService`; every method reconnects lazily if
 /// the held connection has dropped.
 ///

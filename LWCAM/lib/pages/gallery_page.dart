@@ -1,3 +1,13 @@
+// The capture screen of LWCAM (first stage of the pipeline: capture app ->
+// LWIP -> QC -> Upload). It mirrors the phone with scrcpy, pulls new photos
+// over ADB into a thumbnail grid, and sends the selected ones to the transfer
+// queue. Three modes share the file: the legacy gallery (metadata keying off),
+// box mode (Capture view and QC view of the active box and folders), and
+// rework mode (re-photographing pages QC rejected, entered from the box list).
+// Things to know before editing: every box-mode and rework-mode path is
+// guarded by _isBoxMode / _reworkMode, so keying-off behaviour must stay
+// untouched; and the phone's DCIM folder is the source of truth for captures,
+// with live sync polling it for new files.
 // ignore_for_file: avoid_print, unnecessary_brace_in_string_interps, unused_local_variable, non_constant_identifier_names
 
 import 'package:flutter/material.dart';
@@ -6,7 +16,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:get/get.dart';
-import 'package:lwcam/controllers/upload_contoller.dart';
+import 'package:lwcam/controllers/upload_controller.dart';
 import 'package:lwcam/auth/auth_controller.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
 import 'package:lwcam/services/transfer_destination_service.dart';
@@ -528,6 +538,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     return true; // handled - do not let it also pop a route
   }
 
+  // --- Lifecycle: init, dispose, temp cleanup ------------------------------
+
   @override
   void initState() {
     super.initState();
@@ -819,6 +831,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       );
     });
   }
+
+  // --- Device image listing and live sync ----------------------------------
 
   Future<void> _initGallery() async {
     setState(() => statusMsg = 'Detecting device...');
@@ -1835,6 +1849,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     }
   }
 
+  // --- Replacement (recapture) bookkeeping and preview navigation ----------
+
   Future<void> _restoreReplacementStateFromDb() async {
     try {
       final rows = await UploadStatsDB().getReplacementRecords(
@@ -2223,6 +2239,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       }
     }
   }
+
+  // --- Recapture: launching the phone camera and swapping the new photo in -
 
   // Known camera packages, launched WITHOUT ever force-stopping. The old
   // force-stop-before-each-attempt + fall-through retry loop is what made
@@ -2900,6 +2918,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     }
   }
 
+  // --- Transfer preparation: replacements, original copies, selection ------
+
   Future<File> _materializeReplacementForSlot(
     String originalName,
     File replacementFile, {
@@ -3402,6 +3422,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     );
   }
 
+  // --- Logout, teardown and folder management ------------------------------
+
   Future<void> _confirmLogout(BuildContext context) async {
     print("🚪 Logout requested.");
     final shouldLogout = await showDialog<bool>(
@@ -3635,6 +3657,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       );
     }
   }
+
+  // --- Widgets: preview panel, image tiles, grids and folder sections ------
 
   Widget _buildPreviewPanel() {
     return Obx(() {
@@ -4314,6 +4338,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     return volume.isEmpty ? 'Folder ${folder.folderSeq}' : volume;
   }
 
+  // --- Page build ----------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -4984,6 +5010,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   // makes LWIP reprocess it — that is the whole return path to QC.
   // ══════════════════════════════════════════════════════════════════════════
 
+  // --- Rework mode: status header, folder cards and tiles ------------------
+
   Map<int, List<ReworkItem>> get _reworkByFolderSeq =>
       groupReworkByFolderSeq(_reworkItems);
 
@@ -5133,7 +5161,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                   : [
                       if (item.pageLabel.isNotEmpty) 'Page ${item.pageLabel}',
                       item.imageName,
-                    ].join(' 路 '),
+                    ].join(' · '),
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -5326,7 +5354,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                                 'on another station.',
                     ),
                   // Page position, top-left. The resolution badges moved to the
-                  // bottom to make room 鈥?same corner the QC rail uses for its
+                  // bottom to make room — same corner the QC rail uses for its
                   // own NEW pill.
                   if (item.pageLabel.isNotEmpty)
                     Positioned(
@@ -5371,7 +5399,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                   // Enlarge. An overlay rather than a footer button: the footer
                   // already carries Recapture + the metadata-fix icon, and the
                   // tile is ~175px wide at 1366. No onDoubleTap on the tile's
-                  // GestureDetector 鈥?that would delay every focus tap by
+                  // GestureDetector — that would delay every focus tap by
                   // kDoubleTapTimeout, and focusing is the main interaction
                   // here. Only over a real image, never the placeholder.
                   if (source != null && _reworkSourceReadable(item, source))
@@ -5388,7 +5416,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                               if (item.pageLabel.isNotEmpty)
                                 'Page ${item.pageLabel}',
                               item.imageName,
-                            ].join(' 路 '),
+                            ].join(' · '),
                           ),
                           customBorder: const CircleBorder(),
                           child: Container(
@@ -5419,7 +5447,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
               child: Text(
                 item.pageLabel.isEmpty
                     ? item.imageName
-                    : '${item.pageLabel} 路 ${item.imageName}',
+                    : '${item.pageLabel} · ${item.imageName}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white, fontSize: 11),
@@ -6250,6 +6278,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   }
 }
 
+/// Icon painted with the Lifewood accent gradient (e.g. the select-all button).
 class _GradientIcon extends StatelessWidget {
   final IconData icon;
   final double size;

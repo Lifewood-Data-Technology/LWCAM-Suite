@@ -1,3 +1,5 @@
+// Small path and hashing helpers for LWCAM: making names safe for Windows
+// folders and a stable content fingerprint.
 import 'dart:convert';
 
 /// Windows-invalid filename characters and control characters.

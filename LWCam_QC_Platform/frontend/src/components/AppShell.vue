@@ -1,3 +1,7 @@
+<!-- Page frame for the QC Platform web console: sidebar navigation, top bar with the user and Log out, and a slot for the page. -->
+<!-- Navigation entries depend on the roles the user holds (qc, admin, super_admin) - the same rule the router guard uses. -->
+<!-- On the review desk routes (qc-my-tasks, qc-review) the sidebar and top bar are hidden so the page fills the window. -->
+<!-- Admins also get a red banner linking to System status when any service reports a problem, and the server version under the menu. -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

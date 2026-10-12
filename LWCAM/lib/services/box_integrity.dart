@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// Capture-integrity checks for LWCAM: where a box's durable images live,
+// and finding or healing images that exist on disk but not in the local DB
+// (orphans). Called by box_session_controller.dart on box open and by the
+// admin orphan screen.
 import 'dart:io';
 
 import 'package:path/path.dart' as p;

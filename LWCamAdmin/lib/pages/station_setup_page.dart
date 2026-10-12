@@ -1,3 +1,7 @@
+// Station Setup screen of LWCam Admin. One form to set this PC's database
+// connection, destination and snapshot folders, and the capture login, with
+// buttons to test folder access and change the database password. All state and
+// saving logic live in StationSetupController; this file is only the form.
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';

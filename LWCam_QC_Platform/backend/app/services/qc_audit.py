@@ -1,3 +1,9 @@
+"""Append-only audit trail of QC actions (approve, reject, save edits, ...).
+
+QC Platform stage. One JSON line per action goes into a daily file
+qc_audit_YYYYMMDD.jsonl under settings.qc_audit_dir. Writing is best-effort:
+a failure here is swallowed so it can never break a review.
+"""
 from __future__ import annotations
 
 import json

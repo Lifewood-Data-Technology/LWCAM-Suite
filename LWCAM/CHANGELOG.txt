@@ -362,7 +362,7 @@ Processing report vs QC (pg_statements.dart, LWIP cloud_report.py)
   superseded: a PASSed folder is only re-queued by QC's own send-back.
 
 Transfer destination decided once per box (upload_stats_db.dart,
-transfer_queue_service.dart, upload_contoller.dart, capture_box_models.dart,
+transfer_queue_service.dart, upload_controller.dart, capture_box_models.dart,
 transfer_destination_service.dart)
 - `markCaptureBoxTransferStarted` now takes the destination root, fixes
   `capture_boxes.transferred_to` = `<root>\<YYYYMMDD>` on the box's FIRST
@@ -2049,7 +2049,7 @@ RELIABILITY/DATA-SAFETY: a full pipeline code review confirmed 10 issues, all
 in LWCAM. All 10 fixed:
 
 1. A committed-and-recorded transferred file could be deleted again by the
-   retry cleanup's outer catch. upload_contoller.dart now skips that cleanup
+   retry cleanup's outer catch. upload_controller.dart now skips that cleanup
    entirely once durableCopyCommitted is true.
 2. Duplicate box names across stations could silently merge one station's
    row into another's (the CloudBoxNames cache is advisory-only by design).
@@ -3285,7 +3285,7 @@ LWCam Admin) — all verified against the code before fixing:
       `deviceId` populated after the refusal. Now shows "This account has no
       access to LWCAM..." and clears both fields.
     * Removed dead code introduced by the original split: an unused
-      `_currentBoxDetails` field in `upload_contoller.dart`.
+      `_currentBoxDetails` field in `upload_controller.dart`.
     * Renamed leftover pre-fork identity strings: the scrcpy mirror window
       title (`LifeTransMirror-` -> `LWCAMMirror-`) and the `.lock` sidecar
       payload written during transfers (`LOCKED_BY_LIFE_TRANSFER` ->
@@ -3997,7 +3997,7 @@ FEATURE: REWORK MODE
   capture-ID list, and a rework capture screen (reference-image panel,
   editable box details with audit trail, claimed-photo grid, recapture,
   transfer). New Settings entry for the rework destination path.
-- lib/controllers/upload_contoller.dart: uploadAll() gained an optional
+- lib/controllers/upload_controller.dart: uploadAll() gained an optional
   ReworkTransferContext parameter and now returns UploadBatchResult?. Every
   behavioral difference for a rework transfer is a guarded
   `if (rework != null)` branch — destination folder

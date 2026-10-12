@@ -1,3 +1,6 @@
+<!-- Collapsible AI metadata review panel on the QC Platform review screen. -->
+<!-- It lists the findings per field and lets the reviewer tick which -->
+<!-- suggestions to apply; all job state comes from the useAiReview controller. -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

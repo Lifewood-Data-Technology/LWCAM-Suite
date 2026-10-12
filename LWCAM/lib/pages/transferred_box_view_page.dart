@@ -1,3 +1,9 @@
+// Read-only view of a box that has already been transferred, in the capture app
+// (LWCAM, first stage of the pipeline: capture app -> LWIP -> QC -> Upload).
+// Lists each folder's metadata and its saved thumbnails so the operator can
+// check what was sent. Loads everything once from local data; it never touches
+// the phone, so it is deliberately separate from the gallery page.
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

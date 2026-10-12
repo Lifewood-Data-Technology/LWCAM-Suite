@@ -1,5 +1,12 @@
 // ignore_for_file: avoid_print
 
+// State and operations for one capture session: the box list, the open box,
+// its folders and the images assigned to them (LWCAM capture app).
+// A box is a physical batch; each folder carries metadata. Images are copied
+// into a durable per-box store as soon as they are shot, so a crash never
+// loses them (see box_integrity.dart, orphan_image_store.dart).
+// The file also builds the transfer plan, stages files for the transfer queue
+// and marks boxes transferred, after which LWIP picks the folders up.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,7 +15,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
 import '../auth/auth_controller.dart';
-import '../controllers/upload_contoller.dart'
+import '../controllers/upload_controller.dart'
     show BoxFolderInfo, BoxTransferContext;
 import '../db/upload_stats_db.dart';
 import '../models/capture_box_models.dart';

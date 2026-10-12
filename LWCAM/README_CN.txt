@@ -21,8 +21,6 @@ LWCAM 是文档数字化流程的采集端 Flutter Windows 桌面应用。它通
                      这里补一条。
   LWIP\README.txt    本应用所监管的 Python 纠偏/裁切/缩略图守护工具。
                      中文版：LWIP\README_CN.txt。
-  LWCam Workflow & SQL update\
-                     采集侧数据库结构 SQL 与 ERD 图。
 
 
 常用命令
@@ -84,7 +82,7 @@ Visual Studio 2022 并勾选「使用 C++ 的桌面开发」工作负载。
 
   超时         单文件复制硬性上限 10 分钟；停滞检测 30 秒，每 5 秒检查一次；
                目标可用性轮询并弹出重连对话框。常量位于
-               lib/controllers/upload_contoller.dart 顶部。
+               lib/controllers/upload_controller.dart 顶部。
 
   崩溃恢复     基于数据库，而非检查点。`upload_records` 行只在复制校验通过之后
                才写入，重启后的批次会跳过已记录的文件名。基于序号续传的检查点已
@@ -104,7 +102,7 @@ Visual Studio 2022 并勾选「使用 C++ 的桌面开发」工作负载。
 以下不是笔误，是刻意保留
 --------------------------------------------------------------------------------
 
-  * lib/controllers/upload_contoller.dart 拼写有误，但这个错误是有依赖的——
+  * lib/controllers/upload_controller.dart 拼写有误，但这个错误是有依赖的——
     import 依赖该文件名。
 
   * lib/pages/settings_page.dart 里只有 `SettingsController`。没有设置页面；

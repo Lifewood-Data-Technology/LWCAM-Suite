@@ -1,3 +1,7 @@
+// PostgreSQL connection helper of LWCam Admin. Opens connections to the shared
+// database and turns server errors into SyncConnectException with a PgFailure
+// reason, so callers can show a specific message and treat the database as
+// offline.
 import 'dart:async';
 
 import 'package:postgres/postgres.dart';

@@ -1,8 +1,15 @@
+// Transfer progress page of the capture app (LWCAM): asks for the group
+// details, prepares the files and copies them to the destination folder where
+// the next stage (LWIP) picks them up.
+// Things to know before editing: files are prepared lazily through the
+// prepareFiles callback, and a box transfer skips the details prompt by passing
+// presetBoxDetails.
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../controllers/upload_contoller.dart';
+import '../controllers/upload_controller.dart';
 import 'upload_status_page.dart';
 import '../theme/app_colors.dart';
 

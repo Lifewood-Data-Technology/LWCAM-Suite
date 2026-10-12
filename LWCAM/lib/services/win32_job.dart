@@ -1,5 +1,9 @@
 // ignore_for_file: avoid_print
 
+// Windows FFI wrapper around a Job Object with kill-on-close. The capture app
+// (LWCAM) uses it so the scrcpy phone-mirror child process dies with the app,
+// even on a crash. The struct layouts below are hand-written because
+// package:win32 does not expose them; they assume the x64 ABI.
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';

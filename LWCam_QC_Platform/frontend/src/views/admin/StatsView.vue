@@ -1,3 +1,7 @@
+<!-- Admin dashboard (landing page for admins) of the QC Platform web console: QC counts and charts. -->
+<!-- Data comes from one call, adminApi.stats(): today's numbers, a task-status pie chart, a task trend line and a per-reviewer workload table. -->
+<!-- Charts use ECharts with only the needed parts registered; they are disposed on unmount and resized with the window. -->
+<!-- The reviewer workload total can be lower than the reviewed-folder count (folders decided before the reviewer column existed); the page shows that gap. -->
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

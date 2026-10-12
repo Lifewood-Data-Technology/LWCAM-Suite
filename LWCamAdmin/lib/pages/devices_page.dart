@@ -1,3 +1,9 @@
+// Devices screen of LWCam Admin (the app that manages users, projects, devices
+// and this station's database connection for the LWCAM suite). Lists capture
+// devices with their project and last user, and lets an admin move a device to
+// another project. Reads and writes the device registry in PostgreSQL directly
+// (not the local snapshot), so it needs a reachable database.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -93,6 +99,8 @@ class _DevicesPageState extends State<DevicesPage> {
     );
   }
 
+  /// Asks which project to bind the device to (only projects that have a
+  /// location code), then updates the registry and reloads the list.
   Future<void> _reassign(BuildContext context, DeviceRow d) async {
     final projects = Get.isRegistered<AdminStoreService>()
         ? Get.find<AdminStoreService>().store.value?.projects ?? const []

@@ -1,3 +1,9 @@
+// Login screen of the capture app (LWCAM), the first route. It registers the
+// permanent SettingsController and AuthController and hands the credentials to
+// AuthController, which does the actual sign-in.
+// Things to know before editing: the controllers are registered here so every
+// later page finds the same instances with Get.find.
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../auth/auth_controller.dart';

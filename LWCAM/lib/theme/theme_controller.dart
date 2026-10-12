@@ -1,3 +1,8 @@
+// Holds the light, dark or system theme choice of the capture app (LWCAM) and
+// saves it in shared preferences. main.dart loads it at start and applies it.
+// Things to know before editing: unreadable preferences fall back to light
+// instead of blocking startup; this folder is mirrored in a sibling app.
+
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';

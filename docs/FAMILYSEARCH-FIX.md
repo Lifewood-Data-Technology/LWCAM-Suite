@@ -149,7 +149,7 @@ Two repo-copy defects hit along the way, both fixed in the repository:
   repo's own copy for a production build.**
 - `runner.exe.manifest` had arrived renamed to `runner.exe.manifest.xml` in both apps —
   a transfer-time mangling, content byte-identical to stock. Correctly-named copies
-  created; the `.xml` files are still there.
+  created; the `.xml` copies were removed on 2026-10-12.
 
 Build commands:
 ```
