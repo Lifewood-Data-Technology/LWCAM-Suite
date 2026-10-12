@@ -10,7 +10,7 @@ rem Run as Administrator. Replaces the CURRENT contents of the database, in ONE
 rem transaction (a failed restore changes nothing). A safety dump of the current
 rem database (pre-restore-YYYYMMDD-HHMM.dump, in the backup folder) is taken first.
 rem Roles/logins are NOT in the .dump: to rebuild on a NEW PC apply the matching
-rem lwcam-globals-*.sql first (see README.txt, "Rebuilding the database PC").
+rem lwcam-globals-*.sql first (see docs\INSTALL.md, "Backups and restore").
 for %%I in ("%~dp0.") do set "ROOT=%%~fI"
 set "PY=%ROOT%\runtime\python\python.exe"
 set "FILE=%~1"

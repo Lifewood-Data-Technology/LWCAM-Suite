@@ -55,8 +55,8 @@ Source: "{#LwipDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion rec
 Source: "{#LwipDir}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#LwipDir}\SETUP_DESKEW_CROP.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#LwipDir}\START_LWIP.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#LwipDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#LwipDir}\README_CN.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#LwipDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#LwipDir}\README.zh-CN.md"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Build the private runtime on the target; its archive is staged once at the root.
 Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall

@@ -249,7 +249,7 @@ begin
   if not LockProgramFolder(ExpandConstant('{commonappdata}\LWCAM')) then
     Log('LWCam: ' + ExpandConstant('{commonappdata}\LWCAM') + ' could not be locked to Administrators.');
 
-  // Only the fact of the install: the setup steps live in installer\README.txt.
+  // Only the fact of the install: the setup steps live in installer\README.md.
   Closing := 'LWCam is installed.';
   if StoppedQcBackends > 0 then
     Log('LWCam: the old QC engine was stopped and removed.');

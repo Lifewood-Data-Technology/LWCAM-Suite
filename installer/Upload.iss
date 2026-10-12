@@ -54,7 +54,8 @@ Source: "{#UploadDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion r
 Source: "{#UploadDir}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#UploadDir}\SETUP_UPLOAD.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#UploadDir}\START_UPLOAD.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#UploadDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#UploadDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#UploadDir}\README.zh-CN.md"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Build the private runtime on the target; its archive is staged once at the root.
 Source: "{#PyEmbedZip}"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall
