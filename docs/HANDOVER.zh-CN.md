@@ -54,17 +54,11 @@
 | `LWCam_QC_Platform/backend/app/services/ai_review.py`（约 2600 行） | |
 | `LWCam_QC_Platform/backend/app/services/export.py`（约 2200 行） | |
 | `LWIP/backend/deskew_crop_tool/orchestrator.py`（约 1900 行） | |
-| `LWCAM/lib/controllers/upload_controller.dart`（约 1900 行） | |
+| `LWCAM/lib/controllers/transfer_controller.dart`（约 1900 行） | |
 | `LWIP/backend/deskew_crop_tool/service.py` 中的 `build_handler` | 一个超长的函数 |
 | `LWCam_Upload/backend/lwcam_upload/console.py` 中的 `build_handler` | 一个超长的函数 |
 | `LWIP/backend/deskew_crop_tool/config.py` 中的 `load_config` | |
 | `LWCam_Upload/backend/lwcam_upload/engine.py` 中的 `_scan` | |
-
-### 小清理
-
-- `QcIndexView.vue` 中有未使用的 CSS：两块样式（例如 `.qc-workbench`、`.tree-*`）在当前模板中没有任何匹配。
-- 已停用的设置 `captureImageLocalRoot` 仍保留在 QC 的 admin 模式定义、路由和运行时设置中（`schemas/admin.py`、`routers/admin.py`、`core/runtime_settings.py`）。先确认旧配置文件是否仍需要它，然后将其移除。
-- `UploadController` 复制到本地或 NAS 目标位置，并不上传到 S3，名称有误导性。请重命名（文件名已经是 `upload_controller.dart`）。
 
 ### 已知的测试基线
 
@@ -78,7 +72,7 @@
 4. 运行所有测试套件（`TESTING.md`）。记下你的测试数量，它们就是你的基线。
 5. 在一台 PC 上安装全部五个组件（`INSTALL.md`），使用构建输入文件。
 6. 让一个测试文件夹走完整条流水线：采集（或手工做一个带标记文件的文件夹）、LWIP、QC 审核并通过、导出、上传到测试存储桶。没有相机时，`LWCam_QC_Platform/scripts/reset_test_folder.py` 可以帮上忙。
-7. 从上面的清单中挑一个入门 issue（一项小清理），提交你的第一个拉取请求（`CONTRIBUTING.md`）。
+7. 在 GitHub 上挑一个入门 issue（标签 `good first issue`），提交你的第一个拉取请求（`CONTRIBUTING.md`）。
 
 ## 联系人
 

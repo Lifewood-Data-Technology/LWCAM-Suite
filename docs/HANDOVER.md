@@ -66,23 +66,11 @@ that prove the behaviour does not change.
 | `LWCam_QC_Platform/backend/app/services/ai_review.py` (~2600 lines) | |
 | `LWCam_QC_Platform/backend/app/services/export.py` (~2200 lines) | |
 | `LWIP/backend/deskew_crop_tool/orchestrator.py` (~1900 lines) | |
-| `LWCAM/lib/controllers/upload_controller.dart` (~1900 lines) | |
+| `LWCAM/lib/controllers/transfer_controller.dart` (~1900 lines) | |
 | `build_handler` in `LWIP/backend/deskew_crop_tool/service.py` | One very long function |
 | `build_handler` in `LWCam_Upload/backend/lwcam_upload/console.py` | One very long function |
 | `load_config` in `LWIP/backend/deskew_crop_tool/config.py` | |
 | `_scan` in `LWCam_Upload/backend/lwcam_upload/engine.py` | |
-
-### Small cleanups
-
-- Unused CSS in `QcIndexView.vue`: two blocks of styles (for example
-  `.qc-workbench`, `.tree-*`) match nothing in the current template.
-- The retired setting `captureImageLocalRoot` is still in the QC admin schemas,
-  router and runtime settings (`schemas/admin.py`, `routers/admin.py`,
-  `core/runtime_settings.py`). Check whether old config files still need it, then
-  remove it.
-- `UploadController` copies to the local or NAS destination; it does not upload to
-  S3. The name misleads. Rename it (the file name is already
-  `upload_controller.dart`).
 
 ### Known test baseline
 
@@ -102,7 +90,7 @@ enabled. They are negative controls. See `TESTING.md`.
    with the marker file), LWIP, QC review and approve, export, upload to a test
    bucket. `LWCam_QC_Platform/scripts/reset_test_folder.py` helps when you have no
    camera.
-7. Pick a starter issue (a small cleanup from the list above) and open your first
+7. Pick a starter issue (label `good first issue` on GitHub) and open your first
    pull request (`CONTRIBUTING.md`).
 
 ## Contacts
