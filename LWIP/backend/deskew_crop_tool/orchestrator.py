@@ -18,6 +18,8 @@ Ideas to know before editing:
 """
 from __future__ import annotations
 
+from color_cal_tool.contract import CalibrationError, calibration_digest, profile_for
+
 import hashlib
 import json
 import logging
@@ -132,6 +134,7 @@ class FileSnapshot:
     files: tuple[tuple[str, int, int], ...]
     fingerprint: str
     newest_mtime_ns: int
+    calibration_digest: str = ""
 
     @property
     def image_count(self) -> int:
@@ -364,6 +367,7 @@ class ActiveFolder:
     snapshot: FileSnapshot
     work_folder: Path
     staged_folder: Path
+    source_identity: dict | None = None
     stage: str = "crop"
     next_job: int = 0
     completed_jobs: int = 0
@@ -791,7 +795,12 @@ class FolderOrchestrator:
         fs_path(staged_folder).mkdir(parents=True, exist_ok=True)
         LOGGER.info("Starting folder %s (%d images)", folder, snapshot.image_count)
         LOGGER.info("deskew/crop started for %s (%d images)", folder, snapshot.image_count)
-        return ActiveFolder(snapshot, work_folder, staged_folder)
+        identity = self._read_source_identity(folder)
+        if calibration_digest(identity) != snapshot.calibration_digest:
+            raise OutputIntegrityError("Calibration changed before processing")
+        for name, _size, _mtime in snapshot.files:
+            profile_for(identity, name)
+        return ActiveFolder(snapshot, work_folder, staged_folder, source_identity=identity)
 
     def _submit_image_jobs(
         self,
@@ -840,6 +849,7 @@ class FolderOrchestrator:
             self.config.thumbnail_quality,
             self.config.deskew_min_degrees,
             self.config.mat_fill,
+            profile_for(item.source_identity, relative),
         )
 
     def _finish_image_job(
@@ -936,7 +946,7 @@ class FolderOrchestrator:
             output_folder,
             item.snapshot,
             thumbnails_created=item.thumbnails_created,
-            source_identity=self._read_source_identity(item.snapshot.folder),
+            source_identity=item.source_identity,
             image_results=item.image_results,
         )
         return output_folder, manifest_checksum
@@ -967,9 +977,8 @@ class FolderOrchestrator:
 
     def _read_source_identity(self, folder: Path) -> dict[str, object] | None:
         # The completion marker doubles as the folder's DB-identity payload;
-        # embed it in the manifest so the LWCAM reporting agent never has to
-        # parse paths. Read tolerantly — a bad/absent marker just means no
-        # identity travels through (the agent then skips reporting it).
+        # embed it in the manifest for LWIP reporting and QC. A damaged
+        # marker must fail closed: it may contain calibration instructions.
         marker_name = self.config.completion_marker
         if not marker_name:
             return None
@@ -978,10 +987,11 @@ class FolderOrchestrator:
             if not marker_path.is_file():
                 return None
             value = json.loads(marker_path.read_text(encoding="utf-8"))
-            return value if isinstance(value, dict) else None
+            if not isinstance(value, dict):
+                raise CalibrationError("Completion marker is not a JSON object")
+            return value
         except Exception as exc:
-            LOGGER.warning("Could not read completion marker %s: %s", marker_path, exc)
-            return None
+            raise CalibrationError(f"Could not read completion marker {marker_path}: {exc}") from exc
 
     def _publish(
         self,
@@ -1024,6 +1034,7 @@ class FolderOrchestrator:
                         "angle": result.get("angle", 0.0),
                         "lossless": bool(result.get("lossless", False)),
                         "qc_ops": result.get("qc_ops", []),
+                        "color_profile_applied": bool(result.get("color_profile_applied")),
                         "angle_source": result.get("angle_source", "none"),
                         "page_found": bool(result.get("page_found", False)),
                         "off_frame": list(result.get("off_frame", [])),
@@ -1050,6 +1061,7 @@ class FolderOrchestrator:
                 "version": 1,
                 "source_folder": str(snapshot.folder.resolve()),
                 "source_fingerprint": snapshot.fingerprint,
+                "calibration_digest": snapshot.calibration_digest,
                 "image_count": snapshot.image_count,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "files": manifest_files,
@@ -1304,7 +1316,7 @@ class FolderOrchestrator:
         top = [
             path
             for path in self.config.input_root.iterdir()
-            if fs_path(path).is_dir() and not _path_is_link(path)
+            if path.name.lower() != ".calibration" and fs_path(path).is_dir() and not _path_is_link(path)
         ]
         if self.config.folder_depth == 1:
             folders = top
@@ -1588,11 +1600,26 @@ def build_snapshot(folder: Path, config: ToolConfig) -> FileSnapshot | None:
         digest.update(b"\0")
         digest.update(str(modified).encode("ascii"))
         digest.update(b"\n")
+    colour_digest = ""
+    if config.completion_marker:
+        marker = fs_path(folder / config.completion_marker)
+        if marker.is_file():
+            raw_marker = marker.read_bytes()
+            try:
+                colour_digest = calibration_digest(json.loads(raw_marker))
+            except (ValueError, TypeError, UnicodeError):
+                # Still create a snapshot so admission can record/back off the
+                # error. _start_folder validates before submitting any image.
+                colour_digest = hashlib.sha256(raw_marker).hexdigest()
+    if colour_digest:
+        digest.update(b"\0color_calibration\0")
+        digest.update(colour_digest.encode("ascii"))
     return FileSnapshot(
         folder=folder,
         files=tuple(values),
         fingerprint=digest.hexdigest(),
         newest_mtime_ns=max(item[2] for item in values),
+        calibration_digest=colour_digest,
     )
 
 

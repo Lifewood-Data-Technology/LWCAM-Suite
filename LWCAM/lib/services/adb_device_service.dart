@@ -37,6 +37,214 @@ class ShutterConfig {
 /// Normal Mode's GalleryPage and Box Mode's capture screen are never
 /// mounted at the same time.
 class AdbDeviceService {
+  Future<String?> deviceSerial() async {
+    try {
+      final result = await Process.run(adbPath, ['get-serialno']).timeout(const Duration(seconds: 5));
+      final value = result.stdout.toString().trim();
+      return result.exitCode == 0 && value.isNotEmpty && value != 'unknown' ? value : null;
+    } catch (_) { return null; }
+  }
+  static const List<String> cameraPackages = [
+    'com.android.camera',
+    'com.sec.android.app.camera',
+  ];
+  static const String cameraUiDumpPath = '/sdcard/life_transfer_camera_ui.xml';
+  static const List<String> proModeResourceIds = [
+    'com.android.camera:id/pro_viewpager',
+    'com.android.camera:id/manually_recycler_view',
+    'com.android.camera:id/reset_manually_parameter_tip',
+  ];
+
+  Future<bool> isPackageInstalled(String packageName) async {
+    final result = await Process.run(adbPath, [
+      'shell',
+      'pm',
+      'path',
+      packageName,
+    ]);
+    return result.exitCode == 0 && result.stdout.toString().trim().isNotEmpty;
+  }
+
+  Future<String?> foregroundCameraPackage() async {
+    try {
+      final result = await Process.run(adbPath, [
+        'shell',
+        'dumpsys',
+        'activity',
+        'activities',
+      ]);
+      if (result.exitCode != 0) return null;
+      final resumed = result.stdout
+          .toString()
+          .split('\n')
+          .where(
+            (l) =>
+                l.contains('topResumedActivity=') ||
+                l.contains('mResumedActivity'),
+          )
+          .join('\n');
+      for (final pkg in cameraPackages) {
+        if (resumed.contains(pkg)) return pkg;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// True when the live camera UI shows Pro-mode controls, read by dumping
+  /// the current view hierarchy with uiautomator.
+  Future<bool> isCameraInProMode() async {
+    try {
+      final dump = await Process.run(adbPath, [
+        'shell',
+        'uiautomator',
+        'dump',
+        cameraUiDumpPath,
+      ]);
+      if (dump.exitCode != 0) return false;
+      final xml = await Process.run(adbPath, ['shell', 'cat', cameraUiDumpPath]);
+      if (xml.exitCode != 0) return false;
+      final content = xml.stdout.toString();
+      return proModeResourceIds.any(content.contains);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Fire-and-forget Pro-mode verification — the ~2s uiautomator dump must
+  /// not sit on the caller's critical path. [onProModeUnverified] fires
+  /// with a status message when Pro mode couldn't be confirmed.
+  void _verifyProModeInBackground(
+    String warning,
+    void Function(String warning)? onProModeUnverified,
+  ) {
+    unawaited(
+      isCameraInProMode().then((isPro) {
+        if (isPro) {
+          print('📷 Camera verified in Pro mode.');
+        } else {
+          onProModeUnverified?.call(warning);
+        }
+      }),
+    );
+  }
+
+  /// Launches the device camera for a recapture. Returns true once a known
+  /// camera package is confirmed on screen. Deliberately never force-stops
+  /// and never kills-and-retries — the camera is launched at most once (the
+  /// HyperOS `micamera://…module=167` deep link lands directly in Pro mode)
+  /// and Pro mode is verified by reading the live UI, matching
+  /// gallery_page.dart's `_launchCameraForRecapture`.
+  Future<bool> launchCameraProMode({
+    void Function(String warning)? onProModeUnverified,
+  }) async {
+    if (await foregroundCameraPackage() != null) {
+      _verifyProModeInBackground(
+        'Camera is already open, but Pro mode could not be verified. Please switch the Camera app to Pro mode.',
+        onProModeUnverified,
+      );
+      return true;
+    }
+
+    final hasMi = await isPackageInstalled('com.android.camera');
+    final hasSamsung = await isPackageInstalled('com.sec.android.app.camera');
+
+    final attempts = <List<String>>[
+      if (hasMi) ...[
+        [
+          'shell',
+          'am',
+          'start',
+          '-a',
+          'android.intent.action.VIEW',
+          '-d',
+          'micamera://open?mode=MANUAL&module=167&camera_mode=167',
+          '--ei',
+          'android.intent.extra.CAMERA_MODE',
+          '167',
+        ],
+        [
+          'shell',
+          'monkey',
+          '-p',
+          'com.android.camera',
+          '-c',
+          'android.intent.category.LAUNCHER',
+          '1',
+        ],
+      ],
+      if (hasSamsung)
+        [
+          'shell',
+          'monkey',
+          '-p',
+          'com.sec.android.app.camera',
+          '-c',
+          'android.intent.category.LAUNCHER',
+          '1',
+        ],
+      ['shell', 'am', 'start', '-a', 'android.media.action.STILL_IMAGE_CAMERA'],
+    ];
+
+    for (final args in attempts) {
+      final result = await Process.run(adbPath, args);
+      if (result.exitCode != 0) {
+        print('Camera launch attempt failed: adb ${args.join(' ')}');
+        continue;
+      }
+      for (var i = 0; i < 12; i++) {
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (await foregroundCameraPackage() != null) {
+          _verifyProModeInBackground(
+            'Camera launched, but Pro mode could not be verified. Please switch the Camera app to Pro mode.',
+            onProModeUnverified,
+          );
+          return true;
+        }
+      }
+      print(
+        'Camera launch did not bring a known Camera package to the foreground: adb ${args.join(' ')}',
+      );
+    }
+
+    return false;
+  }
+
+  /// Polls the device for a capture not present in [before]. Returns the
+  /// newest new filename, or null on timeout/cancellation. A null listing
+  /// (device unreachable) is treated as no change, never as a new file.
+  /// [lister] is an injectable seam for tests — production callers rely on
+  /// this instance's own [listDeviceImageNames].
+  Future<String?> waitForNewCapture(
+    Set<String> before, {
+    Duration timeout = const Duration(minutes: 2),
+    Duration pollInterval = const Duration(milliseconds: 350),
+    bool Function()? isCancelled,
+    Future<List<String>?> Function()? lister,
+  }) async {
+    final list = lister ?? listDeviceImageNames;
+    final sw = Stopwatch()..start();
+
+    while (sw.elapsed < timeout) {
+      if (isCancelled?.call() ?? false) return null;
+      final current = await list();
+      if (current != null) {
+        final added = current.where((name) => !before.contains(name)).toList();
+        if (added.isNotEmpty) {
+          added.sort();
+          final newest = added.last;
+          print('✅ New capture detected: $newest');
+          return newest;
+        }
+      }
+      await Future.delayed(pollInterval);
+    }
+
+    print('⚠️ Timed out waiting for new capture on device.');
+    return null;
+  }
+
   final String adbPath;
   String? _workingPath;
 

@@ -7,6 +7,14 @@ Newest first. The All-In-One edition keeps its own changelog on branch
 
 ## [Unreleased]
 
+- Add LWIP-owned SpyderCheckr calibration via immutable shared-folder tasks, enabled per station
+  for Box Mode and recapture. Freeze profiles per image, preserve them through
+  transfer/rework/split, and correct LWIP thumbnails plus QC previews/export.
+  Raw capture files remain untouched; invalid calibration blocks publishing.
+- Package the complete ColorCal algorithm in LWIPSetup; remove capture-side Python. No new service or PostgreSQL
+  migration; capture's local SQLite schema advances to v3.
+- Deployment and acceptance: `docs/COLOR-CALIBRATION.zh-CN.md`.
+
 ## [1.1.0] - 2026-10-12
 
 First release on GitHub. Five installers: `LWCamDatabaseSetup.exe`,

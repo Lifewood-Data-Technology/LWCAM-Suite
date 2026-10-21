@@ -50,6 +50,8 @@ Source: "Trust this LWCam server.cmd"; DestDir: "{app}"; Flags: ignoreversion
 ; LWIP source only, no tests/benchmark (siblings of this folder, so a Source
 ; rooted at deskew_crop_tool\* never picks them up) and no runtime bytecode.
 Source: "{#LwipDir}\backend\deskew_crop_tool\*"; DestDir: "{app}\backend\deskew_crop_tool"; Flags: ignoreversion recursesubdirs; Excludes: "*.pyc,__pycache__\*"
+Source: "{#LwipDir}\backend\run_calibration_task.py"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "{#LwipDir}\backend\color_cal_tool\*"; DestDir: "{app}\backend\color_cal_tool"; Flags: ignoreversion recursesubdirs; Excludes: "*.pyc,__pycache__\*"
 Source: "{#LwipDir}\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LwipDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LwipDir}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion

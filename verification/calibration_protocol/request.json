@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "task_id": "7e992bea-27ea-43f6-bbd4-8fcb504073da",
+  "device_id": "station-1",
+  "phone_serial": "phone-1",
+  "operator": "tester",
+  "captured_at": "2026-10-20T09:00:00+08:00",
+  "capture_local_date": "2026-10-20",
+  "image": {
+    "name": "chart.jpg",
+    "size": 29,
+    "sha256": "bd632cd4ce6931ff76fb59600c2a0c12572f638a00b055b721a4ee7154d9028d"
+  },
+  "analysis": {}
+}

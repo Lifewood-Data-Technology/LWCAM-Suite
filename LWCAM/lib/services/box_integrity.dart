@@ -112,6 +112,7 @@ Future<int> healOrphanImages({
           boxId: e.boxId!,
           folderId: e.folderId!,
           deviceFilename: e.deviceFilename,
+          colorBinding: e.colorBinding,
         ),
       );
 

@@ -4,6 +4,8 @@
 // This is the hand-off point to LWIP: the marker tells it the folder is
 // complete and carries the folder's identity for later reporting.
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'color_capture_session.dart';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -18,8 +20,8 @@ import 'transfer_destination_service.dart';
 /// readiness gate (LWIP won't process a folder until this exists) AND the
 /// folder's DB-identity payload (natural keys), so the processing agent that
 /// later reports results never has to reverse-engineer identity from paths.
-/// `.json` is deliberately outside LWIP's image extensions, so the marker
-/// never perturbs the folder's content fingerprint.
+/// `.json` is outside the image extensions. LWIP hashes calibration data
+/// separately so parameter changes invalidate a completed folder.
 const String kProcessingMarkerName = 'lwcam_capture_marker.json';
 
 class ProcessingMarkerResult {
@@ -53,10 +55,12 @@ Map<String, dynamic> buildFolderMarkerPayload({
   required int folderSeq,
   required String folderName,
   int? imageCount,
+  Map<String, dynamic>? colorCalibration,
   DateTime? now,
 }) {
   return {
     'version': 1,
+    if (colorCalibration != null) 'color_calibration': colorCalibration,
     'project_key': boxKeys['project_key'],
     'project_id': boxKeys['project_id'],
     'box_name': boxKeys['box_name'],
@@ -147,6 +151,7 @@ Future<ProcessingMarkerResult> writeBoxProcessingMarkers({
             folderSeq: folder.folderSeq,
             folderName: name,
             imageCount: await countImageFiles(folderDir),
+            colorCalibration: await db.folderColorCalibration(deviceId, folder.id),
           );
           await _writeMarkerAtomic(folderDir.path, payload);
           written++;
@@ -259,15 +264,50 @@ Future<Set<String>> foreignMarkerFolderNames({
   return foreign;
 }
 
-/// Flags a completed input folder as being reworked (or clears the flag).
-/// LWIP treats a marker with `rework_in_progress: true` as NOT ready, so it
-/// never fingerprints a half-replaced folder. Clearing also refreshes
-/// `image_count` from what is on disk now. A folder with no marker (an old
-/// capture) has nothing to gate and is left alone.
-Future<void> setReworkInProgress(String inputFolder, bool inProgress) async {
+/// Updates only the recaptured page, while the readiness gate is held.
+Future<void> updateReworkColorBinding(String inputFolder, String imageName, ColorBinding binding) async {
   final target = File(longPath(p.join(inputFolder, kProcessingMarkerName)));
   final data = await _readMarkerIdentity(target);
-  if (data == null) return;
+  if (data == null) throw StateError('Recapture requires a readable capture marker');
+  final raw = data['color_calibration'];
+  if (raw != null && raw is! Map) throw StateError('Damaged calibration marker');
+  final block = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{
+    'version': 1, 'profiles': <String, dynamic>{}, 'images': <String, dynamic>{},
+  };
+  if (block['version'] != 1) throw StateError('Unsupported calibration marker version');
+  final images = Map<String, dynamic>.from(block['images'] as Map);
+  final profiles = Map<String, dynamic>.from(block['profiles'] as Map);
+  if (raw == null) {
+    // Preserve legacy capture-time decisions for untouched pages.
+    final legacy = data['color_profile'];
+    final legacyPayload = legacy is Map && legacy['calibrated_today'] == true
+        ? jsonEncode(Map<String, dynamic>.from(legacy)) : null;
+    final legacyHash = legacyPayload == null ? null : sha256.convert(utf8.encode(legacyPayload)).toString();
+    if (legacyHash != null) profiles[legacyHash] = legacyPayload;
+    await for (final entry in Directory(longPath(inputFolder)).list()) {
+      if (entry is File && _imageExts.contains(p.extension(entry.path).toLowerCase())) {
+        images[p.basename(entry.path)] = legacyHash == null
+            ? {'profile': null, 'reason': 'historical'} : {'profile': legacyHash};
+      }
+    }
+  }
+  if (binding.profile != null) profiles[binding.profile!] = binding.payload;
+  images[imageName] = binding.marker();
+  block['profiles'] = profiles;
+  block['images'] = images;
+  data['color_calibration'] = block;
+  await writeStringAtomic(target.path, jsonEncode(data));
+}
+
+/// Holds the LWIP readiness gate while a recapture is being committed.
+/// New recapture callers require a readable marker; legacy callers may opt out.
+Future<void> setReworkInProgress(String inputFolder, bool inProgress, {bool requireReadable = false}) async {
+  final target = File(longPath(p.join(inputFolder, kProcessingMarkerName)));
+  final data = await _readMarkerIdentity(target);
+  if (data == null) {
+    if (requireReadable) throw StateError('Recapture requires a readable capture marker');
+    return;
+  }
   if (inProgress) {
     data['rework_in_progress'] = true;
   } else {

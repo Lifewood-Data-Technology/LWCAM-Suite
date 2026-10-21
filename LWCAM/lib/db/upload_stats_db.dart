@@ -10,6 +10,7 @@
 // ignore_for_file: avoid_print
 
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
@@ -55,7 +56,7 @@ class TransferProtectionHandle {
 }
 
 class UploadStatsDB {
-  static const int _stableSchemaVersion = 2;
+  static const int _stableSchemaVersion = 3;
   static final UploadStatsDB _instance = UploadStatsDB._internal();
   factory UploadStatsDB() => _instance;
   UploadStatsDB._internal();
@@ -209,6 +210,7 @@ class UploadStatsDB {
         '⚠️ Recovery: the damaged file could not be read at all — queued '
         'cloud updates and recapture history cannot be carried over: $e',
       );
+      await recovering.insert('color_integrity', {'id': 1, 'reason': 'Original local database unreadable'}, conflictAlgorithm: ConflictAlgorithm.replace);
       return;
     }
 
@@ -222,6 +224,10 @@ class UploadStatsDB {
     for (final table in const [
       'sync_outbox',
       'replacement_records',
+      'color_pending',
+      'color_integrity',
+      'color_profiles',
+      'color_bindings',
       'upload_records',
       'daily_summary',
     ]) {
@@ -241,6 +247,9 @@ class UploadStatsDB {
         );
         print('🧷 Recovery carried over $carried row(s) into $table');
       } catch (e) {
+        if (table.startsWith('color_')) {
+          await recovering.insert('color_integrity', {'id': 1, 'reason': 'Could not recover $table'}, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
         print('⚠️ Recovery: could not carry over $table — skipped: $e');
       }
     }
@@ -666,12 +675,14 @@ class UploadStatsDB {
             )
           ''');
 
+          await _createColorCalibrationTables(db);
           await _ensureDeviceIndexes(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await _migrateStableSchemaV2(db, deviceId);
           }
+          if (oldVersion < 3) await _createColorCalibrationTables(db);
         },
         onOpen: (db) async {
           await _configureDatabaseForConcurrentAccess(db);
@@ -2814,6 +2825,77 @@ class UploadStatsDB {
     return _parentBoxKeys(db, boxId);
   }
 
+  static Future<void> _createColorCalibrationTables(DatabaseExecutor db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS color_pending (image_name TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE IF NOT EXISTS color_integrity (id INTEGER PRIMARY KEY, reason TEXT NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS color_profiles (hash TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS color_bindings (image_name TEXT PRIMARY KEY, binding_json TEXT NOT NULL)');
+  }
+
+  static Future<void> _saveColorBinding(DatabaseExecutor db, String name, Map<String, dynamic>? supplied) async {
+    final binding = Map<String, dynamic>.from(supplied ?? {'profile': null, 'reason': 'historical'});
+    final payload = binding.remove('payload');
+    if (binding['profile'] != null) {
+      if (payload is! String || sha256.convert(utf8.encode(payload)).toString() != binding['profile']) {
+        throw StateError('Missing or damaged colour profile snapshot');
+      }
+      await db.insert('color_profiles', {'hash': binding['profile'], 'payload': payload}, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await db.insert('color_bindings', {'image_name': name, 'binding_json': jsonEncode(binding)}, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>> colorBindingFor(String deviceId, String name) async {
+    final db = await getDatabase(deviceId);
+    if ((await db.query('color_integrity')).isNotEmpty) {
+      throw StateError('Calibration history could not be recovered. Restore the local database backup before transferring.');
+    }
+    if ((await db.query('color_pending', where: 'image_name = ?', whereArgs: [name])).isNotEmpty) {
+      throw StateError('Interrupted recapture for $name. Retake this page before transferring.');
+    }
+    final rows = await db.query('color_bindings', where: 'image_name = ?', whereArgs: [name]);
+    if (rows.isEmpty) return {'profile': null, 'reason': 'historical'};
+    final binding = Map<String, dynamic>.from(jsonDecode(rows.first['binding_json'] as String) as Map);
+    if (binding['profile'] != null) {
+      final profiles = await db.query('color_profiles', where: 'hash = ?', whereArgs: [binding['profile']]);
+      if (profiles.isEmpty) throw StateError('Missing colour profile for $name');
+      binding['payload'] = profiles.first['payload'];
+      if (sha256.convert(utf8.encode(binding['payload'] as String)).toString() != binding['profile']) {
+        throw StateError('Damaged colour profile for $name');
+      }
+    }
+    return binding;
+  }
+
+  Future<void> markColorReplacementPending(String deviceId, String name) async {
+    final db = await getDatabase(deviceId);
+    await db.insert('color_pending', {'image_name': name}, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  Future<void> saveColorBinding(String deviceId, String name, Map<String, dynamic> binding) async {
+    final db = await getDatabase(deviceId);
+    await db.transaction((txn) async {
+      await _saveColorBinding(txn, name, binding);
+      await txn.delete('color_pending', where: 'image_name = ?', whereArgs: [name]);
+    });
+  }
+
+  Future<Map<String, dynamic>> folderColorCalibration(String deviceId, int folderId) async {
+    final db = await getDatabase(deviceId);
+    final rows = await db.query('capture_images', where: 'folder_id = ?', whereArgs: [folderId]);
+    final profiles = <String, dynamic>{};
+    final images = <String, dynamic>{};
+    for (final row in rows) {
+      final name = row['image_name'] as String;
+      // An unchanged transfer name is intentionally not persisted by the DB.
+      final target = (row['transferred_name'] as String?) ?? name;
+      final binding = await colorBindingFor(deviceId, name);
+      final payload = binding.remove('payload');
+      if (binding['profile'] != null) profiles[binding['profile'] as String] = payload;
+      images[target] = binding;
+    }
+    return {'version': 1, 'profiles': profiles, 'images': images};
+  }
+
   // ── Image assignments (cloud capture_images mirror) ─────────────────────
 
   /// Cloud CHECK constraint set for capture_images.file_format.
@@ -2841,6 +2923,7 @@ class UploadStatsDB {
     required int boxId,
     required int folderId,
     required String deviceFilename,
+    Map<String, dynamic>? colorBinding,
   }) async {
     final db = await getDatabase(deviceId);
     try {
@@ -2858,6 +2941,7 @@ class UploadStatsDB {
           row,
           conflictAlgorithm: ConflictAlgorithm.abort,
         );
+        await _saveColorBinding(txn, deviceFilename, colorBinding);
         await _enqueueCaptureImageUpsert(txn, folderId, deviceFilename, row);
       });
       return true;

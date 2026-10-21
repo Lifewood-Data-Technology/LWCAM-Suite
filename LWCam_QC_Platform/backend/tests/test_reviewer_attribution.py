@@ -26,6 +26,7 @@ def _folder(**overrides) -> SimpleNamespace:
     image = SimpleNamespace(id=1, image_name="p1.jpg")
     base = dict(
         id=7,
+        folder_path="",
         qc_status="PENDING",
         qc_locked_by="rev",
         qc_locked_at=None,
@@ -59,7 +60,7 @@ class ApproveRejectAttributionTests(unittest.TestCase):
             qc, "commit_current_draft", return_value=(None, lambda: None, lambda: None)
         ), patch.object(qc, "cancel_ai_jobs_after_finalization"), patch.object(
             qc, "discard_draft"
-        ), patch.object(qc, "write_qc_audit"):
+        ), patch.object(qc, "write_qc_audit"), patch.object(qc, "effective_profile", return_value=None):
             qc.approve_task(7, request, SimpleNamespace(id=55, user_id="rev"), db)
         self.assertEqual(folder.qc_status, "PASS")
         self.assertIsNone(folder.qc_locked_by)
@@ -75,7 +76,7 @@ class ApproveRejectAttributionTests(unittest.TestCase):
             qc, "read_manifest", return_value={}
         ), patch.object(qc, "cancel_ai_jobs_after_finalization"), patch.object(
             qc, "discard_draft"
-        ), patch.object(qc, "write_qc_audit"):
+        ), patch.object(qc, "write_qc_audit"), patch.object(qc, "effective_profile", return_value=None):
             qc.reject_task(7, request, SimpleNamespace(id=77, user_id="rev"), db)
         self.assertEqual(folder.qc_status, "REWORK")
         self.assertIsNone(folder.qc_locked_by)
@@ -90,7 +91,7 @@ class ApproveRejectAttributionTests(unittest.TestCase):
             qc, "assert_lock_owner"
         ), patch.object(qc, "read_manifest", return_value={}), patch.object(
             qc, "cancel_manual_ai_after_release"
-        ), patch.object(qc, "discard_draft"), patch.object(qc, "write_qc_audit"):
+        ), patch.object(qc, "discard_draft"), patch.object(qc, "write_qc_audit"), patch.object(qc, "effective_profile", return_value=None):
             qc.release_task(7, SimpleNamespace(id=1, user_id="rev"), db)
         self.assertIsNone(folder.qc_locked_by)
         self.assertIsNone(folder.qc_reviewed_by)

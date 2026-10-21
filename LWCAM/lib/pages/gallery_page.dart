@@ -13,6 +13,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:convert';
+import '../services/safe_copy.dart' show longPath;
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:get/get.dart';
@@ -30,7 +32,9 @@ import '../services/audit_log_service.dart';
 import '../services/box_integrity.dart' show localImageNameForCloudImage;
 import '../services/node_config_service.dart';
 import '../services/open_rework_cache.dart';
-import '../services/processing_marker_service.dart' show setReworkInProgress;
+import '../services/processing_marker_service.dart' show setReworkInProgress, updateReworkColorBinding, kProcessingMarkerName;
+import '../services/color_capture_session.dart';
+import '../services/color_rework_store.dart';
 import '../services/pg_statements.dart' as st;
 import '../services/fs_probe.dart' show FsProbe;
 import '../services/rework_service.dart'
@@ -2626,6 +2630,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   ) async {
     if (!mounted) return;
 
+    if (_isBoxMode && !await ColorCaptureSession.begin(auth.deviceId.value)) return;
     final beforeNames = (await _listDeviceImageNames()).toSet();
 
     setState(() {
@@ -2693,6 +2698,14 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       }
 
       final replacementFilename = p.basename(replacementFile.path);
+      final replacementBinding = _boxSession == null ? null :
+          await ColorCaptureSession.bindingFor(auth.deviceId.value, replacementFilename);
+      File? durableReplacement;
+      if (replacementBinding != null) {
+        durableReplacement = await ColorReworkStore.stage(auth.deviceId.value,
+            'capture-slot:$originalName', replacementFile, replacementBinding);
+        await UploadStatsDB().markColorReplacementPending(auth.deviceId.value, originalName);
+      }
       await _discardPreviousReplacementForSlot(originalName);
 
       // Delete the erroneous original from the device by renaming the new
@@ -2702,7 +2715,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         replacementName: replacementFilename,
       );
 
-      var slotDisplayFile = replacementFile;
+      var slotDisplayFile = durableReplacement ?? replacementFile;
       if (swapped) {
         // Mirror the device state locally: the corrected pixels now live
         // under the original's filename, so the existing tile and preview
@@ -2772,6 +2785,10 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         scanningOpr: auth.username.value,
         replacementType: replacementType,
       );
+      if (replacementBinding != null) {
+        await UploadStatsDB().saveColorBinding(auth.deviceId.value, originalName, replacementBinding.toJson());
+        await ColorReworkStore.complete(auth.deviceId.value, 'capture-slot:$originalName');
+      }
       await _auditOrNull?.logReplacement(
         event: 'created',
         originalFilename: originalName,
@@ -5828,6 +5845,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     await _armShutterHotkey();
 
     try {
+      if (_boxSession != null && !await ColorCaptureSession.begin(auth.deviceId.value)) return;
       final beforeNames = (await _listDeviceImageNames()).toSet();
       if (beforeNames.isEmpty && (_workingPath ?? '').isEmpty) {
         showAppSnackBar(
@@ -5902,10 +5920,12 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         await pulled.copy(slotFile.path);
         await _deleteLocalFileIfExists(pulled);
       }
+      final binding = await ColorCaptureSession.bindingFor(auth.deviceId.value, newName);
+      final durable = await ColorReworkStore.stage(auth.deviceId.value, target.path, slotFile, binding);
       await FileImage(slotFile).evict();
 
       setState(() {
-        _reworkStaged[item.imageName] = slotFile;
+        _reworkStaged[item.imageName] = durable;
         _reworkStageEpoch++; // repaint the tile even on a repeat recapture
         // A recapture supersedes a metadata-only claim on the same image.
         _reworkMetadataFixed.remove(item.imageName);
@@ -5971,10 +5991,9 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         // Input folders whose completion marker says "rework in progress"
         // while files are being replaced (LWIP holds off until it is cleared).
         final flagged = <String>{};
+        final failedFolders = <String>{};
 
         for (final item in items) {
-          final source = _reworkStaged[item.imageName];
-          if (source == null) continue;
           final input = await _resolveReworkInput(item);
           final target = input.file;
           if (target == null) {
@@ -5986,11 +6005,19 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
             continue;
           }
           try {
+            final source = await ColorReworkStore.pending(deviceId, target.path) ?? _reworkStaged[item.imageName];
+            if (source == null) continue;
             final inputDir = target.parent.path;
+            final sidecar = File('${source.path}.color.json');
+            if (!await sidecar.exists()) throw StateError('Missing recapture calibration intent; retake the page');
+            final binding = ColorBinding.fromJson(Map<String, dynamic>.from(jsonDecode(await sidecar.readAsString()) as Map));
             if (!flagged.contains(inputDir)) {
               // Fail closed: an unflagged folder could be fingerprinted by LWIP
               // half-replaced, so a failed flag write skips the replacement.
-              await setReworkInProgress(inputDir, true);
+              if (!await File(longPath(p.join(inputDir, kProcessingMarkerName))).exists()) {
+                throw StateError('Capture marker is missing; restore it before submitting recapture');
+              }
+              await setReworkInProgress(inputDir, true, requireReadable: true);
               flagged.add(inputDir);
             }
             setState(() => statusMsg = 'Replacing ${item.imageName}…');
@@ -5998,19 +6025,26 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
               source: source,
               target: target,
             );
+            await updateReworkColorBinding(inputDir, p.basename(target.path), binding);
+            final assignments = await db.getAssignmentsForBox(deviceId: deviceId, boxId: box.id);
+            final localName = localImageNameForCloudImage(deviceId, item.imageName, assignments.keys);
+            await db.saveColorBinding(deviceId, localName, binding.toJson());
             wrote++;
             recaptured.add(item.reworkId);
             await _refreshSavedBoxThumbnail(box.id, item.imageName, target);
           } catch (e) {
+            failedFolders.add(target.parent.path);
             print('⚠️ Rework write failed for ${item.imageName}: $e');
             failures.add('${item.imageName}: $e');
           }
         }
 
         for (final inputDir in flagged) {
+          if (failedFolders.contains(inputDir)) continue;
           try {
-            await setReworkInProgress(inputDir, false);
+            await setReworkInProgress(inputDir, false, requireReadable: true);
           } catch (e) {
+            failedFolders.add(inputDir);
             print('⚠️ Rework: could not clear the in-progress flag: $e');
             failures.add('$inputDir: could not mark the rework finished ($e)');
           }
@@ -6018,6 +6052,8 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
 
         var closedInFolder = 0;
         for (final item in items) {
+          final pendingInput = await _resolveReworkInput(item);
+          if (pendingInput.file != null && failedFolders.contains(pendingInput.file!.parent.path)) continue;
           final resolution = recaptured.contains(item.reworkId)
               ? 'Recapture'
               : reworkResolutionFor(
@@ -6041,6 +6077,9 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                 ? 'Recaptured in LWCAM (was: ${item.reason})'
                 : 'Metadata corrected in LWCAM (was: ${item.reason})',
           );
+          if (resolution == 'Recapture' && pendingInput.file != null) {
+            await ColorReworkStore.complete(deviceId, pendingInput.file!.path);
+          }
           closed++;
           _auditOrNull?.log(
             'rework_submit',

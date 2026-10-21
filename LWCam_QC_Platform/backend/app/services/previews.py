@@ -11,6 +11,8 @@ instant. Ideas to know before editing:
 - the op replay function is injected by the router (set_pending_op_replay) to
   avoid a circular import.
 """
+from color_cal_tool.apply import apply_profile_to_pil
+from color_cal_tool.contract import digest, validate_correction
 import logging
 import os
 import threading
@@ -161,13 +163,16 @@ def set_pending_op_replay(replay) -> None:
     _replay = replay
 
 
-def preview_cache_path(source_path: Path, pending_ops: "list[dict] | None" = None) -> Path:
+def preview_cache_path(source_path: Path, pending_ops: "list[dict] | None" = None, color_profile: dict | None = None) -> Path:
     stat = fs_path(source_path).stat()
     # The deferred edits are part of the key: they leave the source file
     # untouched, so without them an edited preview and an unedited one would
     # collide on the same cache entry. Serialised with sorted keys so the same
     # chain always produces the same key.
     ops_key = json.dumps(pending_ops or [], sort_keys=True, separators=(",", ":"))
+    if color_profile is not None:
+        validate_correction(color_profile)
+        ops_key += "|color=" + digest(color_profile)
     key = sha256(
         f"{source_path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{ops_key}".encode("utf-8")
     ).hexdigest()
@@ -258,7 +263,7 @@ def save_rendered_image(frame: Image.Image, target_path: Path) -> None:
 
 
 def generate_preview_image(
-    source_path: Path, pending_ops: "list[dict] | None" = None
+    source_path: Path, pending_ops: "list[dict] | None" = None, color_profile: dict | None = None
 ) -> Path | None:
     """The preview for [source_path] with any deferred edits applied.
 
@@ -278,7 +283,7 @@ def generate_preview_image(
     if source_path.suffix.lower().lstrip(".") not in SUPPORTED_PREVIEW_EXTENSIONS:
         return None
 
-    preview_path = preview_cache_path(source_path, pending_ops)
+    preview_path = preview_cache_path(source_path, pending_ops, color_profile)
     if fs_path(preview_path).is_file():
         return preview_path
 
@@ -307,6 +312,8 @@ def generate_preview_image(
             # The SAME replay the flush uses, so the preview is an honest
             # picture of what approval will produce.
             frame = _replay(frame, pending_ops)
+        if color_profile is not None:
+            frame = apply_profile_to_pil(frame, color_profile)
         save_rendered_image(frame, preview_path)
     # Outside the render lock: sweeping the cache directory is unrelated to
     # publishing THIS entry, and there is no reason to hold other requests
@@ -316,7 +323,7 @@ def generate_preview_image(
 
 
 def generate_thumbnail_file(
-    source_path: Path, target_path: Path, ops: "list[dict] | None" = None
+    source_path: Path, target_path: Path, ops: "list[dict] | None" = None, color_profile: dict | None = None
 ) -> Path | None:
     """Render a page's thumbnail to [target_path], overwriting any existing one.
 
@@ -355,6 +362,9 @@ def generate_thumbnail_file(
             # from [source_path] with the current chain is what keeps this
             # thumbnail honest; see commit_current_draft's geometry-only path.
             frame = _replay(frame, ops)
+        if color_profile is not None:
+            validate_correction(color_profile)
+            frame = apply_profile_to_pil(frame, color_profile)
         save_rendered_image(frame, target_path)
     return target_path
 

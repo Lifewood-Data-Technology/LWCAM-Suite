@@ -213,6 +213,8 @@ export interface EditableFolderMetadata {
 }
 
 export interface MetadataQcImage {
+  calibrationProfileId?: string | null
+  calibrationError?: string | null
   id: number
   filename: string
   available: boolean

@@ -8,6 +8,7 @@
 // The file also builds the transfer plan, stages files for the transfer queue
 // and marks boxes transferred, after which LWIP picks the folders up.
 import 'dart:async';
+import '../services/color_capture_session.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -756,14 +757,17 @@ class BoxSessionController extends GetxController {
     }
     if (_folderIdByFilename.containsKey(deviceFilename)) return;
 
+    ColorBinding? binding;
     final bool ok;
     try {
+      binding = await ColorCaptureSession.bindingFor(deviceId, deviceFilename);
       ok = await retrying(
         () => _db.assignImageToFolder(
           deviceId: deviceId,
           boxId: box.id,
           folderId: folder.id,
           deviceFilename: deviceFilename,
+          colorBinding: binding?.toJson(),
         ),
       );
     } catch (e) {
@@ -774,6 +778,7 @@ class BoxSessionController extends GetxController {
         boxId: box.id,
         folderId: folder.id,
         reason: 'db-error: $e',
+        colorBinding: binding?.toJson(),
       );
       return;
     }
@@ -804,6 +809,7 @@ class BoxSessionController extends GetxController {
     int? boxId,
     int? folderId,
     required String reason,
+    Map<String, dynamic>? colorBinding,
   }) async {
     if (localFile == null || !await localFile.exists()) {
       print('⚠️ Orphan $deviceFilename has no local bytes to stash ($reason).');
@@ -816,6 +822,7 @@ class BoxSessionController extends GetxController {
       boxId: boxId,
       folderId: folderId,
       reason: reason,
+      colorBinding: colorBinding,
     );
     if (entry != null) {
       await _auditOrNull?.log(

@@ -23,6 +23,14 @@ Design rules that hold for every part:
 - Any part can be off. The others queue their work and retry. Nothing waits on a remote PC without a timeout.
 - Every part reports a heartbeat to the database. The QC console shows them on the System status page.
 
+Colour calibration is an optional LWIP responsibility in the module edition.
+Capture submits immutable `.calibration/<UUID>` tasks into its destination root;
+LWIP's existing service analyses them independently of document work. Capture
+polls files, verifies provenance and requires confirmation; it needs no Python.
+Complete per-page profiles then travel in ordinary document markers/manifests.
+QC only consumes published profiles for preview/export, never chart tasks.
+See [protocol and recovery](CALIBRATION-PROTOCOL.md).
+
 ## 2. Data flow, capture to S3
 
 ```mermaid

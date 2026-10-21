@@ -55,6 +55,23 @@ function Require-Wheel {
 $installerDir = $PSScriptRoot
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $installerDir '..'))
 $targets = if ($Target -eq 'All' -or $UpdateChecksums) { @('LWCam', 'QC', 'LWIP', 'Upload', 'Database') } else { @($Target) }
+# Consumer code is bundled locally; never load it from a peer installation.
+# Use .NET: PowerShell 5.1 may inherit a PS7 module path without Get-FileHash.
+function Calibration-Hash([string] $Path) {
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($algorithm.ComputeHash([IO.File]::ReadAllBytes($Path))) }
+    finally { $algorithm.Dispose() }
+}
+foreach ($name in @('__init__.py', 'apply.py', 'profile.py', 'reference_data.py', 'contract.py')) {
+    $canonical = Join-Path $repoRoot "LWIP\backend\color_cal_tool\$name"
+    $expected = Calibration-Hash $canonical
+    foreach ($consumer in @('LWCam_QC_Platform')) {
+        $copy = Join-Path $repoRoot "$consumer\backend\color_cal_tool\$name"
+        if ((Calibration-Hash $copy) -ne $expected) {
+            throw "Calibration consumer differs: $copy"
+        }
+    }
+}
 $scriptByTarget = @{ LWCam = 'LWCam.iss'; QC = 'QCPlatform.iss'; LWIP = 'LWIP.iss'; Upload = 'Upload.iss'; Database = 'Database.iss' }
 $outputByTarget = @{ LWCam = 'LWCamSetup.exe'; QC = 'QCPlatformSetup.exe'; LWIP = 'LWIPSetup.exe'; Upload = 'LWCamUploadSetup.exe'; Database = 'LWCamDatabaseSetup.exe' }
 $iscc = Resolve-Newest @(
