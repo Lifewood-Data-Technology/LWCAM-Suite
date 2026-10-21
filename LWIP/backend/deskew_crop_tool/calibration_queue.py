@@ -18,6 +18,9 @@ from color_cal_tool.task_protocol import (
 
 LOG = logging.getLogger("deskew_crop.calibration")
 
+# Bound metadata-only checks even when a share preserves file timestamps.
+COMPLETED_RECHECK_SECONDS = 300
+
 
 class AnalysisTimeout(RuntimeError):
     pass
@@ -67,6 +70,8 @@ class CalibrationQueue:
         self.local = runtime / sha(str(config.input_root.resolve()).encode())[:16]
         self.local.mkdir(parents=True, exist_ok=True)
         self.ledger_path = self.local / "state.json"
+        # Process-local: a restart always revalidates completed photographs.
+        self._completed_checks = {}
         # The ledger grows with jobs; its size is not limited by the wire protocol.
         self.records = json.loads(self.ledger_path.read_text(encoding="utf-8")) if self.ledger_path.exists() else {}
 
@@ -143,6 +148,25 @@ class CalibrationQueue:
             plain_path(folder / "result.json.tmp")
         atomic_json(folder / "result.json", result)
 
+    def _check_completed(self, folder, result):
+        # Invalid requests are terminal failures, not candidates for analysis.
+        # The caller still checks the exact request hash on every scan.
+        if (result.get("error") or {}).get("code") in ("invalid_request", "unsupported_version"):
+            return
+        ready, _ = read_json(plain_path(folder / "ready.json"))
+        if ready.get("task_id") != folder.name or ready.get("request_sha256") != result["request_sha256"]:
+            raise ProtocolError("Completed task ready marker changed")
+        picture = plain_path(folder / "chart.jpg")
+        stat = picture.stat()
+        signature = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_dev, stat.st_ino)
+        now = time.monotonic()
+        cached = self._completed_checks.get(folder.name)
+        if cached is None or cached[0] != signature or now - cached[1] >= COMPLETED_RECHECK_SECONDS:
+            # Record the pre-read signature: a concurrent change forces another
+            # full check on the next scan, rather than caching the changed file.
+            validate_request(folder)
+            self._completed_checks[folder.name] = (signature, now)
+
     def process(self, folder):
         task_id = folder.name
         # Directory names must never reach local path construction unvalidated.
@@ -171,15 +195,17 @@ class CalibrationQueue:
             if previous.get("state") not in ("publishing", "succeeded", "failed"):
                 self.records[task_id]["state"] = "validating"
                 self._save()
-            request, request_hash, picture = validate_request(folder)
             if previous.get("state") in ("publishing", "succeeded", "failed"):
                 result = read_json(work / "result.json")[0]
                 if previous["state"] == "publishing" or not (folder / "result.json").exists():
                     self._publish(folder, work, result)
                     previous["state"] = result["status"]
                     self._save()
+                else:
+                    self._check_completed(folder, result)
                 self.status(**{"last_" + result["status"]: result})
                 return
+            request, request_hash, picture = validate_request(folder)
             record = dict(state="running", request_sha256=request_hash,
                           image_sha256=request["image"]["sha256"],
                           device_id=request["device_id"], started_at=time.time())

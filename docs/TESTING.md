@@ -12,12 +12,12 @@ If a count differs from the table, the change is yours. Find out why before you 
 | --- | --- | --- | --- |
 | QC backend | `LWCam_QC_Platform/backend` | `python -m unittest discover -s tests -t .` | 402 tests, 8 skipped (database tests, see section 2) |
 | QC frontend | `LWCam_QC_Platform/frontend` | `npm ci` then `npm run build` | Builds with no type errors. The build runs `vue-tsc --noEmit && vite build`. |
-| LWIP | `LWIP/backend` | `python -m unittest discover -s tests` | 313 tests, 9 skipped, 2 known failures (section 3) |
+| LWIP | `LWIP/backend` | `python -m unittest discover -s tests` | 321 tests, 9 skipped, 2 known failures (section 3) |
 | Upload | `LWCam_Upload/backend` | `python -m unittest discover -s tests` | 158 tests pass |
 | LWCAM | `LWCAM` | `flutter analyze` then `flutter test` | Analyze: 5 infos. Test: 491 pass. |
 | LWCam Admin | `LWCamAdmin` | `flutter analyze` then `flutter test` | Analyze: clean. Test: 136 pass. |
 
-The ColorCal algorithm tests (59, including 2 skips) and directory protocol tests (15) are included in LWIP. Shared transport fixtures live in `verification/calibration_protocol`. See [current verification](COLOR-CALIBRATION-VERIFICATION.md) for environment-specific failures and field-test limits.
+The ColorCal algorithm tests (59, including 2 skips) and directory protocol tests (23) are included in LWIP. Shared transport fixtures live in `verification/calibration_protocol`. See [current verification](COLOR-CALIBRATION-VERIFICATION.md) for environment-specific failures and field-test limits.
 
 The Python suites use `unittest`. You do not need pytest. `LWIP/RUN_TESTS.bat` runs the LWIP suite with a private runtime that setup built; on a dev PC use the command above.
 

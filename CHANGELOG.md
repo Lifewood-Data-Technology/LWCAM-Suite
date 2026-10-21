@@ -7,6 +7,10 @@ Newest first. The All-In-One edition keeps its own changelog on branch
 
 ## [Unreleased]
 
+- Avoid rereading completed calibration photos on every LWIP scan; retain request/ready checks, metadata-triggered and five-minute integrity checks, and full validation before result republication.
+
+- Keep the QC image toolbar visible when the system-status banner is shown.
+
 - Add LWIP-owned SpyderCheckr calibration via immutable shared-folder tasks, enabled per station
   for Box Mode and recapture. Freeze profiles per image, preserve them through
   transfer/rework/split, and correct LWIP thumbnails plus QC previews/export.

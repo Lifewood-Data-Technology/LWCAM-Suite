@@ -3559,8 +3559,9 @@ onBeforeUnmount(() => {
 }
 
 .qc-desk--compact {
-  height: 100vh;
-  max-height: 100vh;
+  /* The shell content excludes the system-status banner above the desk. */
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
 }
 

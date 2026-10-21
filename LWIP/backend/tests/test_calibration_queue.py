@@ -46,6 +46,83 @@ class QueueTests(unittest.TestCase):
     def result(self):
         return read_json(self.folder / "result.json")[0]
 
+    def chart_reads(self, operation):
+        reads = []
+        original = Path.read_bytes
+        def tracked(path):
+            if path == self.folder / "chart.jpg":
+                reads.append(path)
+            return original(path)
+        with patch.object(Path, "read_bytes", tracked):
+            operation()
+        return reads
+
+    def test_completed_idle_scans_do_not_read_chart(self):
+        self.queue.tick()
+        self.queue.tick()  # Establish this process's integrity check.
+        self.assertEqual(self.chart_reads(lambda: [self.queue.tick() for _ in range(3)]), [])
+        self.assertEqual(self.calls, 1)
+
+    def test_failed_analysis_idle_scans_do_not_read_chart(self):
+        self.queue.runner = lambda _: {"ok": False, "error": {"code": "no_chart_found"}}
+        self.queue.tick()
+        self.queue.tick()
+        self.assertEqual(self.chart_reads(self.queue.tick), [])
+        self.assertEqual(self.result()["status"], "failed")
+
+    def test_completed_restart_revalidates_then_skips_chart(self):
+        self.queue.tick()
+        self.queue.close()
+        restarted = self.make_queue()
+        self.assertTrue(self.chart_reads(restarted.tick))
+        self.assertEqual(self.chart_reads(restarted.tick), [])
+        self.assertEqual(self.calls, 1)
+
+    def test_completed_changed_chart_reports_conflict(self):
+        self.queue.tick()
+        self.queue.tick()
+        original = (self.folder / "result.json").read_bytes()
+        (self.folder / "chart.jpg").write_bytes(b"damaged")
+        with patch.object(self.queue, "status") as status:
+            self.queue.tick()
+        self.assertTrue(any(c.kwargs.get("state") == "conflict" for c in status.call_args_list))
+        self.assertEqual((self.folder / "result.json").read_bytes(), original)
+        self.assertEqual(self.calls, 1)
+
+    def test_completed_changed_ready_reports_conflict_without_chart_read(self):
+        self.queue.tick()
+        self.queue.tick()
+        shutil.copyfile(FIXTURES / "corrupt-ready.json", self.folder / "ready.json")
+        with patch.object(self.queue, "status") as status:
+            self.assertEqual(self.chart_reads(self.queue.tick), [])
+        self.assertTrue(any(c.kwargs.get("state") == "conflict" for c in status.call_args_list))
+
+    def test_completed_periodic_check_reads_chart_without_rerunning_analysis(self):
+        self.queue.tick()
+        with patch("deskew_crop_tool.calibration_queue.time.monotonic", return_value=100):
+            self.queue.tick()
+        with patch("deskew_crop_tool.calibration_queue.time.monotonic", return_value=401):
+            self.assertTrue(self.chart_reads(self.queue.tick))
+        self.assertEqual(self.calls, 1)
+
+    def test_completed_missing_result_republishes_after_full_validation(self):
+        self.queue.tick()
+        self.queue.tick()
+        (self.folder / "result.json").unlink()
+        self.assertTrue(self.chart_reads(self.queue.tick))
+        self.assertEqual(self.result()["status"], "succeeded")
+        self.assertEqual(self.calls, 1)
+
+    def test_invalid_request_failure_can_be_republished_after_restart(self):
+        (self.folder / "chart.jpg").write_bytes(b"broken")
+        self.queue.tick()
+        self.queue.close()
+        (self.folder / "result.json").unlink()
+        restarted = self.make_queue()
+        restarted.tick()
+        self.assertEqual(self.result()["error"]["code"], "invalid_request")
+        self.assertEqual(self.calls, 0)
+
     def test_shared_request_and_corrupt_fixture(self):
         self.assertEqual(validate_request(self.folder)[0], self.request)
         shutil.copyfile(FIXTURES / "corrupt-ready.json", self.folder / "ready.json")

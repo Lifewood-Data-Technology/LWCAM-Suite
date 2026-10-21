@@ -23,6 +23,12 @@ See [protocol](../docs/CALIBRATION-PROTOCOL.md) and
 `python -m deskew_crop_tool.service --config <path>` to test both queues from source;
 the document-only `--once` entry does not run calibration.
 
+Completed calibration tasks keep lightweight request/ready and photo metadata checks on each scan.
+The photo is fully revalidated on the first scan after restart, when its metadata changes,
+or every five minutes. Missing results and interrupted publication still require full validation
+before republishing; analysis is not repeated for completed tasks. Invalid-request failures
+remain failures and can be republished without trying to validate the already-rejected photo.
+
 ## Where it sits in the pipeline
 
 ```
