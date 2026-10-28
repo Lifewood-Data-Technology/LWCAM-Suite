@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
+import 'package:lwcam/models/capture_box_models.dart';
 import 'package:lwcam/services/sync_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -373,6 +374,195 @@ void main() {
       (await current.query('capture_boxes')).single['box_name'],
       'ORIGINAL',
     );
+    await db.debugCloseAllForTests();
+  });
+
+  test('a rebuild with the old file missing flags unknown colour bindings',
+      () async {
+    final base = await _tempDir('stable_recovery_missing_');
+    const deviceId = 'SAX-MISSING';
+    final db = UploadStatsDB();
+    db.debugOverrideBaseFolderForTests(base.path);
+    await db.insertCaptureBox(deviceId: deviceId, boxDetails: 'OLD');
+    await db.debugCloseAllForTests();
+    final path = await db.getDeviceDbFilePath(deviceId);
+    for (final suffix in ['', '-wal', '-shm', '-journal']) {
+      final file = File('$path$suffix');
+      if (await file.exists()) await file.delete();
+    }
+
+    await db.rebuildFromCaptureSnapshot(
+      deviceId: deviceId,
+      requireNonEmpty: true,
+      pull:
+          ({required onBoxes, required onFolders, required onImages}) async {
+            await onBoxes(const [
+              CaptureSnapshotBox(id: 1, boxName: 'RESTORED', status: 'OPEN'),
+            ]);
+            await onFolders(const [
+              CaptureSnapshotFolder(id: 2, boxId: 1, folderSeq: 1),
+            ]);
+            await onImages(const [
+              CaptureSnapshotImage(
+                id: 3,
+                folderId: 2,
+                imageName: 'SAX-MISSING_IMG_20260701_120000_001.jpg',
+                deviceId: deviceId,
+                fileFormat: 'jpg',
+              ),
+            ]);
+            return const CaptureSnapshotCounts(
+              boxes: 1,
+              folders: 1,
+              images: 1,
+            );
+          },
+    );
+
+    final current = await db.getDatabase(deviceId);
+    expect(await current.query('color_integrity'), isNotEmpty);
+    await db.debugCloseAllForTests();
+  });
+
+  test('a rebuild with no recovered images does not flag colour integrity',
+      () async {
+    final base = await _tempDir('stable_recovery_no_images_');
+    const deviceId = 'SAX-NO-IMAGES';
+    final db = UploadStatsDB();
+    db.debugOverrideBaseFolderForTests(base.path);
+    await db.insertCaptureBox(deviceId: deviceId, boxDetails: 'OLD');
+    await db.debugCloseAllForTests();
+    final path = await db.getDeviceDbFilePath(deviceId);
+    for (final suffix in ['', '-wal', '-shm', '-journal']) {
+      final file = File('$path$suffix');
+      if (await file.exists()) await file.delete();
+    }
+
+    await db.rebuildFromCaptureSnapshot(
+      deviceId: deviceId,
+      requireNonEmpty: true,
+      pull:
+          ({required onBoxes, required onFolders, required onImages}) async {
+            await onBoxes(const [
+              CaptureSnapshotBox(id: 1, boxName: 'RESTORED', status: 'OPEN'),
+            ]);
+            await onFolders(const []);
+            await onImages(const []);
+            return const CaptureSnapshotCounts(
+              boxes: 1,
+              folders: 0,
+              images: 0,
+            );
+          },
+    );
+
+    final current = await db.getDatabase(deviceId);
+    expect(await current.query('color_integrity'), isEmpty);
+    await db.debugCloseAllForTests();
+  });
+
+  test('a v3 source with its binding table missing is flagged', () async {
+    final base = await _tempDir('stable_recovery_missing_color_');
+    const deviceId = 'SAX-MISSING-COLOUR';
+    final db = UploadStatsDB();
+    db.debugOverrideBaseFolderForTests(base.path);
+    final boxId = await db.insertCaptureBox(
+      deviceId: deviceId,
+      boxDetails: 'OLD',
+    );
+    final folderId = await db.insertCaptureFolder(
+      deviceId: deviceId,
+      folder: CaptureFolder(boxId: boxId, title: 'T', volume: 'V'),
+      isComplete: true,
+    );
+    await db.assignImageToFolder(
+      deviceId: deviceId,
+      boxId: boxId,
+      folderId: folderId,
+      deviceFilename: 'a.jpg',
+    );
+    await db.debugCloseAllForTests();
+    final path = await db.getDeviceDbFilePath(deviceId);
+    final raw = await openDatabase(path);
+    await raw.execute('DROP TABLE color_bindings');
+    await raw.close();
+
+    await db.rebuildFromCaptureSnapshot(
+      deviceId: deviceId,
+      requireNonEmpty: true,
+      pull:
+          ({required onBoxes, required onFolders, required onImages}) async {
+            await onBoxes(const [
+              CaptureSnapshotBox(id: 1, boxName: 'RESTORED', status: 'OPEN'),
+            ]);
+            await onFolders(const [
+              CaptureSnapshotFolder(id: 2, boxId: 1, folderSeq: 1),
+            ]);
+            await onImages(const [
+              CaptureSnapshotImage(
+                id: 3,
+                folderId: 2,
+                imageName: 'SAX-MISSING-COLOUR_IMG_20260701_120000_001.jpg',
+                deviceId: deviceId,
+                fileFormat: 'jpg',
+              ),
+            ]);
+            return const CaptureSnapshotCounts(
+              boxes: 1,
+              folders: 1,
+              images: 1,
+            );
+          },
+    );
+
+    final current = await db.getDatabase(deviceId);
+    expect(await current.query('color_integrity'), isNotEmpty);
+    await db.debugCloseAllForTests();
+  });
+
+  test('a v2 source without colour tables is not falsely flagged', () async {
+    final base = await _tempDir('stable_recovery_v2_');
+    const deviceId = 'SAX-V2';
+    final path = p.join(base.path, 'lwcam_stats_$deviceId.db');
+    final legacy = await openDatabase(
+      path,
+      version: 2,
+      onCreate: (db, _) async {},
+    );
+    await legacy.close();
+
+    final db = UploadStatsDB();
+    db.debugOverrideBaseFolderForTests(base.path);
+    await db.rebuildFromCaptureSnapshot(
+      deviceId: deviceId,
+      requireNonEmpty: true,
+      pull:
+          ({required onBoxes, required onFolders, required onImages}) async {
+            await onBoxes(const [
+              CaptureSnapshotBox(id: 1, boxName: 'RESTORED', status: 'OPEN'),
+            ]);
+            await onFolders(const [
+              CaptureSnapshotFolder(id: 2, boxId: 1, folderSeq: 1),
+            ]);
+            await onImages(const [
+              CaptureSnapshotImage(
+                id: 3,
+                folderId: 2,
+                imageName: 'SAX-V2_IMG_20260701_120000_001.jpg',
+                deviceId: deviceId,
+                fileFormat: 'jpg',
+              ),
+            ]);
+            return const CaptureSnapshotCounts(
+              boxes: 1,
+              folders: 1,
+              images: 1,
+            );
+          },
+    );
+
+    final current = await db.getDatabase(deviceId);
+    expect(await current.query('color_integrity'), isEmpty);
     await db.debugCloseAllForTests();
   });
 }

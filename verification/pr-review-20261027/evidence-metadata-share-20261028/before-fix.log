@@ -1,0 +1,18 @@
+source= D:\LwcamDev\acceptance\metadata-share-fix-20261028\gallery-before.dart sha256= 2572f0d689dc89a3c669a69417e1d0ba4d7f2b5365189420bacbfc7e3b99b681
+00:00 +0: loading D:/LWCAM-Suite/verification/pr-review-20261027/_blocking_fix_review_test.dart
+00:00 +0: metadata offline: normal Undo then submit never resolves the input share
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f251fa39\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f251fa39\lwcam_stats_station.db
+SNACK Partly submitted: 2 item(s) failed: 1.jpg: offline (and 1 more). Fix the cause and submit again.
+00:00 +0 -1: metadata offline: normal Undo then submit never resolves the input share [E]
+  Expected: <0>
+    Actual: <2>
+  
+  package:matcher                                                          expect
+  package:flutter_test/src/widget_tester.dart 473:18                       expect
+  ..\verification\pr-review-20261027\_blocking_fix_review_test.dart 914:5  main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  D:/LWCAM-Suite/verification/pr-review-20261027/_blocking_fix_review_test.dart: metadata offline: normal Undo then submit never resolves the input share

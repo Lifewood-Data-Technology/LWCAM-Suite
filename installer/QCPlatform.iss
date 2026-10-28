@@ -447,6 +447,7 @@ var
   App: String;
 begin
   App := ExpandConstant('{app}');
+  DelTree(App + '\backend\color_cal_tool\__pycache__', True, True, True);
   DelTree(App + '\backend\app\__pycache__', True, True, True);
   DelTree(App + '\backend\app\core\__pycache__', True, True, True);
   DelTree(App + '\backend\app\db\__pycache__', True, True, True);

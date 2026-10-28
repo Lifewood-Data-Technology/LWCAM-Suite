@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/models/capture_box_models.dart';
 import 'package:lwcam/pages/gallery_page.dart';
@@ -200,6 +202,84 @@ void main() {
       expect(
           reworkShouldResetQcStatus(closedInFolder: 0, recapturedInFolder: 0),
           isFalse);
+    });
+  });
+
+  group('reworkClosed', () {
+    test('closedReworkImages maps outbox closure keys to image names', () {
+      final items = [
+        _item(folderSeq: 1, imageName: 'a.jpg'),
+        _item(folderSeq: 2, imageName: 'b.jpg'),
+      ];
+      expect(
+        closedReworkImages(items, {'pk1|BOX-9|1|a.jpg'}),
+        {'a.jpg'},
+      );
+    });
+
+    test('a closed page is not counted open', () {
+      final items = [
+        _item(folderSeq: 1, imageName: 'a.jpg'),
+        _item(folderSeq: 2, imageName: 'b.jpg'),
+      ];
+      expect(
+        reworkOpenItemCount(
+          items,
+          staged: const {},
+          metadataFixed: const {},
+          closed: const {'a.jpg'},
+        ),
+        1,
+      );
+      expect(
+        reworkOpenItemCount(
+          items,
+          staged: const {},
+          metadataFixed: const {'a.jpg'},
+          closed: const {'a.jpg'},
+        ),
+        1,
+        reason: 'closed wins over a stale metadata mark',
+      );
+    });
+  });
+
+  group('reworkSourceForItem', () {
+    test('a metadata-only item never reads the durable intent', () async {
+      var calls = 0;
+      final source = await reworkSourceForItem(
+        staged: null,
+        pending: () async {
+          calls++;
+          return File('C:/store/stale.jpg');
+        },
+      );
+      expect(source, isNull);
+      expect(calls, 0);
+    });
+
+    test('a staged page uses its matching durable generation', () async {
+      final staged = File('C:/store/staged.jpg');
+      final source = await reworkSourceForItem(
+        staged: staged,
+        pending: () async => staged,
+      );
+      expect(source, same(staged));
+    });
+
+    test('a missing or different intent is damaged staging', () async {
+      final staged = File('C:/store/staged.jpg');
+      await expectLater(
+        reworkSourceForItem(staged: staged, pending: () async => null),
+        throwsStateError,
+      );
+      await expectLater(
+        reworkSourceForItem(
+          staged: staged,
+          pending: () async => File('C:/store/other.jpg'),
+        ),
+        throwsStateError,
+      );
     });
   });
 }

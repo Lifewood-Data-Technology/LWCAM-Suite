@@ -986,7 +986,13 @@ class FolderOrchestrator:
         try:
             if not marker_path.is_file():
                 return None
-            value = json.loads(marker_path.read_text(encoding="utf-8"))
+            text = marker_path.read_text(encoding="utf-8-sig")
+            # Older producers used an empty readiness sentinel, with no data.
+            if not text.strip():
+                return None
+            value = json.loads(text)
+            if value is None or value == []:
+                return None
             if not isinstance(value, dict):
                 raise CalibrationError("Completion marker is not a JSON object")
             return value

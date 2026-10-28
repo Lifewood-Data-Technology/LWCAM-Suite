@@ -55,6 +55,52 @@ class TransferProtectionHandle {
   });
 }
 
+/// Why a folder's colour calibration cannot be written as-is.
+///
+/// [unknownBinding] is the one the operator may explicitly accept as
+/// historical after a recovery; the other two are hard failures.
+enum ColorCalibrationIssueKind {
+  unknownBinding,
+  damagedBinding,
+  pendingRecapture,
+}
+
+class ColorCalibrationIssue {
+  final String imageName;
+  final ColorCalibrationIssueKind kind;
+  final String reason;
+
+  const ColorCalibrationIssue({
+    required this.imageName,
+    required this.kind,
+    required this.reason,
+  });
+
+  String get message => switch (kind) {
+    ColorCalibrationIssueKind.unknownBinding =>
+      'no stored colour decision after recovery ($reason)',
+    ColorCalibrationIssueKind.damagedBinding =>
+      'damaged colour binding ($reason)',
+    ColorCalibrationIssueKind.pendingRecapture =>
+      'interrupted recapture ($reason)',
+  };
+}
+
+class FolderColorCalibration {
+  final Map<String, dynamic> marker;
+  final List<ColorCalibrationIssue> issues;
+
+  const FolderColorCalibration({
+    required this.marker,
+    required this.issues,
+  });
+
+  bool get hasIssues => issues.isNotEmpty;
+
+  String get issueSummary =>
+      issues.map((issue) => '${issue.imageName}: ${issue.message}').join('; ');
+}
+
 class UploadStatsDB {
   static const int _stableSchemaVersion = 3;
   static final UploadStatsDB _instance = UploadStatsDB._internal();
@@ -214,6 +260,19 @@ class UploadStatsDB {
       return;
     }
 
+    // A v2 database predates the calibration tables: their absence there is
+    // normal, not a recovery failure. Only a v3 (or unreadable) source can
+    // have colour data to lose.
+    int? oldVersion;
+    try {
+      oldVersion = Sqflite.firstIntValue(
+        await recovering.rawQuery('PRAGMA damaged.user_version'),
+      );
+    } catch (_) {
+      oldVersion = null;
+    }
+    final mayHaveColourData = oldVersion == null || oldVersion >= 3;
+
     Future<Set<String>> columnsOf(String schema, String table) async {
       final rows = await recovering.rawQuery(
         'PRAGMA $schema.table_info($table)',
@@ -236,7 +295,16 @@ class UploadStatsDB {
           'main',
           table,
         )).intersection(await columnsOf('damaged', table)).toList();
-        if (shared.isEmpty) continue;
+        if (shared.isEmpty) {
+          if (table.startsWith('color_') && mayHaveColourData) {
+            await recovering.insert(
+              'color_integrity',
+              {'id': 1, 'reason': 'Could not recover $table'},
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          continue;
+        }
         final columnList = shared.map((c) => '"$c"').join(', ');
         await recovering.execute(
           'INSERT OR IGNORE INTO $table ($columnList) '
@@ -247,7 +315,7 @@ class UploadStatsDB {
         );
         print('🧷 Recovery carried over $carried row(s) into $table');
       } catch (e) {
-        if (table.startsWith('color_')) {
+        if (table.startsWith('color_') && mayHaveColourData) {
           await recovering.insert('color_integrity', {'id': 1, 'reason': 'Could not recover $table'}, conflictAlgorithm: ConflictAlgorithm.replace);
         }
         print('⚠️ Recovery: could not carry over $table — skipped: $e');
@@ -409,7 +477,20 @@ class UploadStatsDB {
         throw StateError('Recovered SQLite database failed integrity_check.');
       }
 
+      final oldDbMissing = !File(path).existsSync();
       await _carryOverLocalOnlyTables(recovering, path);
+      if (oldDbMissing && counts.images > 0) {
+        await recovering.insert(
+          'color_integrity',
+          {
+            'id': 1,
+            'reason':
+                'Original local database file was missing during recovery; '
+                'colour bindings are unknown',
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
 
       await recovering.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
       await recovering.close();
@@ -2544,6 +2625,7 @@ class UploadStatsDB {
   /// network down and the closure lands later). rework_logs is append-only, so
   /// replaying a row is harmless; the coalescing key is (folder, image).
   Future<void> enqueueReworkClosed({
+    DatabaseExecutor? transaction,
     required String deviceId,
     required String projectKey,
     required String projectId,
@@ -2555,8 +2637,7 @@ class UploadStatsDB {
     String? comment,
     String reworkType = 'Recapture',
   }) async {
-    final db = await getDatabase(deviceId);
-    await db.transaction((txn) async {
+    Future<void> enqueue(DatabaseExecutor txn) async {
       await _enqueueOutbox(
         txn,
         entity: 'rework_logs',
@@ -2589,7 +2670,13 @@ class UploadStatsDB {
           'closed_at': DateTime.now().toUtc().toIso8601String(),
         },
       );
-    });
+    }
+    if (transaction != null) {
+      await enqueue(transaction);
+    } else {
+      final db = await getDatabase(deviceId);
+      await db.transaction(enqueue);
+    }
   }
 
   /// The folder side of a rework submit: the metadata columns the operator
@@ -2605,6 +2692,7 @@ class UploadStatsDB {
   /// the new output is verified. Setting it here too would put the folder back in
   /// the QC queue before it had been reprocessed.
   Future<void> enqueueFolderRework({
+    DatabaseExecutor? transaction,
     required String deviceId,
     required String projectKey,
     required String projectId,
@@ -2616,8 +2704,7 @@ class UploadStatsDB {
     bool? isCreatedThumbnail, // null = unknown, PG column left untouched
   }) async {
     if (changedMetadata.isEmpty && !resetQcStatus) return;
-    final db = await getDatabase(deviceId);
-    await db.transaction((txn) async {
+    Future<void> enqueue(DatabaseExecutor txn) async {
       await _enqueueOutbox(
         txn,
         entity: 'capture_folder_rework',
@@ -2635,7 +2722,13 @@ class UploadStatsDB {
           'is_created_thumbnail': isCreatedThumbnail,
         },
       );
-    });
+    }
+    if (transaction != null) {
+      await enqueue(transaction);
+    } else {
+      final db = await getDatabase(deviceId);
+      await db.transaction(enqueue);
+    }
   }
 
   /// Entity keys of rework closures still sitting in this device's outbox,
@@ -2832,6 +2925,14 @@ class UploadStatsDB {
     await db.execute('CREATE TABLE IF NOT EXISTS color_bindings (image_name TEXT PRIMARY KEY, binding_json TEXT NOT NULL)');
   }
 
+  /// Reasons a page may legitimately have no profile.
+  static const _validUncalibratedReasons = {
+    'disabled',
+    'skipped',
+    'historical',
+    'external',
+  };
+
   static Future<void> _saveColorBinding(DatabaseExecutor db, String name, Map<String, dynamic>? supplied) async {
     final binding = Map<String, dynamic>.from(supplied ?? {'profile': null, 'reason': 'historical'});
     final payload = binding.remove('payload');
@@ -2879,21 +2980,251 @@ class UploadStatsDB {
     });
   }
 
-  Future<Map<String, dynamic>> folderColorCalibration(String deviceId, int folderId) async {
+  /// Reads one folder's calibration with page-level issues instead of
+  /// throwing on the first problem. A recovered [color_integrity] row makes
+  /// only the pages WITHOUT a binding unknown; pages with a valid profile
+  /// still travel with their original parameters.
+  Future<FolderColorCalibration> checkFolderColorCalibration(
+    String deviceId,
+    int folderId,
+  ) async {
     final db = await getDatabase(deviceId);
-    final rows = await db.query('capture_images', where: 'folder_id = ?', whereArgs: [folderId]);
-    final profiles = <String, dynamic>{};
-    final images = <String, dynamic>{};
-    for (final row in rows) {
-      final name = row['image_name'] as String;
-      // An unchanged transfer name is intentionally not persisted by the DB.
-      final target = (row['transferred_name'] as String?) ?? name;
-      final binding = await colorBindingFor(deviceId, name);
-      final payload = binding.remove('payload');
-      if (binding['profile'] != null) profiles[binding['profile'] as String] = payload;
-      images[target] = binding;
+    return db.transaction((txn) async {
+      final imageRows = await txn.query(
+        'capture_images',
+        where: 'folder_id = ?',
+        whereArgs: [folderId],
+      );
+      final bindingRows = await txn.query('color_bindings');
+      final profileRows = await txn.query('color_profiles');
+      final pendingRows = await txn.query('color_pending');
+      final integrityRows = await txn.query('color_integrity');
+
+      final bindings = <String, Map<String, dynamic>>{
+        for (final row in bindingRows)
+          if (row['image_name'] is String)
+            row['image_name'] as String: Map<String, dynamic>.from(row),
+      };
+      final profiles = <String, String>{
+        for (final row in profileRows)
+          if (row['hash'] is String && row['payload'] is String)
+            row['hash'] as String: row['payload'] as String,
+      };
+      final pending = <String>{
+        for (final row in pendingRows)
+          if (row['image_name'] is String) row['image_name'] as String,
+      };
+      final integrityReason = integrityRows.isEmpty
+          ? null
+          : (integrityRows.first['reason'] is String &&
+                  (integrityRows.first['reason'] as String).trim().isNotEmpty
+              ? integrityRows.first['reason'] as String
+              : 'unknown recovery error');
+
+      final images = <String, dynamic>{};
+      final usedProfiles = <String, dynamic>{};
+      final issues = <ColorCalibrationIssue>[];
+
+      for (final row in imageRows) {
+        final name = row['image_name'] as String;
+        // An unchanged transfer name is intentionally not persisted by the DB.
+        final target = (row['transferred_name'] as String?) ?? name;
+        if (pending.contains(name)) {
+          issues.add(ColorCalibrationIssue(
+            imageName: name,
+            kind: ColorCalibrationIssueKind.pendingRecapture,
+            reason: 'recapture in progress',
+          ));
+          continue;
+        }
+        final bindingRow = bindings[name];
+        if (bindingRow == null) {
+          if (integrityReason != null) {
+            issues.add(ColorCalibrationIssue(
+              imageName: name,
+              kind: ColorCalibrationIssueKind.unknownBinding,
+              reason: integrityReason,
+            ));
+          } else {
+            images[target] = {'profile': null, 'reason': 'historical'};
+          }
+          continue;
+        }
+        Map<String, dynamic> binding;
+        try {
+          final decoded = jsonDecode(bindingRow['binding_json'] as String);
+          if (decoded is! Map) {
+            throw const FormatException('binding is not an object');
+          }
+          binding = Map<String, dynamic>.from(decoded);
+        } catch (error) {
+          issues.add(ColorCalibrationIssue(
+            imageName: name,
+            kind: ColorCalibrationIssueKind.damagedBinding,
+            reason: 'invalid binding ($error)',
+          ));
+          continue;
+        }
+        final profile = binding['profile'];
+        if (profile == null) {
+          final reason = binding['reason'];
+          if (reason is! String || !_validUncalibratedReasons.contains(reason)) {
+            issues.add(ColorCalibrationIssue(
+              imageName: name,
+              kind: ColorCalibrationIssueKind.damagedBinding,
+              reason: 'unexplained uncalibrated binding',
+            ));
+            continue;
+          }
+          images[target] = binding;
+          continue;
+        }
+        if (profile is! String) {
+          issues.add(ColorCalibrationIssue(
+            imageName: name,
+            kind: ColorCalibrationIssueKind.damagedBinding,
+            reason: 'invalid profile reference',
+          ));
+          continue;
+        }
+        final payload = profiles[profile];
+        if (payload == null) {
+          issues.add(ColorCalibrationIssue(
+            imageName: name,
+            kind: ColorCalibrationIssueKind.damagedBinding,
+            reason: 'missing profile payload',
+          ));
+          continue;
+        }
+        if (sha256.convert(utf8.encode(payload)).toString() != profile) {
+          issues.add(ColorCalibrationIssue(
+            imageName: name,
+            kind: ColorCalibrationIssueKind.damagedBinding,
+            reason: 'profile checksum mismatch',
+          ));
+          continue;
+        }
+        usedProfiles[profile] = payload;
+        binding.remove('payload');
+        images[target] = binding;
+      }
+
+      return FolderColorCalibration(
+        marker: {'version': 1, 'profiles': usedProfiles, 'images': images},
+        issues: issues,
+      );
+    });
+  }
+
+  /// Strict compatibility helper. New transfer code should use
+  /// [checkFolderColorCalibration] and resolve issues explicitly.
+  Future<Map<String, dynamic>> folderColorCalibration(
+    String deviceId,
+    int folderId,
+  ) async {
+    final check = await checkFolderColorCalibration(deviceId, folderId);
+    if (check.hasIssues) throw StateError(check.issueSummary);
+    return check.marker;
+  }
+
+  /// Writes an explicit historical decision for every page in [folderId] that
+  /// still has no binding. Never overwrites a binding that appeared while the
+  /// operator was deciding; an interrupted recapture aborts the whole accept.
+  Future<int> bindHistoricalIfUnbound(String deviceId, int folderId) =>
+      bindHistoricalIfUnboundFolders(deviceId, [folderId]);
+
+  /// Atomic across folders: one interrupted recapture rolls every write back,
+  /// so accepting a box is all-or-nothing.
+  Future<int> bindHistoricalIfUnboundFolders(
+    String deviceId,
+    Iterable<int> folderIds,
+  ) async {
+    final folders = folderIds.toSet().toList();
+    if (folders.isEmpty) return 0;
+    final placeholders = List.filled(folders.length, '?').join(',');
+    final db = await getDatabase(deviceId);
+    return db.transaction((txn) async {
+      final images = await txn.query(
+        'capture_images',
+        where: 'folder_id IN ($placeholders)',
+        whereArgs: folders,
+      );
+      final pendingRows = await txn.query('color_pending');
+      final pending = <String>{
+        for (final row in pendingRows)
+          if (row['image_name'] is String) row['image_name'] as String,
+      };
+      var accepted = 0;
+      for (final row in images) {
+        final name = row['image_name'] as String;
+        if (pending.contains(name)) {
+          throw StateError(
+            'Interrupted recapture for $name. Retake this page before transferring.',
+          );
+        }
+        final existing = await txn.query(
+          'color_bindings',
+          where: 'image_name = ?',
+          whereArgs: [name],
+          limit: 1,
+        );
+        if (existing.isNotEmpty) continue;
+        await txn.insert(
+          'color_bindings',
+          {
+            'image_name': name,
+            'binding_json': jsonEncode({
+              'profile': null,
+              'reason': 'historical',
+              'bound_at': DateTime.now().toIso8601String(),
+            }),
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        accepted++;
+      }
+      return accepted;
+    });
+  }
+
+  /// Deletes the device-wide recovery flag only when every page in every OPEN
+  /// box has a valid, explicitly-decided binding. TRANSFERRED boxes are
+  /// deliberately ignored: nothing re-marks them.
+  ///
+  /// A false return does NOT mean the current transfer must fail — the flag
+  /// can still be needed by another OPEN box; the current box's marker is
+  /// written from its own (now complete) folder bindings.
+  Future<bool> clearColorIntegrityIfOpenPagesBound(String deviceId) async {
+    final db = await getDatabase(deviceId);
+    if ((await db.query('color_integrity')).isEmpty) return true;
+    final boxes = await db.query(
+      'capture_boxes',
+      where: "UPPER(status) = 'OPEN'",
+    );
+    for (final box in boxes) {
+      final folders = await db.query(
+        'capture_folders',
+        where: 'box_id = ?',
+        whereArgs: [box['id']],
+      );
+      for (final folder in folders) {
+        final folderId = (folder['id'] as num).toInt();
+        final check = await checkFolderColorCalibration(deviceId, folderId);
+        if (check.hasIssues) return false;
+      }
     }
-    return {'version': 1, 'profiles': profiles, 'images': images};
+    // An image whose folder row is missing is not reached by the loop above;
+    // it still must have an explicit binding before the device flag clears.
+    final missing = await db.rawQuery('''
+      SELECT COUNT(*) AS n
+      FROM capture_images i
+      JOIN capture_boxes b ON b.id = i.box_id
+      LEFT JOIN color_bindings cb ON cb.image_name = i.image_name
+      WHERE UPPER(b.status) = 'OPEN' AND cb.image_name IS NULL
+    ''');
+    if (((missing.first['n'] as num?)?.toInt() ?? 0) != 0) return false;
+    await db.delete('color_integrity');
+    return true;
   }
 
   // ── Image assignments (cloud capture_images mirror) ─────────────────────

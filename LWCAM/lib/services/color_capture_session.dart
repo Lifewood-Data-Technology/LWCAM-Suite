@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'adb_device_service.dart';
 import 'color_cal_service.dart';
+import 'calibration_gate.dart';
 import 'node_config_service.dart';
 
 /// Captured values travel with the image; transfer never reads active.json.
@@ -40,6 +41,8 @@ class ColorBinding {
 }
 
 class ColorCaptureSession {
+  @visibleForTesting
+  static AdbDeviceService Function() adbFactory = AdbDeviceService.new;
   static String? _key;
   static ColorBinding? _binding;
   static Set<String> _before = {};
@@ -55,15 +58,17 @@ class ColorCaptureSession {
   }
 
   static Future<void> skip(String deviceId) async {
-    final adb = AdbDeviceService();
+    final adb = adbFactory();
     final serial = await adb.deviceSerial();
     final before = await adb.listDeviceImageNames();
+    if (before == null || serial == null) {
+      reset();
+      throw StateError('Phone unavailable; reconnect before continuing capture');
+    }
     final day = DateTime.now().toIso8601String().substring(0, 10);
     _key = '$deviceId|$serial|$day';
-    _before = before?.toSet() ?? {};
-    _binding = ColorBinding.none(
-      serial == null || before == null ? 'historical' : 'skipped',
-    );
+    _before = before.toSet();
+    _binding = ColorBinding.none('skipped');
   }
 
   static Future<bool> begin(String deviceId, {bool force = false}) {
@@ -73,20 +78,24 @@ class ColorCaptureSession {
 
   static Future<bool> _begin(String deviceId) async {
     if (!enabled) {
+      reset();
       _binding = ColorBinding.none('disabled');
       return true;
     }
-    final adb = AdbDeviceService();
+    final adb = adbFactory();
     final serial = await adb.deviceSerial();
     final day = DateTime.now().toIso8601String().substring(0, 10);
     final key = '$deviceId|$serial|$day';
     if (serial != null && key == _key && _binding != null) return true;
     final before = await adb.listDeviceImageNames();
+    if (before == null || serial == null) {
+      reset();
+      return false;
+    }
     final active = await ColorCalService().loadActive();
-    if (serial != null &&
-        active?.deviceId == deviceId &&
+    if (active?.deviceId == deviceId &&
         active?.phoneSerial == serial &&
-        ColorCalService.isCalibratedToday(active)) {
+        evaluateCalibrationGate(enabled: true, active: active) == CalibrationGate.calibratedToday) {
       final payload = jsonEncode({...active!.toJson(), 'schema_version': 1});
       _binding = ColorBinding(
         payload: payload,
@@ -118,11 +127,7 @@ class ColorCaptureSession {
       _binding = ColorBinding.none('skipped');
     }
     _key = key;
-    _before = before?.toSet() ?? {};
-    // An unreachable phone cannot establish a capture boundary.
-    if (before == null || serial == null) {
-      _binding = ColorBinding.none('historical');
-    }
+    _before = before.toSet();
     return true;
   }
 
@@ -131,7 +136,11 @@ class ColorCaptureSession {
     String filename,
   ) async {
     if (!enabled) return ColorBinding.none('disabled');
-    if (!await begin(deviceId)) {
+    final day = DateTime.now().toIso8601String().substring(0, 10);
+    final current = _key;
+    if ((current == null || !current.startsWith('$deviceId|') ||
+        !current.endsWith('|$day') || _binding == null) &&
+        !await begin(deviceId)) {
       throw StateError('Colour calibration requires operator attention');
     }
     if (_before.contains(filename)) return ColorBinding.none('historical');

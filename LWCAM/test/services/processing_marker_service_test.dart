@@ -66,6 +66,19 @@ void main() {
     });
   });
 
+  test('reworkReadinessHeld reads the marker and fails closed on damage',
+      () async {
+    final dir = await _tempDir('marker_readiness_');
+    expect(await reworkReadinessHeld(dir.path), isFalse);
+    final marker = File(p.join(dir.path, kProcessingMarkerName));
+    await marker.writeAsString(jsonEncode({'rework_in_progress': true}));
+    expect(await reworkReadinessHeld(dir.path), isTrue);
+    await marker.writeAsString(jsonEncode({'rework_in_progress': false}));
+    expect(await reworkReadinessHeld(dir.path), isFalse);
+    await marker.writeAsString('broken');
+    await expectLater(reworkReadinessHeld(dir.path), throwsStateError);
+  });
+
   group('writeBoxProcessingMarkers', () {
     Future<(UploadStatsDB, int)> boxWithFolders(
       String prefix,
@@ -292,6 +305,66 @@ void main() {
       );
       expect(blank.isSuccess, isFalse);
       expect(blank.failedWrites, 1);
+    });
+
+    test('a recovered unbound page names the cause and can be accepted',
+        () async {
+      final (db, boxId) = await boxWithFolders('marker_colour_', ['F-ONE']);
+      final folders = await db.getCaptureFolders(
+        deviceId: 'SAX01',
+        boxId: boxId,
+      );
+      final folderId = folders.single.id;
+      await db.assignImageToFolder(
+        deviceId: 'SAX01',
+        boxId: boxId,
+        folderId: folderId,
+        deviceFilename: 'a.jpg',
+      );
+      final root = await _tempDir('marker_colour_dest_');
+      final dest = await db.markCaptureBoxTransferStarted(
+        deviceId: 'SAX01',
+        boxId: boxId,
+        destinationRoot: root.path,
+      );
+      final folderDir = Directory(p.join(dest, 'F-ONE'))
+        ..createSync(recursive: true);
+      File(p.join(folderDir.path, 'a.jpg')).writeAsBytesSync([1, 2, 3]);
+      final raw = await db.getDatabase('SAX01');
+      await raw.delete('color_bindings');
+      await raw.insert('color_integrity', {
+        'id': 1,
+        'reason': 'damaged ledger',
+      });
+
+      final blocked = await writeBoxProcessingMarkers(
+        db: db,
+        deviceId: 'SAX01',
+        boxId: boxId,
+        legacyRoot: root.path,
+      );
+      expect(blocked.failedWrites, 1);
+      expect(blocked.folderFailures.single, contains('damaged ledger'));
+      expect(
+        File(p.join(folderDir.path, kProcessingMarkerName)).existsSync(),
+        isFalse,
+      );
+
+      await db.bindHistoricalIfUnbound('SAX01', folderId);
+      final accepted = await writeBoxProcessingMarkers(
+        db: db,
+        deviceId: 'SAX01',
+        boxId: boxId,
+        legacyRoot: root.path,
+      );
+      expect(accepted.isSuccess, isTrue);
+      final marker = jsonDecode(
+        File(p.join(folderDir.path, kProcessingMarkerName)).readAsStringSync(),
+      ) as Map;
+      expect(
+        (marker['color_calibration'] as Map)['images']['a.jpg']['reason'],
+        'historical',
+      );
     });
   });
 }

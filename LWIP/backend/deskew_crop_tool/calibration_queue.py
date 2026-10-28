@@ -19,7 +19,8 @@ from color_cal_tool.task_protocol import (
 LOG = logging.getLogger("deskew_crop.calibration")
 
 # Bound metadata-only checks even when a share preserves file timestamps.
-COMPLETED_RECHECK_SECONDS = 300
+COMPLETED_RETENTION_SECONDS = 30 * 86400
+ARCHIVE_RETENTION_SECONDS = 90 * 86400
 
 
 class AnalysisTimeout(RuntimeError):
@@ -72,6 +73,8 @@ class CalibrationQueue:
         self.ledger_path = self.local / "state.json"
         # Process-local: a restart always revalidates completed photographs.
         self._completed_checks = {}
+        self._terminal_signatures = {}
+        self._last_cleanup = 0
         # The ledger grows with jobs; its size is not limited by the wire protocol.
         self.records = json.loads(self.ledger_path.read_text(encoding="utf-8")) if self.ledger_path.exists() else {}
 
@@ -161,7 +164,7 @@ class CalibrationQueue:
         signature = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_dev, stat.st_ino)
         now = time.monotonic()
         cached = self._completed_checks.get(folder.name)
-        if cached is None or cached[0] != signature or now - cached[1] >= COMPLETED_RECHECK_SECONDS:
+        if cached is None or cached[0] != signature:
             # Record the pre-read signature: a concurrent change forces another
             # full check on the next scan, rather than caching the changed file.
             validate_request(folder)
@@ -269,19 +272,118 @@ class CalibrationQueue:
         self.status(state=result["status"], task_id=task_id, result=result,
                     **{"last_" + result["status"]: result}, error=None)
 
+    @staticmethod
+    def _signature(folder):
+        # Stat only: unchanged terminal tasks do not read JSON or chart bytes.
+        result = []
+        for name in ("request.json", "ready.json", "chart.jpg", "result.json"):
+            path = folder / name
+            if not path.exists():
+                return None
+            stat = plain_path(path).stat()
+            result.append((stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns,
+                           stat.st_dev, stat.st_ino))
+        return tuple(result)
+
+    def _retire(self, tasks):
+        now = time.time()
+        if now - self._last_cleanup < 3600:
+            return
+        self._last_cleanup = now
+        archive = self.root / ".archive"
+        for folder in tasks:
+            record = self.records.get(folder.name, {})
+            if record.get("state") not in ("succeeded", "failed"):
+                continue
+            result = record.get("result", {})
+            try:
+                completed = datetime.fromisoformat(result["completed_at"]).timestamp()
+            except (KeyError, ValueError, TypeError):
+                continue
+            if now - completed < COMPLETED_RETENTION_SECONDS:
+                continue
+            # Archive first, atomically on the same share. A failed rename
+            # leaves both retry state and local worker data intact.
+            archive.mkdir(exist_ok=True)
+            plain_path(archive)
+            os.replace(plain_path(folder), archive / folder.name)
+            work = self.local / folder.name
+            if work.exists():
+                shutil.rmtree(plain_path(work))
+            del self.records[folder.name]
+            self._terminal_signatures.pop(folder.name, None)
+            self._completed_checks.pop(folder.name, None)
+            self._save()
+        # Covers a crash after archive rename, and tasks removed by an
+        # administrator. Never prune a pending/publishing record this way.
+        for task_id, record in list(self.records.items()):
+            if record.get("state") not in ("succeeded", "failed") or (self.root / task_id).exists():
+                continue
+            try:
+                if str(uuid.UUID(task_id)) != task_id:
+                    continue
+                completed = datetime.fromisoformat(record["result"]["completed_at"]).timestamp()
+            except (ValueError, KeyError, TypeError):
+                continue
+            if now - completed < COMPLETED_RETENTION_SECONDS:
+                continue
+            work = self.local / task_id
+            if work.exists():
+                shutil.rmtree(plain_path(work))
+            del self.records[task_id]
+            self._terminal_signatures.pop(task_id, None)
+            self._completed_checks.pop(task_id, None)
+            self._save()
+        if archive.exists():
+            plain_path(archive)
+            for folder in archive.iterdir():
+                try:
+                    if str(uuid.UUID(folder.name)) != folder.name:
+                        continue
+                    plain_path(folder)
+                    result = read_json(folder / "result.json")[0]
+                    completed = datetime.fromisoformat(result["completed_at"]).timestamp()
+                    if now - completed > ARCHIVE_RETENTION_SECONDS:
+                        shutil.rmtree(folder)
+                except (ValueError, KeyError, TypeError):
+                    continue
+
     def tick(self):
         plain_path(self.config.input_root)
         self.root.mkdir(exist_ok=True)
         plain_path(self.root)
         if self.lock is None:
             self.lock = RootLock(self.root)
-        tasks = sorted(p for p in self.root.iterdir() if p.is_dir() and (p / "ready.json").is_file())
+        tasks = []
+        for p in self.root.iterdir():
+            try:
+                if str(uuid.UUID(p.name)) != p.name:
+                    continue
+            except ValueError:
+                continue
+            if p.is_dir() and (p / "ready.json").is_file():
+                tasks.append(p)
+        tasks.sort()
+        try:
+            self._retire(tasks)
+        except OSError as exc:
+            LOG.warning("Calibration retention deferred: %s", exc)
         self.status(state="idle", error=None, queued=sum(self.records.get(p.name, {}).get("state") not in ("succeeded", "failed") for p in tasks))
         for folder in tasks:
             if self.stop.is_set():
                 return
             try:
+                if not folder.exists():
+                    continue  # Retired above.
+                signature = self._signature(folder)
+                terminal = self.records.get(folder.name, {}).get("state") in ("succeeded", "failed")
+                if terminal and signature is not None and self._terminal_signatures.get(folder.name) == signature:
+                    continue
                 self.process(plain_path(folder))
+                # Cache only the pre-check signature: concurrent edits cause
+                # another validation, never an unchecked cache hit.
+                if terminal and signature is not None:
+                    self._terminal_signatures[folder.name] = signature
             except InterruptedError:
                 return
             except Exception as exc:

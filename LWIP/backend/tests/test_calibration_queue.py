@@ -97,12 +97,12 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(self.chart_reads(self.queue.tick), [])
         self.assertTrue(any(c.kwargs.get("state") == "conflict" for c in status.call_args_list))
 
-    def test_completed_periodic_check_reads_chart_without_rerunning_analysis(self):
+    def test_completed_elapsed_time_does_not_reread_chart(self):
         self.queue.tick()
         with patch("deskew_crop_tool.calibration_queue.time.monotonic", return_value=100):
             self.queue.tick()
         with patch("deskew_crop_tool.calibration_queue.time.monotonic", return_value=401):
-            self.assertTrue(self.chart_reads(self.queue.tick))
+            self.assertEqual(self.chart_reads(self.queue.tick), [])
         self.assertEqual(self.calls, 1)
 
     def test_completed_missing_result_republishes_after_full_validation(self):
@@ -122,6 +122,55 @@ class QueueTests(unittest.TestCase):
         restarted.tick()
         self.assertEqual(self.result()["error"]["code"], "invalid_request")
         self.assertEqual(self.calls, 0)
+
+    def test_idle_terminal_task_reads_no_metadata(self):
+        self.queue.tick()
+        self.queue.tick()
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("idle read")):
+            self.queue.tick()
+
+    def test_invalid_task_names_are_ignored_without_repeated_warnings(self):
+        bad = self.folder.parent / "not-a-task"
+        bad.mkdir()
+        (bad / "ready.json").write_text("{}")
+        with patch("deskew_crop_tool.calibration_queue.LOG.warning") as warning:
+            self.queue.tick()
+            self.queue.tick()
+        warning.assert_not_called()
+
+    def test_completed_retention_archives_before_removing_local_state(self):
+        import time
+        self.queue.tick()
+        task_id = self.folder.name
+        with patch("deskew_crop_tool.calibration_queue.time.time", return_value=time.time() + 31 * 86400):
+            self.queue.tick()
+        self.assertFalse(self.folder.exists())
+        self.assertTrue((self.folder.parent / ".archive" / task_id / "result.json").exists())
+        self.assertNotIn(task_id, self.queue.records)
+        self.assertFalse((self.queue.local / task_id).exists())
+
+    def test_retention_does_not_delete_unpublished_work(self):
+        import time
+        with patch.object(self.queue, "_publish", side_effect=OSError("offline")):
+            self.queue.tick()
+            with patch("deskew_crop_tool.calibration_queue.time.time", return_value=time.time() + 100 * 86400):
+                self.queue.tick()
+        self.assertTrue(self.folder.exists())
+        self.assertEqual(self.queue.records[self.folder.name]["state"], "publishing")
+        self.assertTrue((self.queue.local / self.folder.name / "result.json").exists())
+
+    def test_legacy_markers_without_calibration_and_bom_object(self):
+        orchestrator = FolderOrchestrator(_config(self.base, marker="marker.json"))
+        marker = self.folder / "marker.json"
+        for text in ("", "\ufeff", "null", "[]"):
+            marker.write_text(text, encoding="utf-8")
+            self.assertIsNone(orchestrator._read_source_identity(self.folder))
+        marker.write_text('\ufeff{"project_key":"p"}', encoding="utf-8")
+        self.assertEqual(orchestrator._read_source_identity(self.folder), {"project_key": "p"})
+        marker.write_text('{"color_calibration":', encoding="utf-8")
+        from color_cal_tool.contract import CalibrationError
+        with self.assertRaises(CalibrationError):
+            orchestrator._read_source_identity(self.folder)
 
     def test_shared_request_and_corrupt_fixture(self):
         self.assertEqual(validate_request(self.folder)[0], self.request)

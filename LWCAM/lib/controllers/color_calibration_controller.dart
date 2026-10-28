@@ -152,6 +152,15 @@ class ColorCalibrationController extends GetxController {
     final base = await UploadStatsDB().getBaseFolder();
     final dir = Directory(p.join(base, 'color_cal', 'captures'));
     if (!await dir.exists()) await dir.create(recursive: true);
+    // A submitted task owns its own durable chart. The original pull is only
+    // a UI cache for manual corners; keep it for 30 days, not forever.
+    final cutoff = DateTime.now().subtract(const Duration(days: 30));
+    await for (final file in dir.list(followLinks: false)) {
+      if (file is File && p.extension(file.path).toLowerCase() == '.jpg' &&
+          (await file.stat()).modified.isBefore(cutoff)) {
+        try { await file.delete(); } catch (_) { /* Retry on next capture. */ }
+      }
+    }
     return dir;
   }
 

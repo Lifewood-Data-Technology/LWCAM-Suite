@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
+import 'package:lwcam/models/capture_box_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -103,4 +104,210 @@ void main() {
       );
     },
   );
+  test(
+    'recovery integrity is checked per folder and can be resolved explicitly',
+    () async {
+      final boxId = await store.insertCaptureBox(
+        deviceId: 'station',
+        boxDetails: 'BOX',
+      );
+      final folderId = await store.insertCaptureFolder(
+        deviceId: 'station',
+        folder: CaptureFolder(boxId: boxId, title: 'T', volume: 'V'),
+        isComplete: true,
+      );
+      await store.assignImageToFolder(
+        deviceId: 'station',
+        boxId: boxId,
+        folderId: folderId,
+        deviceFilename: 'a.jpg',
+      );
+      final db = await store.getDatabase('station');
+      await db.delete('color_bindings');
+      await db.insert('color_integrity', {
+        'id': 1,
+        'reason': 'damaged ledger',
+      });
+
+      final check = await store.checkFolderColorCalibration('station', folderId);
+      expect(check.issues, hasLength(1));
+      expect(check.issues.single.kind, ColorCalibrationIssueKind.unknownBinding);
+      expect(check.issues.single.reason, 'damaged ledger');
+
+      expect(
+        await store.bindHistoricalIfUnbound('station', folderId),
+        1,
+      );
+      final after = await store.checkFolderColorCalibration('station', folderId);
+      expect(after.issues, isEmpty);
+      expect(after.marker['images']['a.jpg']['reason'], 'historical');
+      expect(
+        await store.clearColorIntegrityIfOpenPagesBound('station'),
+        isTrue,
+      );
+      expect(await db.query('color_integrity'), isEmpty);
+    },
+  );
+  test(
+    'a mixed folder keeps the bound profile and only resolves the unbound page',
+    () async {
+      final boxId = await store.insertCaptureBox(
+        deviceId: 'station',
+        boxDetails: 'BOX',
+      );
+      final folderId = await store.insertCaptureFolder(
+        deviceId: 'station',
+        folder: CaptureFolder(boxId: boxId, title: 'T', volume: 'V'),
+        isComplete: true,
+      );
+      final payload = '{"profile_id":"p"}';
+      final hash = sha256.convert(utf8.encode(payload)).toString();
+      await store.assignImageToFolder(
+        deviceId: 'station',
+        boxId: boxId,
+        folderId: folderId,
+        deviceFilename: 'a.jpg',
+        colorBinding: {
+          'profile': hash,
+          'payload': payload,
+          'bound_at': '2026-10-19T10:00:00',
+        },
+      );
+      await store.assignImageToFolder(
+        deviceId: 'station',
+        boxId: boxId,
+        folderId: folderId,
+        deviceFilename: 'b.jpg',
+      );
+      final db = await store.getDatabase('station');
+      await db.delete(
+        'color_bindings',
+        where: 'image_name = ?',
+        whereArgs: ['b.jpg'],
+      );
+      await db.insert('color_integrity', {'id': 1, 'reason': 'lost'});
+
+      final check = await store.checkFolderColorCalibration('station', folderId);
+      expect(check.issues.single.imageName, 'b.jpg');
+      expect(check.marker['images']['a.jpg']['profile'], hash);
+      expect(check.marker['profiles'][hash], payload);
+      expect(check.marker['images'].containsKey('b.jpg'), isFalse);
+
+      expect(await store.bindHistoricalIfUnbound('station', folderId), 1);
+      final after = await store.checkFolderColorCalibration('station', folderId);
+      expect(after.issues, isEmpty);
+      expect(after.marker['images']['a.jpg']['profile'], hash);
+      expect(after.marker['images']['b.jpg']['reason'], 'historical');
+    },
+  );
+  test('a damaged profile stays blocking and is never overwritten', () async {
+    final boxId = await store.insertCaptureBox(
+      deviceId: 'station',
+      boxDetails: 'BOX',
+    );
+    final folderId = await store.insertCaptureFolder(
+      deviceId: 'station',
+      folder: CaptureFolder(boxId: boxId, title: 'T', volume: 'V'),
+      isComplete: true,
+    );
+    final payload = '{"profile_id":"p"}';
+    final hash = sha256.convert(utf8.encode(payload)).toString();
+    await store.assignImageToFolder(
+      deviceId: 'station',
+      boxId: boxId,
+      folderId: folderId,
+      deviceFilename: 'a.jpg',
+      colorBinding: {'profile': hash, 'payload': payload},
+    );
+    final db = await store.getDatabase('station');
+    await db.delete('color_profiles');
+    await db.insert('color_integrity', {'id': 1, 'reason': 'lost'});
+
+    final check = await store.checkFolderColorCalibration('station', folderId);
+    expect(check.issues.single.kind, ColorCalibrationIssueKind.damagedBinding);
+    expect(await store.bindHistoricalIfUnbound('station', folderId), 0);
+    expect(await db.query('color_bindings'), hasLength(1));
+    await expectLater(
+      store.folderColorCalibration('station', folderId),
+      throwsStateError,
+    );
+    expect(
+      await store.clearColorIntegrityIfOpenPagesBound('station'),
+      isFalse,
+    );
+  });
+  test('an interrupted recapture aborts the whole historical accept', () async {
+    final boxId = await store.insertCaptureBox(
+      deviceId: 'station',
+      boxDetails: 'BOX',
+    );
+    final folderId = await store.insertCaptureFolder(
+      deviceId: 'station',
+      folder: CaptureFolder(boxId: boxId, title: 'T', volume: 'V'),
+      isComplete: true,
+    );
+    await store.assignImageToFolder(
+      deviceId: 'station',
+      boxId: boxId,
+      folderId: folderId,
+      deviceFilename: 'a.jpg',
+    );
+    final db = await store.getDatabase('station');
+    await db.delete('color_bindings');
+    await db.insert('color_integrity', {'id': 1, 'reason': 'lost'});
+    await store.markColorReplacementPending('station', 'a.jpg');
+
+    final check = await store.checkFolderColorCalibration('station', folderId);
+    expect(check.issues.single.kind, ColorCalibrationIssueKind.pendingRecapture);
+    await expectLater(
+      store.bindHistoricalIfUnbound('station', folderId),
+      throwsStateError,
+    );
+    expect(await db.query('color_bindings'), isEmpty);
+  });
+  test('integrity clears only when every OPEN page is bound', () async {
+    final firstBox = await store.insertCaptureBox(
+      deviceId: 'station',
+      boxDetails: 'FIRST',
+    );
+    final firstFolder = await store.insertCaptureFolder(
+      deviceId: 'station',
+      folder: CaptureFolder(boxId: firstBox, title: 'T', volume: 'V'),
+      isComplete: true,
+    );
+    await store.assignImageToFolder(
+      deviceId: 'station',
+      boxId: firstBox,
+      folderId: firstFolder,
+      deviceFilename: 'a.jpg',
+    );
+    final secondBox = await store.insertCaptureBox(
+      deviceId: 'station',
+      boxDetails: 'SECOND',
+    );
+    final secondFolder = await store.insertCaptureFolder(
+      deviceId: 'station',
+      folder: CaptureFolder(boxId: secondBox, title: 'T', volume: 'V'),
+      isComplete: true,
+    );
+    await store.assignImageToFolder(
+      deviceId: 'station',
+      boxId: secondBox,
+      folderId: secondFolder,
+      deviceFilename: 'b.jpg',
+    );
+    final db = await store.getDatabase('station');
+    await db.delete('color_bindings');
+    await db.insert('color_integrity', {'id': 1, 'reason': 'lost'});
+
+    await store.bindHistoricalIfUnbound('station', firstFolder);
+    expect(
+      await store.clearColorIntegrityIfOpenPagesBound('station'),
+      isFalse,
+      reason: 'the second OPEN box is still unbound',
+    );
+    await store.bindHistoricalIfUnbound('station', secondFolder);
+    expect(await store.clearColorIntegrityIfOpenPagesBound('station'), isTrue);
+    expect(await db.query('color_integrity'), isEmpty);
+  });
 }

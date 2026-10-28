@@ -3,6 +3,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/auth/auth_controller.dart';
 import 'package:lwcam/controllers/box_session_controller.dart';
+import 'package:lwcam/db/upload_stats_db.dart';
+import 'package:lwcam/services/color_capture_session.dart';
+import 'package:lwcam/services/color_rework_store.dart';
+import 'package:path/path.dart' as p;
 
 /// Staged recaptures used to live on _GalleryPageState, which is disposed the
 /// moment the operator steps back to the box list — so three recaptured photos
@@ -75,5 +79,49 @@ void main() {
     await session.clearReworkStaging();
     expect(session.reworkStaged, isEmpty);
     expect(session.reworkStagingDir, isNull);
+  });
+
+  test('clearReworkStaging also clears the closed set', () async {
+    session.reworkClosed.add('a.jpg');
+    await session.clearReworkStaging();
+    expect(session.reworkClosed, isEmpty);
+  });
+
+  test('clearReworkStaging discards the durable intent of a staged page',
+      () async {
+    final root = await Directory.systemTemp.createTemp('rework_store_');
+    addTearDown(() async {
+      if (await root.exists()) await root.delete(recursive: true);
+    });
+    UploadStatsDB().debugOverrideBaseFolderForTests(root.path);
+    final source = File(p.join(root.path, 'shot.jpg'))
+      ..writeAsBytesSync([1, 2, 3]);
+    final durable = await ColorReworkStore.stage(
+      'station',
+      'target.jpg',
+      source,
+      ColorBinding.none('disabled'),
+    );
+    session.reworkStaged['a.jpg'] = durable;
+    session.reworkStagingDir = staging;
+    session.reworkStagedBoxId = 7;
+    expect(
+      await ColorReworkStore.pending('station', 'target.jpg'),
+      isNotNull,
+    );
+
+    await session.clearReworkStaging();
+
+    expect(
+      await ColorReworkStore.pending('station', 'target.jpg'),
+      isNull,
+      reason: 'a box switch must never leave the discarded photo selectable',
+    );
+    expect(
+      await durable.exists(),
+      isTrue,
+      reason: 'photo cleanup belongs to the deferred task-lifecycle PR',
+    );
+    expect(session.reworkStaged, isEmpty);
   });
 }

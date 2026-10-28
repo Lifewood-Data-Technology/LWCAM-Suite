@@ -1,0 +1,252 @@
+00:00 +0: loading D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart
+00:00 +0: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: no intent and no input directory allow metadata
+00:00 +1: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_e6868b74\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_e6868b74\lwcam_stats_station.db
+00:00 +2: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: normal Undo allows metadata with the share absent
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:00 +3: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: older completion preserves a newer applying generation
+00:00 +3: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying blocks metadata before any remote marker could be written
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_3a48db36\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_3a48db36\lwcam_stats_station.db
+00:01 +4: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: older completion preserves a newer applying generation
+00:01 +5: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +5: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: guarded completion preserves an unreadable intent
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +5: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_d1b1b046\lwcam_stats_station.db
+00:01 +6: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+00:01 +6: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: applying survives Undo, restaging and recovery
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +6: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_d1b1b046\lwcam_stats_station.db
+00:01 +7: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: empty legacy marker gains identity; damaged or foreign marker stays protected
+00:01 +7: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: an applying sibling not in the current worklist blocks the folder
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +8: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: applying survives Undo, restaging and recovery
+00:01 +8: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: an applying sibling not in the current worklist blocks the folder
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_d2dde5f6\lwcam_stats_station.db
+00:01 +9: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: an applying sibling not in the current worklist blocks the folder
+00:01 +9: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +9: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: an applying sibling not in the current worklist blocks the folder
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_d2dde5f6\lwcam_stats_station.db
+00:01 +10: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: durable recapture detects changes to both image and binding
+00:01 +10: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +11: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_d95bc34a\lwcam_stats_station.db
+00:01 +12: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+00:01 +12: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_862142bd\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_862142bd\lwcam_stats_station.db
+00:01 +13: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+00:01 +13: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: another folder and another device do not block metadata
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +14: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_d95bc34a\lwcam_stats_station.db
+00:01 +15: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: another folder and another device do not block metadata
+00:01 +15: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +16: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: complete with a generation guard does not delete a newer intent
+00:01 +16: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy intent without folder identity matches across input/output roots
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:01 +17: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:01 +18: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:01 +18: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy intent without folder identity matches across input/output roots
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_3956a2cd\lwcam_stats_station.db
+00:01 +19: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_22cfeae7\lwcam_stats_station.db
+00:01 +19: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy intent without folder identity matches across input/output roots
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_3956a2cd\lwcam_stats_station.db
+00:02 +20: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:02 +20: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:02 +20: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_22cfeae7\lwcam_stats_station.db
+00:02 +21: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:02 +21: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_cb1bb365\lwcam_stats_station.db
+00:02 +22: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:02 +22: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_cb1bb365\lwcam_stats_station.db
+00:02 +23: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:02 +24: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:02 +25: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: readable legacy abandoned staging remains recoverable
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_57f40600\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_57f40600\lwcam_stats_station.db
+00:02 +26: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_1572e261\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_1572e261\lwcam_stats_station.db
+00:02 +27: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: restaging legacy held marker preserves the interrupted operation
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_9baceb8\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_9baceb8\lwcam_stats_station.db
+00:03 +28: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: restaging ambiguous legacy work offline retains its original intent
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:03 +29: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: committed receipt permits metadata after failed intent cleanup
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_278145ef\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_278145ef\lwcam_stats_station.db
+00:03 +30: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: rolled back receipt cannot exempt an uncommitted replacement
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_661d8d52\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_661d8d52\lwcam_stats_station.db
+00:03 +31: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: old committed receipt never exempts a newer applying generation
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_2c5672a2\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_2c5672a2\lwcam_stats_station.db
+00:03 +32: All tests passed!

@@ -5,6 +5,7 @@
 // session and transfer flows; the shutter method is admin-configured.
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 
@@ -39,9 +40,21 @@ class ShutterConfig {
 class AdbDeviceService {
   Future<String?> deviceSerial() async {
     try {
-      final result = await Process.run(adbPath, ['get-serialno']).timeout(const Duration(seconds: 5));
-      final value = result.stdout.toString().trim();
-      return result.exitCode == 0 && value.isNotEmpty && value != 'unknown' ? value : null;
+      final process = await Process.start(adbPath, ['get-serialno']);
+      final output = process.stdout.transform(utf8.decoder).join();
+      final errors = process.stderr.drain<void>();
+      int code;
+      try {
+        code = await process.exitCode.timeout(const Duration(seconds: 5));
+      } on TimeoutException {
+        process.kill();
+        await process.exitCode;
+        await Future.wait([output, errors]);
+        return null;
+      }
+      final value = (await output).trim();
+      await errors;
+      return code == 0 && value.isNotEmpty && value != 'unknown' ? value : null;
     } catch (_) { return null; }
   }
   static const List<String> cameraPackages = [

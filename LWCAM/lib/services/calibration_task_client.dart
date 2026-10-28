@@ -71,6 +71,30 @@ class CalibrationTaskClient {
     await writeStringAtomic(_pointer(phone).path, jsonEncode(task));
   }
 
+  /// Profiles are copied to active.json and page bindings before acceptance.
+  /// Retain pending tasks; reclaim only inactive local task copies after 30 days.
+  Future<void> prune({DateTime? now}) async {
+    if (!await local.exists()) return;
+    final protected = <String>{};
+    await for (final entry in local.list(followLinks: false)) {
+      if (entry is File && p.basename(entry.path).startsWith('pending_')) {
+        final data = jsonDecode(await entry.readAsString()) as Map;
+        if (data['accepted'] != true) protected.add(data['task_id'] as String);
+      }
+    }
+    final cutoff = (now ?? DateTime.now()).subtract(const Duration(days: 30));
+    await for (final entry in local.list(followLinks: false)) {
+      final name = p.basename(entry.path);
+      if (entry is Directory && RegExp(r'^[0-9a-f-]{36}$').hasMatch(name) &&
+          !protected.contains(name) && (await entry.stat()).modified.isBefore(cutoff)) {
+        await entry.delete(recursive: true);
+      } else if (entry is File && name.endsWith('.abandoned.json') &&
+          (await entry.stat()).modified.isBefore(cutoff)) {
+        await entry.delete();
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> submit(
     File image,
     Map<String, dynamic> request,
@@ -78,6 +102,7 @@ class CalibrationTaskClient {
     if (destination.trim().isEmpty) {
       throw StateError('Image destination is not configured');
     }
+    try { await prune(); } catch (_) { /* A cleanup failure must not lose a task. */ }
     final generation = ++_generation;
     await local.create(recursive: true);
     final id = const Uuid().v4();

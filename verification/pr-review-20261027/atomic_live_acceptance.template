@@ -1,0 +1,529 @@
+import 'dart:io';
+import 'package:lwcam/models/node_config.dart';
+import 'package:postgres/postgres.dart';
+import 'package:lwcam/models/app_user.dart';
+import 'package:lwcam/services/node_config_service.dart';
+import 'package:lwcam/services/pg_client.dart';
+import 'package:lwcam/services/pg_sync_sink.dart';
+import 'package:lwcam/services/sync_models.dart';
+import 'package:lwcam/services/sync_sink.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:get/get.dart' as gx;
+import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:lwcam/auth/auth_controller.dart';
+import 'package:lwcam/controllers/box_session_controller.dart';
+import 'package:lwcam/db/upload_stats_db.dart';
+import 'package:lwcam/models/capture_box_models.dart';
+import 'package:lwcam/services/color_rework_store.dart';
+import 'package:lwcam/services/color_capture_session.dart';
+import 'package:lwcam/services/open_rework_cache.dart';
+import 'package:lwcam/services/rework_service.dart';
+import 'package:lwcam/services/fs_probe.dart';
+import 'package:lwcam/services/safe_copy.dart';
+import 'package:lwcam/services/audit_log_service.dart';
+import 'package:lwcam/services/box_integrity.dart';
+import 'package:lwcam/services/processing_marker_service.dart' hide updateReworkColorBinding;
+import 'package:lwcam/services/processing_marker_service.dart' as marker_service;
+import 'package:lwcam/theme/app_colors.dart';
+import 'package:lwcam/pages/gallery_page.dart' show kReworkRenameAttempts, kReworkRenameRetryDelay, reworkSourceForItem, reworkFoldersFor, reworkOpenItemCount, reworkResolutionFor, reworkShouldResetQcStatus, groupReworkByFolderSeq;
+
+void showAppSnackBar(String title, String message) { print('SNACK $title: $message'); }
+// UI navigation is outside the side effects under test. Production method text
+// is unchanged; this host resolves Get.back to a no-op instead of a real route.
+class Get { static void back() {} }
+
+String? failBindingFor;
+Future<void> updateReworkColorBinding(String folder, String name, ColorBinding binding) async {
+  if (name == failBindingFor) throw FileSystemException('injected marker write failure');
+  await marker_service.updateReworkColorBinding(folder, name, binding);
+}
+
+class _SubmitHarness {
+  final BoxSessionController _boxSession;
+  final AuthController auth;
+  final List<ReworkItem> _reworkItems;
+  final Map<String, File> targets;
+  _SubmitHarness(this._boxSession, this.auth, this._reworkItems, this.targets);
+  final List<String> writes = [];
+  bool shareUnavailable = false;
+  late BuildContext context;
+  bool get mounted => true;
+  void setState(VoidCallback fn) => fn();
+  bool _reworkSubmitting = false;
+  bool _isWaitingForRecapture = false;
+  String statusMsg = '';
+  final Set<String> _reworkUndoing = {};
+  final Map<int, CaptureFolder> _reworkEdited = {};
+  Map<String, File> get _reworkStaged => _boxSession.reworkStaged;
+  Set<String> get _reworkMetadataFixed => _boxSession.reworkMetadataFixed;
+  Map<int, List<ReworkItem>> get _reworkByFolderSeq => groupReworkByFolderSeq(_reworkItems);
+  AuditLogService? get _auditOrNull => null;
+  static const _kInputShareDown = 'offline';
+  Future<ReworkInput> _resolveReworkInput(ReworkItem item) async => shareUnavailable ? const ReworkInput(FsProbe.unreachable,null) : ReworkInput(FsProbe.found, targets[item.imageName]);
+  Future<void> _productionOverwriteReworkFileAtomically({
+    required File source,
+    required File target,
+  }) async {
+    final temp = File(
+      p.join(target.parent.path, '.${p.basename(target.path)}.rework_tmp'),
+    );
+    try {
+      // A crash mid-submit can leave one behind; copy() would fail on it.
+      if (await temp.exists()) await temp.delete();
+      // Drop any decoded copy of the image we are about to replace. Flutter
+      // holds bytes rather than a handle, so this is defensive rather than
+      // known-necessary — but it is free, and it guarantees the tile re-reads
+      // the new pixels instead of showing the rejected frame from cache.
+      try {
+        await FileImage(target).evict();
+      } catch (_) {}
+      await source.copy(temp.path);
+      if (await temp.length() <= 0) {
+        throw StateError('the replacement image copied as an empty file');
+      }
+      Object? lastError;
+      for (var attempt = 0; attempt < kReworkRenameAttempts; attempt++) {
+        try {
+          await temp.rename(target.path);
+          return;
+        } catch (e) {
+          lastError = e;
+          await Future<void>.delayed(kReworkRenameRetryDelay);
+        }
+      }
+      throw StateError(
+        'could not replace ${p.basename(target.path)} after '
+        '$kReworkRenameAttempts attempts. ${_describeWriteBlock(temp, target)} '
+        'If the destination is BLOCKED while the temp file is writable, this is '
+        "almost certainly antivirus folder protection (Avast's Ransomware "
+        'Shield, Defender\'s Controlled Folder Access): those allow NEW files '
+        'but refuse to let an untrusted program modify EXISTING ones, and the '
+        'capture roots sit under Desktop, which they protect by default. Allow '
+        'LWCAM in the shield, or move the processing roots out of Desktop / '
+        'Documents (LWCam Admin -> Station Setup). '
+        'Last error: $lastError',
+      );
+    } catch (e) {
+      try {
+        if (await temp.exists()) await temp.delete();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  /// Says WHICH of the two paths is unwritable when a replace fails, so the
+  /// next occurrence identifies the blocker instead of guessing at it.
+  ///
+  /// A rename-replace needs delete access on [temp] AND on [target]; "Access is
+  /// denied" alone does not say which side is held. Probing both narrows it in
+  /// one line: the destination points at whatever is reading the image (an
+  /// external viewer, a scanner); the temp points at whatever just touched the
+  /// file we wrote (antivirus on close is the classic); neither points at
+  /// directory permissions or a delete-pending state.
+  ///
+  /// Ruled out by measurement on 2026-07-30, so do not re-chase them: the
+  /// directory itself (probe rename of a 16MB file succeeded), Dart's rename
+  /// API (same probe through dart:io succeeded), the read-only attribute (all
+  /// Archive), and LWIP (journal untouched since 16:38, nothing logged, and it
+  /// only opens inputs for a folder it is actively reprocessing).
+  /// Opens [f] for WRITE without truncating a byte, purely to see whether that
+  /// is currently allowed. Append mode takes a write handle and writes nothing.
+  String _probeWritable(File f) {
+    try {
+      if (!f.existsSync()) return 'missing';
+      f.openSync(mode: FileMode.append).closeSync();
+      return 'writable';
+    } catch (e) {
+      return 'BLOCKED ($e)';
+    }
+  }
+
+  String _describeWriteBlock(File temp, File target) =>
+      'Blocker probe — destination: ${_probeWritable(target)}, '
+      'temp: ${_probeWritable(temp)}.';
+
+  Future<void> _overwriteReworkFileAtomically({required File source, required File target}) async {
+    writes.add(p.basename(target.path));
+    await _productionOverwriteReworkFileAtomically(source:source,target:target);
+  }
+  Future<void> _refreshSavedBoxThumbnail(int box, String name, File file) async {}
+  Map<String, Object?> _changedReworkColumns(CaptureFolder folder, List<ReworkItem> items) => {};
+// PRODUCTION_SUBMIT
+// PRODUCTION_BUTTON
+// PRODUCTION_UNDO
+}
+
+
+Future<(Connection,PgSyncSink)> realPg() async {
+  final home=Platform.environment['USERPROFILE']!;
+  final config=await NodeConfigService(getConfigPath:()=>p.join(home,'LWCAM_DBs','lwcam_node_config.json')).load();
+  final conn=await openPgConnection(host:config.pgHost!,port:config.pgPort,
+    database:config.pgDatabase!,user:config.pgUser!,password:config.pgPassword!,useSsl:config.pgUseSsl);
+  try {
+    // Actual schema column types, isolated session-local tables. Public data is
+    // neither changed nor copied; no roles, users or projects are provisioned.
+    for(final table in ['projects','users','capture_boxes','capture_folders','capture_images','rework_logs']) {
+      await conn.execute('CREATE TEMP TABLE $table AS SELECT * FROM public.$table WITH NO DATA');
+    }
+    await conn.execute('CREATE TEMP SEQUENCE acceptance_rework_id');
+    await conn.execute("ALTER TABLE rework_logs ALTER COLUMN id SET DEFAULT nextval('acceptance_rework_id')");
+    await conn.execute("INSERT INTO projects(id,project_key,project_id) VALUES(1,'pk','PRJ')");
+    await conn.execute("INSERT INTO users(id,user_id) VALUES(1,'acceptance_operator')");
+    await conn.execute("INSERT INTO capture_boxes(box_id,project_id,box_name) VALUES(1,1,'BOX')");
+    for(var n=1;n<=2;n++) {
+      await conn.execute("INSERT INTO capture_folders(id,box_id,folder_seq,qc_status,is_deskewed,is_cropped) VALUES($n,1,$n,'REWORK',FALSE,FALSE)");
+      await conn.execute("INSERT INTO capture_images(id,folder_id,image_name) VALUES($n,$n,'$n.jpg')");
+      await conn.execute("INSERT INTO rework_logs(image_id,folder_id,assigned_uid,rework_status,created_at) VALUES($n,$n,1,'OPEN',clock_timestamp()-interval '1 minute')");
+    }
+    final sink=PgSyncSink(host:config.pgHost!,port:config.pgPort,database:config.pgDatabase!,
+      user:config.pgUser!,password:config.pgPassword!,useSsl:config.pgUseSsl)..useConnection(conn);
+    return (conn,sink);
+  } catch(_) { await conn.close(); rethrow; }
+}
+
+Future<List<OutboxRecord>> queued(UploadStatsDB db) async {
+  final raw=await db.getDatabase('station');
+  final rows=await raw.query('sync_outbox',where:"entity IN ('capture_folder_rework','rework_logs')",
+    orderBy:"CASE entity WHEN 'capture_folder_rework' THEN 0 ELSE 1 END,id");
+  return rows.map((r)=>OutboxRecord(id:r['id'] as int,entity:r['entity'] as String,
+    entityKey:r['entity_key'] as String,op:r['op'] as String,attempts:r['attempts'] as int,
+    payload:Map<String,dynamic>.from(jsonDecode(r['payload'] as String)))).toList();
+}
+
+void identify(_SubmitHarness h) {
+  h.auth.currentUser.value=const AppUser(username:'acceptance_operator',passwordHash:'unused-fixture',roles:{UserRole.capture});
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory root;
+  late UploadStatsDB db;
+  setUp(() async {
+    failBindingFor = null;
+    sqfliteFfiInit(); databaseFactory = databaseFactoryFfi;
+    root = await Directory.systemTemp.createTemp('blocking_fix_review_');
+    db = UploadStatsDB()..debugOverrideBaseFolderForTests(root.path);
+  });
+  tearDown(() async { await db.debugCloseAllForTests(); gx.Get.reset(); await root.delete(recursive: true); });
+  Future<_SubmitHarness> fixture({bool sameFolder = false}) async {
+    final auth = AuthController(); auth.deviceId.value = 'station';
+    final session = BoxSessionController(auth);
+    final boxId = await db.insertCaptureBox(deviceId: 'station', boxDetails: 'BOX', projectKey: 'pk', projectId: 'PRJ');
+    session.activeBox.value = (await db.getCaptureBoxById(deviceId: 'station', boxId: boxId))!;
+    final items = <ReworkItem>[];
+    final targets = <String, File>{};
+    for (var n = 1; n <= 2; n++) {
+      final folderId = sameFolder && n == 2 ? session.foldersOfActiveBox.first.id : await db.insertCaptureFolder(deviceId: 'station', folder: CaptureFolder(boxId: boxId, title: 'T', volume: 'V$n'), isComplete: true);
+      final folder = (await db.getCaptureFolders(deviceId: 'station', boxId: boxId)).firstWhere((f) => f.id == folderId);
+      if (!session.foldersOfActiveBox.any((f) => f.id == folder.id)) session.foldersOfActiveBox.add(folder);
+      final name = '$n.jpg';
+      await db.assignImageToFolder(deviceId: 'station', boxId: boxId, folderId: folderId, deviceFilename: name);
+      final dir = await Directory(p.join(root.path, 'input${sameFolder ? 1 : n}')).create();
+      final marker = File(p.join(dir.path, kProcessingMarkerName));
+      if (!await marker.exists()) await marker.writeAsString('{}');
+      final target = await File(p.join(dir.path, name)).writeAsBytes([0]);
+      targets[name] = target;
+      final shot = await File(p.join(root.path, 'shot$n.jpg')).writeAsBytes([n]);
+      session.reworkStaged[name] = await ColorReworkStore.stage('station', target.path, shot, ColorBinding.none('disabled'));
+      items.add(ReworkItem(reworkId:n, projectKey:'pk', projectId:'PRJ', boxName:'BOX', folderSeq:folder.folderSeq,
+        folderName:'V$n', folderPath:dir.path, qcStatus:'REWORK', imageName:name, reason:'blur', reworkType:'Recapture'));
+    }
+    return _SubmitHarness(session, auth, items, targets);
+  }
+
+  Future<Map<String,dynamic>?> closure(String key) async {
+    final raw = await db.getDatabase('station');
+    final rows = await raw.query('sync_outbox',where:"entity = 'rework_logs' AND entity_key = ?",whereArgs:[key]);
+    return rows.isEmpty ? null : Map<String,dynamic>.from(jsonDecode(rows.single['payload'] as String));
+  }
+  test('fixed: partial retry skips completed page and can finish remaining page', () async {
+    final h = await fixture();
+    await File('${h._reworkStaged['2.jpg']!.path}.color.json').writeAsString('{}');
+    await h._onSubmitReworkPressed();
+    expect(h._boxSession.reworkClosed, contains('1.jpg'));
+    expect(h._reworkItems.map((i)=>i.imageName), ['2.jpg']);
+    expect(reworkOpenItemCount(h._reworkItems,staged:h._reworkStaged.keys.toSet(),metadataFixed:h._reworkMetadataFixed,closed:h._boxSession.reworkClosed),0);
+    h._reworkStaged['2.jpg'] = await ColorReworkStore.stage('station',h.targets['2.jpg']!.path,
+      File(p.join(root.path,'shot2.jpg')),ColorBinding.none('disabled'));
+    await h._onSubmitReworkPressed();
+    expect(h.writes,['1.jpg','2.jpg']);
+    expect(await db.pendingReworkClosureKeys('station'),containsAll(['pk|BOX|1|1.jpg','pk|BOX|2|2.jpg']));
+  });
+  testWidgets('fixed: Undo disables Submit and submit entry rejects the call', (tester) async {
+    final h = (await tester.runAsync(() => fixture()))!;
+    h._reworkUndoing.add('1.jpg');
+    await tester.pumpWidget(MaterialApp(theme:ThemeData(extensions:const [LifewoodColors.light]),
+      home:Builder(builder:(ctx) { h.context=ctx; return Scaffold(body:h._buildReworkSubmitButton()); })));
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,isNull);
+    await tester.runAsync(h._onSubmitReworkPressed);
+    expect(h.writes,isEmpty);
+  });
+  test('fixed: restart with held gate refuses Metadata closure', () async {
+    final h = await fixture(); final target=h.targets['1.jpg']!;
+    await h._reworkStaged['1.jpg']!.copy(target.path);
+    await setReworkInProgress(target.parent.path,true,requireReadable:true);
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    await h._onSubmitReworkPressed();
+    expect(await closure('pk|BOX|1|1.jpg'),isNull);
+    expect(await reworkReadinessHeld(target.parent.path),isTrue);
+  });
+  test('fixed: healthy abandoned staging with different target can close Metadata', () async {
+    final h = await fixture(); h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    await h._onSubmitReworkPressed();
+    expect((await closure('pk|BOX|1|1.jpg'))!['rework_type'],'Metadata');
+    expect(await h.targets['1.jpg']!.readAsBytes(),[0]);
+  });
+  test('regression: legacy Undo poisoned intent still blocks metadata although target was never changed', () async {
+    final h = await fixture();
+    await h._reworkStaged['1.jpg']!.delete();
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    await h._onSubmitReworkPressed();
+    expect(await h.targets['1.jpg']!.readAsBytes(),[0]);
+    expect((await closure('pk|BOX|1|1.jpg'))!['rework_type'],'Metadata');
+  });
+  test('regression: Undo of installed page plus recapture of sibling publishes stale binding', () async {
+    final h = await fixture(sameFolder:true);
+    String payload(String id) => jsonEncode({'schema_version':1,'profile_id':id,'working_space':'linear_srgb_d65',
+      'white_balance':[1,1,1],'correction':{'type':'matrix3x3','matrix':[[1,0,0],[0,1,0],[0,0,1]]}});
+    final oldPayload=payload('old'),newPayload=payload('new');
+    final oldHash=sha256.convert(utf8.encode(oldPayload)).toString(),newHash=sha256.convert(utf8.encode(newPayload)).toString();
+    final target=h.targets['1.jpg']!;
+    final marker=File(p.join(target.parent.path,kProcessingMarkerName));
+    await marker.writeAsString(jsonEncode({'color_calibration':{'version':1,'profiles':{oldHash:oldPayload},
+      'images':{'1.jpg':{'profile':oldHash},'2.jpg':{'profile':null,'reason':'disabled'}}}}));
+    await db.saveColorBinding('station','1.jpg',ColorBinding(payload:oldPayload,profile:oldHash,reason:'',boundAt:DateTime.now().toIso8601String()).toJson());
+    h._reworkStaged['1.jpg']=await ColorReworkStore.stage('station',target.path,
+      File(p.join(root.path,'shot1.jpg')),ColorBinding(payload:newPayload,profile:newHash,reason:'',boundAt:DateTime.now().toIso8601String()));
+    failBindingFor='1.jpg';
+    await h._onSubmitReworkPressed();
+    expect(await target.readAsBytes(),[1]);
+    expect(await reworkReadinessHeld(target.parent.path),isTrue);
+    expect(await closure('pk|BOX|1|1.jpg'),isNull);
+    failBindingFor=null;
+    final first=h._reworkItems.firstWhere((i)=>i.imageName=='1.jpg');
+    await h._undoReworkResolution(first);
+    h._reworkMetadataFixed.add('1.jpg');
+    await h._onSubmitReworkPressed();
+    final current=jsonDecode(await marker.readAsString()) as Map;
+    expect((await closure('pk|BOX|1|1.jpg'))!['rework_type'],'Recapture');
+    expect(current['rework_in_progress'],isNull);
+    expect(current['color_calibration']['images']['1.jpg']['profile'],newHash);
+    expect((await db.colorBindingFor('station','1.jpg'))['profile'],newHash);
+    expect(await target.readAsBytes(),[1]);
+  });
+  test('regression: folder-status enqueue failure leaves a CLOSED request without its QC reset after retry', () async {
+    final h=await fixture();
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    final raw=await db.getDatabase('station');
+    await raw.execute("CREATE TRIGGER fail_folder_rework BEFORE INSERT ON sync_outbox WHEN NEW.entity = 'capture_folder_rework' BEGIN SELECT RAISE(ABORT,'injected folder-status queue failure'); END");
+    await h._onSubmitReworkPressed();
+    expect(h.statusMsg,'Rework submit failed.');
+    expect(await closure('pk|BOX|1|1.jpg'),isNull);
+    print('AFTER FAILURE remaining worklist=${h._reworkItems.map((i)=>i.imageName)}');
+    expect(await raw.query('sync_outbox',where:"entity='capture_folder_rework' AND entity_key='pk|BOX|1'"),isEmpty);
+    await raw.execute('DROP TRIGGER fail_folder_rework');
+    await h._onSubmitReworkPressed();
+    expect(await closure('pk|BOX|2|2.jpg'),isNotNull);
+    expect(await raw.query('sync_outbox',where:"entity='capture_folder_rework' AND entity_key='pk|BOX|2'"),hasLength(1));
+    expect(await raw.query('sync_outbox',where:"entity='capture_folder_rework' AND entity_key='pk|BOX|1'"),hasLength(1));
+  });
+  test('regression: unreachable source bypasses interrupted-recapture guard and still closes Metadata', () async {
+    final h=await fixture();
+    final target=h.targets['1.jpg']!;
+    await h._reworkStaged['1.jpg']!.copy(target.path);
+    await setReworkInProgress(target.parent.path,true,requireReadable:true);
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    h.shareUnavailable=true;
+    await h._onSubmitReworkPressed();
+    expect(await closure('pk|BOX|1|1.jpg'),isNull);
+    expect(await reworkReadinessHeld(target.parent.path),isTrue);
+    final raw=await db.getDatabase('station');
+    final updates=await raw.query('sync_outbox',where:"entity='capture_folder_rework' AND entity_key='pk|BOX|1'");
+    expect(updates,isEmpty);
+  });
+
+  test('regression: legacy marker-less folders can be recaptured', () async {
+    final h = await fixture();
+    for (final target in h.targets.values) {
+      await File(p.join(target.parent.path, kProcessingMarkerName)).delete();
+    }
+    await h._onSubmitReworkPressed();
+    expect(await closure('pk|BOX|1|1.jpg'),isNotNull);
+    expect(await closure('pk|BOX|2|2.jpg'),isNotNull);
+    for (final target in h.targets.values) {
+      final marker=jsonDecode(await File(p.join(target.parent.path,kProcessingMarkerName)).readAsString()) as Map;
+      expect(marker['project_key'],'pk');
+      expect(marker['rework_in_progress'],isNull);
+      expect(marker['color_calibration']['images'][p.basename(target.path)]['reason'],'disabled');
+    }
+  });
+
+  test('livePG: Metadata submit reaches PostgreSQL with CLOSED and PENDING together', () async {
+    final h=await fixture(); identify(h);
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    await h._onSubmitReworkPressed();
+    final batch=await queued(db); expect(batch,hasLength(4));
+    final (conn,sink)=await realPg();
+    try {
+      await sink.apply(batch);
+      expect((await conn.execute('SELECT qc_status FROM capture_folders ORDER BY id')).map((r)=>r[0]),['PENDING','PENDING']);
+      expect((await conn.execute("SELECT rework_type FROM rework_logs WHERE rework_status='CLOSED' ORDER BY image_id")).map((r)=>r[0]),['Metadata','Metadata']);
+      expect((await conn.execute("SELECT count(*) FROM rework_logs WHERE rework_status='OPEN'")).single[0],2);
+      expect(await h.targets['1.jpg']!.readAsBytes(),[0]);
+      print('LIVE_PG Metadata: exact SQLite payloads applied, 2 CLOSED, 2 PENDING; source unchanged');
+    } finally { await conn.close(); }
+  });
+
+  test('livePG: Recapture closure does not prematurely reset QC before LWIP', () async {
+    final h=await fixture(); identify(h);
+    await h._onSubmitReworkPressed();
+    final batch=await queued(db); expect(batch.every((r)=>r.entity=='rework_logs'),isTrue);
+    final (conn,sink)=await realPg();
+    try {
+      await sink.apply(batch);
+      expect((await conn.execute('SELECT qc_status FROM capture_folders ORDER BY id')).map((r)=>r[0]),['REWORK','REWORK']);
+      expect((await conn.execute("SELECT rework_type FROM rework_logs WHERE rework_status='CLOSED' ORDER BY image_id")).map((r)=>r[0]),['Recapture','Recapture']);
+      for(var n=1;n<=2;n++) {
+        final target=h.targets['$n.jpg']!;
+        expect(await target.readAsBytes(),[n]);
+        expect(await reworkReadinessHeld(target.parent.path),isFalse);
+        expect(await ColorReworkStore.pending('station',target.path),isNull);
+        expect((await db.colorBindingFor('station','$n.jpg'))['reason'],'disabled');
+      }
+      print('LIVE_PG Recapture: 2 CLOSED, folders remain REWORK until LWIP reports; file/binding/gate consistent');
+    } finally { await conn.close(); }
+  });
+
+  test('livePG: PostgreSQL error rolls back folder reset and closures and permits retry', () async {
+    final h=await fixture(); identify(h);
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    await h._onSubmitReworkPressed();
+    final batch=await queued(db);
+    final (conn,sink)=await realPg();
+    try {
+      await conn.execute("ALTER TABLE rework_logs ADD CONSTRAINT acceptance_fail CHECK(rework_status <> 'CLOSED')");
+      await expectLater(sink.apply(batch),throwsA(isA<ServerException>()));
+      expect((await conn.execute('SELECT qc_status FROM capture_folders ORDER BY id')).map((r)=>r[0]),['REWORK','REWORK']);
+      expect((await conn.execute("SELECT count(*) FROM rework_logs WHERE rework_status='CLOSED'")).single[0],0);
+      expect(await queued(db),hasLength(4));
+      await conn.execute('ALTER TABLE rework_logs DROP CONSTRAINT acceptance_fail');
+      await sink.apply(batch);
+      expect((await conn.execute("SELECT count(*) FROM rework_logs WHERE rework_status='CLOSED'")).single[0],2);
+      expect((await conn.execute('SELECT qc_status FROM capture_folders ORDER BY id')).map((r)=>r[0]),['PENDING','PENDING']);
+      print('LIVE_PG fault/retry: server constraint rolled back complete batch; exact durable batch retried successfully');
+    } finally { await conn.close(); }
+  });
+
+  test('livePG: unavailable database preserves the exact durable queue for later transport', () async {
+    final h=await fixture(); identify(h);
+    h._reworkStaged.clear(); h._reworkMetadataFixed.addAll(['1.jpg','2.jpg']);
+    await h._onSubmitReworkPressed();
+    final batch=await queued(db);
+    final socket=await ServerSocket.bind(InternetAddress.loopbackIPv4,0);
+    final unusedPort=socket.port; await socket.close();
+    final offline=PgSyncSink(host:'127.0.0.1',port:unusedPort,database:'unused',user:'unused',password:'unused',useSsl:false);
+    await expectLater(offline.apply(batch),throwsA(isA<SyncConnectException>()));
+    expect(jsonEncode((await queued(db)).map((r)=>r.payload).toList()),jsonEncode(batch.map((r)=>r.payload).toList()));
+    final (conn,sink)=await realPg();
+    try {
+      await sink.apply(await queued(db));
+      expect((await conn.execute("SELECT count(*) FROM rework_logs WHERE rework_status='CLOSED'")).single[0],2);
+      print('LIVE_PG disconnect/reconnect: queue unchanged while unavailable, later batch applied');
+    } finally { await conn.close(); }
+  });
+
+  Future<void> seedSnapshot(Connection conn) async {
+    await conn.execute('CREATE TEMP TABLE devices AS SELECT * FROM public.devices WITH NO DATA');
+    await conn.execute("INSERT INTO devices(id,device_id) VALUES(1,'station')");
+    await conn.execute("UPDATE capture_boxes SET device_id=1,user_id=1,is_deleted=FALSE,status='OPEN'");
+    await conn.execute("UPDATE capture_folders SET is_deleted=FALSE,title='Acceptance',volume='V'||id,folder_name='V'||id");
+    await conn.execute("UPDATE capture_images SET image_name='station_IMG_20260701_12000'||id||'_001.jpg',file_format='jpg'");
+  }
+
+  test('livePG: missing local DB recovers real PG snapshot and flags unknown bindings', () async {
+    final (conn,sink)=await realPg();
+    try {
+      await seedSnapshot(conn);
+      final path=await db.getDeviceDbFilePath('station');
+      expect(await File(path).exists(),isFalse);
+      final counts=await db.rebuildFromCaptureSnapshot(deviceId:'station',requireNonEmpty:true,
+        pull:({required onBoxes,required onFolders,required onImages})=>sink.pullCaptureSnapshot('station',onBoxes:onBoxes,onFolders:onFolders,onImages:onImages));
+      expect([counts.boxes,counts.folders,counts.images],[1,2,2]);
+      final raw=await db.getDatabase('station');
+      expect(await raw.query('color_integrity'),isNotEmpty);
+      final check=await db.checkFolderColorCalibration('station',1);
+      expect(check.hasIssues,isTrue);
+      expect(check.issueSummary,contains('missing'));
+      expect(await db.bindHistoricalIfUnbound('station',1),1);
+      expect(await db.clearColorIntegrityIfOpenPagesBound('station'),isFalse);
+      expect(await db.bindHistoricalIfUnbound('station',2),1);
+      expect(await db.clearColorIntegrityIfOpenPagesBound('station'),isTrue);
+      expect(await raw.query('color_integrity'),isEmpty);
+      print('LIVE_PG recovery missing DB: 1/2/2 snapshot restored, unknown binding held, explicit per-folder acceptance clears last flag');
+    } finally { await conn.close(); }
+  });
+
+  test('livePG: actual snapshot rebuild carries known calibration and isolates unknown folder', () async {
+    final payload=jsonEncode({'schema_version':1,'profile_id':'recovered-known','working_space':'linear_srgb_d65',
+      'white_balance':[1,1,1],'correction':{'type':'matrix3x3','matrix':[[1,0,0],[0,1,0],[0,0,1]]}});
+    final hash=sha256.convert(utf8.encode(payload)).toString();
+    await db.saveColorBinding('station','IMG_20260701_120001.jpg',
+      ColorBinding(payload:payload,profile:hash,reason:'',boundAt:DateTime.now().toIso8601String()).toJson());
+    final old=await db.getDatabase('station');
+    await old.insert('color_integrity',{'id':1,'reason':'partial restoration fixture'});
+    await db.debugCloseAllForTests();
+    final (conn,sink)=await realPg();
+    try {
+      await seedSnapshot(conn);
+      await db.rebuildFromCaptureSnapshot(deviceId:'station',requireNonEmpty:true,
+        pull:({required onBoxes,required onFolders,required onImages})=>sink.pullCaptureSnapshot('station',onBoxes:onBoxes,onFolders:onFolders,onImages:onImages));
+      final known=await db.checkFolderColorCalibration('station',1);
+      expect(known.hasIssues,isFalse);
+      expect(known.marker['images']['station_IMG_20260701_120001_001.jpg']['profile'],hash);
+      expect(known.marker['profiles'][hash],payload);
+      expect((await db.checkFolderColorCalibration('station',2)).hasIssues,isTrue);
+      expect(await db.clearColorIntegrityIfOpenPagesBound('station'),isFalse);
+      await db.bindHistoricalIfUnbound('station',2);
+      expect(await db.clearColorIntegrityIfOpenPagesBound('station'),isTrue);
+      expect((await db.colorBindingFor('station','IMG_20260701_120001.jpg'))['profile'],hash);
+      print('LIVE_PG recovery known/unknown: profile and exact payload survived actual rebuild, healthy folder unblocked, final unknown accepted');
+    } finally { await conn.close(); }
+  });
+
+  test('marker: calibration OFF retains valid history and unrelated recovery does not block known group', () async {
+    final h=await fixture();
+    final raw=await db.getDatabase('station');
+    await raw.delete('color_bindings');
+    await raw.insert('color_integrity',{'id':1,'reason':'unrelated unknown pages'});
+    final config=NodeConfigService(getConfigPath:()=>p.join(root.path,'node.json'));
+    await config.save(const NodeConfig(colorCalEnabled:false));
+    gx.Get.put<NodeConfigService>(config);
+    expect(ColorCaptureSession.enabled,isFalse);
+    final payload=jsonEncode({'schema_version':1,'profile_id':'preserved-while-off','working_space':'linear_srgb_d65',
+      'white_balance':[1.1,1,.9],'correction':{'type':'matrix3x3','matrix':[[1,0,0],[0,1,0],[0,0,1]]}});
+    final hash=sha256.convert(utf8.encode(payload)).toString();
+    final box=await db.insertCaptureBox(deviceId:'station',boxDetails:'KNOWN',projectKey:'pk',projectId:'PRJ');
+    final folder=await db.insertCaptureFolder(deviceId:'station',folder:CaptureFolder(boxId:box,title:'Known',volume:'Known'),isComplete:true);
+    await raw.update('capture_folders',{'folder_name':'Known'},where:'id=?',whereArgs:[folder]);
+    await db.assignImageToFolder(deviceId:'station',boxId:box,folderId:folder,deviceFilename:'known.jpg',
+      colorBinding:ColorBinding(payload:payload,profile:hash,reason:'',boundAt:DateTime.now().toIso8601String()).toJson());
+    final destination=await Directory(p.join(root.path,'destination','20261027','Known')).create(recursive:true);
+    final pipelines=(await Directory(r'D:\LwcamDev\acceptance').list().toList()).whereType<Directory>().where((d)=>p.basename(d.path).startsWith('pipeline-')).toList();
+    expect(pipelines,isNotEmpty);
+    await File(p.join(pipelines.last.path,'camera-fixture.jpg')).copy(p.join(destination.path,'known.jpg'));
+    final knownBox=(await db.getCaptureBoxById(deviceId:'station',boxId:box))!;
+    expect((await h._boxSession.colorCalibrationPreflight(knownBox)).hasIssues,isFalse);
+    final result=await writeBoxProcessingMarkers(db:db,deviceId:'station',boxId:box,legacyRoot:p.dirname(destination.parent.path));
+    expect(result.isSuccess,isTrue,reason:result.details);
+    final marker=jsonDecode(await File(p.join(destination.path,kProcessingMarkerName)).readAsString()) as Map;
+    expect(marker['color_calibration']['images']['known.jpg']['profile'],hash);
+    expect(marker['color_calibration']['profiles'][hash],payload);
+    expect(await raw.query('color_integrity'),isNotEmpty,reason:'other OPEN pages still unknown');
+    print('MARKER OFF: actual marker publication succeeded for known group, original profile retained, unrelated global flag preserved');
+  });
+
+}

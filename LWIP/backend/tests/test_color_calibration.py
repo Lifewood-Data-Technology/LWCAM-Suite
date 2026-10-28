@@ -49,7 +49,7 @@ class CalibrationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         for name in ('__init__.py', 'apply.py', 'profile.py', 'reference_data.py', 'contract.py'):
             canonical = (root / 'LWIP/backend/color_cal_tool' / name).read_bytes()
-            for consumer in ('LWIP', 'LWCam_QC_Platform'):
+            for consumer in ('LWCam_QC_Platform',):
                 self.assertEqual(canonical, (root / consumer / 'backend/color_cal_tool' / name).read_bytes())
 
 

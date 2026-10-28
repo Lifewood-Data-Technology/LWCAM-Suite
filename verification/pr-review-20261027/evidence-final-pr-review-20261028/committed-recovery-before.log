@@ -1,0 +1,17 @@
+00:00 +0: loading D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart
+00:00 +0: committed receipt permits metadata after failed intent cleanup
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_fd1589b6\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_fd1589b6\lwcam_stats_station.db
+00:00 +0 -1: committed receipt permits metadata after failed intent cleanup [E]
+  Expected: null
+    Actual: _File:<File: 'C:\Users\12699\AppData\Local\Temp\metadata_rework_fd1589b6\color_rework\23b368aa8b066be6d2d8a57e6dab1fadfef7114e849c98487aeecf564f8c88dd\1793168438717737.jpg'>
+  page entry must not resurrect an already committed photo
+  
+  package:matcher                                      expect
+  package:flutter_test/src/widget_tester.dart 473:18   expect
+  test\services\metadata_rework_guard_test.dart 236:7  main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: committed receipt permits metadata after failed intent cleanup

@@ -7,7 +7,34 @@ Newest first. The All-In-One edition keeps its own changelog on branch
 
 ## [Unreleased]
 
-- Avoid rereading completed calibration photos on every LWIP scan; retain request/ready checks, metadata-triggered and five-minute integrity checks, and full validation before result republication.
+- Do not recover already committed recaptures after an interrupted intent
+  cleanup, or carry their applying state into a newly staged photo.
+- Submit metadata-only rework without opening the photo share; retain local
+  recovery guards for interrupted replacements and committed-generation receipts.
+- Preserve interrupted recaptures for safe retry, commit each folder's rework
+  closures together, and keep newer staging records when an older submit finishes.
+- Retry transient phone discovery failures and recover older marker-less rework
+  folders without dropping their colour history.
+- Keep localhost HTTPS usable after a network change by renewing server
+  certificates within the existing local CA restrictions.
+
+
+- Keep a partially submitted rework page out of the open set and worklist once
+  its closure is queued; retry only the pages that actually failed.
+- Block a metadata-only rework closure while the folder still holds the LWIP
+  readiness gate, or when the target already matches an unclosed recapture;
+  require the page to be recaptured/completed instead of leaving LWIP stuck.
+- Serialize Submit, Undo, recapture and metadata actions so they cannot race.
+
+- Make colour-recovery integrity per page: a failed local recovery now names the
+  affected folders/pages, lets the operator explicitly accept historical
+  (audited) without dropping valid profile bindings, and only clears the global
+  flag when every OPEN page has a valid decision.
+- Discard a rework page's durable intent on Undo and box switch; Submit reads a
+  durable intent only for a page staged in this session, so a restart cannot
+  re-apply a discarded photo.
+
+- Avoid rereading completed calibration photos on every LWIP scan; use cheap stat signatures and full validation after restart or change, and archive completed tasks before pruning their local work files.
 
 - Keep the QC image toolbar visible when the system-status banner is shown.
 

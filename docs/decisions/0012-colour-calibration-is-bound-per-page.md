@@ -21,7 +21,14 @@ then calibration, before the final encoding. Approving pure geometry still write
 only operations. External QC pages are exempt independently of ignore_lwip.
 
 Recapture preserves a durable image/profile pair and holds the completion gate
-until both are installed. Split children keep only their pages' bindings.
+until both are installed. A restart does not auto-submit an unconfirmed pair;
+the page must be re-staged (the abandoned photo is kept for the deferred
+task-lifecycle cleanup). Ordinary metadata-only submission never opens the photo
+share. Versioned local intents record applying before the first remote marker
+write; pending replacements still block closure. A generation receipt commits
+with the SQLite closure, so failed intent cleanup does not strand later metadata.
+Only ambiguous pre-v2 intents need a bounded legacy source/gate check. Split
+children keep only their pages' bindings.
 Consumers bundle byte-identical application/validation code; no runtime imports
 or RPC calls cross installations. Upgrade QC and LWIP before enabling capture.
 
