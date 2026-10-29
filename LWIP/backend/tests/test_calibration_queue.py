@@ -124,19 +124,32 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.calls, 0)
 
     def test_idle_terminal_task_reads_no_metadata(self):
+        # tick() catches Exception, so an injected raise would be swallowed.
+        # Assert the calls themselves: an unchanged finished task is neither
+        # processed nor read again.
         self.queue.tick()
         self.queue.tick()
-        with patch.object(Path, "read_bytes", side_effect=AssertionError("idle read")):
+        reads = []
+        original = Path.read_bytes
+        def tracked(path):
+            reads.append(path)
+            return original(path)
+        with patch.object(self.queue, "process", wraps=self.queue.process) as process,                 patch.object(Path, "read_bytes", tracked):
             self.queue.tick()
+        process.assert_not_called()
+        self.assertEqual([r for r in reads if r.parent == self.folder], [])
 
     def test_invalid_task_names_are_ignored_without_repeated_warnings(self):
         bad = self.folder.parent / "not-a-task"
         bad.mkdir()
         (bad / "ready.json").write_text("{}")
+        (self.folder.parent / ".archive").mkdir()
         with patch("deskew_crop_tool.calibration_queue.LOG.warning") as warning:
             self.queue.tick()
             self.queue.tick()
-        warning.assert_not_called()
+        # Logged once, as the maintainer asked; protocol dot entries never.
+        warning.assert_called_once()
+        self.assertIn("not-a-task", str(warning.call_args))
 
     def test_completed_retention_archives_before_removing_local_state(self):
         import time
@@ -158,6 +171,66 @@ class QueueTests(unittest.TestCase):
         self.assertTrue(self.folder.exists())
         self.assertEqual(self.queue.records[self.folder.name]["state"], "publishing")
         self.assertTrue((self.queue.local / self.folder.name / "result.json").exists())
+
+    def finished(self, task_id, days_ago):
+        """A succeeded task record and its share folder, for retention tests."""
+        import time
+        from datetime import datetime, timezone
+        folder = self.folder.parent / task_id
+        folder.mkdir(exist_ok=True)
+        (folder / "ready.json").write_text("{}")
+        (folder / "result.json").write_text(json.dumps({"completed_at": datetime.fromtimestamp(
+            time.time() - days_ago * 86400, timezone.utc).isoformat()}))
+        (self.queue.local / task_id).mkdir(exist_ok=True)
+        self.queue.records[task_id] = {"state": "succeeded", "result": json.loads((folder / "result.json").read_text())}
+        return folder
+
+    def retire(self, tasks, days_later=0):
+        import time
+        self.queue._last_cleanup = 0
+        with patch("deskew_crop_tool.calibration_queue.time.time", return_value=time.time() + days_later * 86400):
+            self.queue._retire(sorted(tasks))
+
+    def test_retention_rename_failure_does_not_block_other_tasks(self):
+        first = self.finished("00000000-0000-4000-8000-000000000001", 40)
+        second = self.finished("00000000-0000-4000-8000-000000000002", 40)
+        original = __import__("os").replace
+        def replace(src, dst):
+            if Path(src).name == first.name:
+                raise PermissionError("locked")
+            return original(src, dst)
+        with patch("deskew_crop_tool.calibration_queue.os.replace", replace):
+            self.retire([first, second])
+        self.assertTrue(first.exists())
+        self.assertIn(first.name, self.queue.records)
+        self.assertTrue((self.queue.local / first.name).exists())
+        self.assertFalse(second.exists())
+        self.assertNotIn(second.name, self.queue.records)
+        self.retire([first])  # recovery once the lock is gone
+        self.assertFalse(first.exists())
+        self.assertNotIn(first.name, self.queue.records)
+
+    def test_unreadable_archive_entry_does_not_block_purge(self):
+        valid = self.finished("00000000-0000-4000-8000-0000000000ff", 40)
+        self.retire([valid])
+        archive = self.folder.parent / ".archive"
+        self.assertTrue((archive / valid.name).exists())
+        broken = archive / "00000000-0000-4000-8000-000000000000"  # sorts first
+        broken.mkdir()
+        self.retire([], days_later=200)
+        self.assertFalse((archive / valid.name).exists())
+        self.assertTrue(broken.exists(), "an entry of unknown age is kept")
+
+    def test_local_cleanup_failure_keeps_record_for_retry(self):
+        task = self.finished("00000000-0000-4000-8000-000000000003", 40)
+        with patch("deskew_crop_tool.calibration_queue.shutil.rmtree", side_effect=PermissionError("busy")):
+            self.retire([task])
+        self.assertFalse(task.exists())
+        self.assertIn(task.name, self.queue.records)
+        self.assertTrue((self.queue.local / task.name).exists())
+        self.retire([])
+        self.assertNotIn(task.name, self.queue.records)
+        self.assertFalse((self.queue.local / task.name).exists())
 
     def test_legacy_markers_without_calibration_and_bom_object(self):
         orchestrator = FolderOrchestrator(_config(self.base, marker="marker.json"))

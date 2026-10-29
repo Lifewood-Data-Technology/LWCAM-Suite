@@ -1625,3 +1625,52 @@ class LosslessCropTests(unittest.TestCase):
         self.assertEqual(
             image_ops.snap_crop_box(0, 0, 6140, 8190, 6144, 8192), (0, 0, 6144, 8192)
         )
+
+
+class CompletionMarkerAdmissionTests(unittest.TestCase):
+    """Admission (build_snapshot) and processing (_start_folder) read the marker
+    through one parser, so a legacy sentinel never looks like a calibration
+    change, and damaged data still fails closed. Runs the real run_once."""
+
+    def _run(self, marker: bytes) -> tuple[int, Path]:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        folder = root / "incoming" / "001"
+        folder.mkdir(parents=True)
+        _write_test_image(folder / "a.jpg", angle=7)
+        (folder / "marker.json").write_bytes(marker)
+        config = _config(root, completion_marker="marker.json")
+        snapshot = build_snapshot(folder, config)
+        self.assertIsNotNone(snapshot)
+        return FolderOrchestrator(config).run_once(), root
+
+    def test_legacy_sentinels_are_processed(self) -> None:
+        for raw in (b"", b"\r\n", b" \t\n", b"\xef\xbb\xbf", b"null", b"[]",
+                    b"\xef\xbb\xbf{}", b'\xef\xbb\xbf{"project_key":"p"}'):
+            with self.subTest(raw=raw):
+                processed, root = self._run(raw)
+                self.assertEqual(processed, 1)
+                self.assertTrue((root / "output" / "001" / ".deskew_crop_manifest.json").is_file())
+
+    def test_damaged_or_foreign_markers_still_fail_closed(self) -> None:
+        damaged_block = json.dumps({"color_calibration": {"version": 1, "profiles": {}, "images": {}}}).encode()
+        for raw in (b'{"color_calibration":', b"done", b"\xff\xfe{}", b'"text"', b"[1]", damaged_block):
+            with self.subTest(raw=raw):
+                processed, root = self._run(raw)
+                self.assertEqual(processed, 0)
+                self.assertFalse((root / "output" / "001" / ".deskew_crop_manifest.json").exists())
+
+    def test_snapshot_digest_agrees_with_processing_identity(self) -> None:
+        from color_cal_tool.contract import calibration_digest
+        for raw in (b"", b"\r\n", b"\xef\xbb\xbf", b"null", b"[]", b"\xef\xbb\xbf{}"):
+            with self.subTest(raw=raw):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    folder = root / "incoming" / "001"
+                    folder.mkdir(parents=True)
+                    _write_test_image(folder / "a.jpg", angle=0)
+                    (folder / "marker.json").write_bytes(raw)
+                    config = _config(root, completion_marker="marker.json")
+                    identity = FolderOrchestrator(config)._read_source_identity(folder)
+                    self.assertEqual(calibration_digest(identity), build_snapshot(folder, config).calibration_digest)

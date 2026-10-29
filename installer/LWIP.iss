@@ -543,13 +543,16 @@ end;
 // Bytecode LWIP writes at runtime, never installed by Setup and so never
 // tracked by it. Removed BEFORE the uninstaller's own folder cleanup: that
 // cleanup only removes a folder it created if it ends up EMPTY, and a
-// leftover __pycache__ would otherwise leave {app}\backend\deskew_crop_tool
-// behind as an empty shell (see QCPlatform.iss's DeleteRuntimeLeftovers,
-// which this mirrors - deskew_crop_tool has no sub-packages of its own, so
-// there is only the one path).
+// leftover __pycache__ would otherwise leave its package folder behind as an
+// empty shell (see QCPlatform.iss's DeleteRuntimeLeftovers, which this
+// mirrors). Setup's own import check and calibration tasks compile all three:
+// deskew_crop_tool, color_cal_tool, and run_calibration_task.py in backend.
+// Neither package has sub-packages of its own.
 procedure DeleteLwipRuntimeLeftovers();
 begin
   DelTree(ExpandConstant('{app}\backend\deskew_crop_tool\__pycache__'), True, True, True);
+  DelTree(ExpandConstant('{app}\backend\color_cal_tool\__pycache__'), True, True, True);
+  DelTree(ExpandConstant('{app}\backend\__pycache__'), True, True, True);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

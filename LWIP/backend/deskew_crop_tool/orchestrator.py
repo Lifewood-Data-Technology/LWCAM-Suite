@@ -986,16 +986,7 @@ class FolderOrchestrator:
         try:
             if not marker_path.is_file():
                 return None
-            text = marker_path.read_text(encoding="utf-8-sig")
-            # Older producers used an empty readiness sentinel, with no data.
-            if not text.strip():
-                return None
-            value = json.loads(text)
-            if value is None or value == []:
-                return None
-            if not isinstance(value, dict):
-                raise CalibrationError("Completion marker is not a JSON object")
-            return value
+            return parse_completion_marker(marker_path.read_bytes())
         except Exception as exc:
             raise CalibrationError(f"Could not read completion marker {marker_path}: {exc}") from exc
 
@@ -1222,7 +1213,7 @@ class FolderOrchestrator:
     @staticmethod
     def _marker_rework_in_progress(marker: Path) -> bool:
         try:
-            return json.loads(marker.read_text(encoding="utf-8")).get("rework_in_progress") is True
+            return (parse_completion_marker(marker.read_bytes()) or {}).get("rework_in_progress") is True
         except Exception:  # noqa: BLE001 - unreadable/foreign marker behaves as before
             return False
 
@@ -1245,7 +1236,7 @@ class FolderOrchestrator:
     def _marker_image_count(marker: Path) -> int | None:
         """The marker's `image_count`, or None when it has none (old markers)."""
         try:
-            value = json.loads(marker.read_text(encoding="utf-8")).get("image_count")
+            value = (parse_completion_marker(marker.read_bytes()) or {}).get("image_count")
         except Exception:  # noqa: BLE001 - unreadable/foreign marker behaves as before
             return None
         return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
@@ -1582,6 +1573,33 @@ class FolderOrchestrator:
 
 
 # --- Snapshots and output verification ----------------------------------------
+def parse_completion_marker(raw: bytes) -> dict | None:
+    """The one reading of a completion marker's bytes, shared by admission
+    (build_snapshot) and processing (_read_source_identity) so both agree.
+
+    Older producers wrote an empty readiness sentinel: empty, whitespace-only,
+    BOM-only, `null` and `[]` carry no identity (None). A UTF-8 BOM is allowed
+    before JSON. Anything else that is not a JSON object raises CalibrationError:
+    a damaged marker may contain calibration instructions, so it fails closed.
+    Reading the file is the caller's job; an unreadable share never becomes None.
+    """
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CalibrationError(f"Completion marker is not UTF-8: {exc}") from exc
+    if not text.strip():
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError as exc:
+        raise CalibrationError(f"Completion marker is not valid JSON: {exc}") from exc
+    if value is None or value == []:
+        return None
+    if not isinstance(value, dict):
+        raise CalibrationError("Completion marker is not a JSON object")
+    return value
+
+
 def build_snapshot(folder: Path, config: ToolConfig) -> FileSnapshot | None:
     values: list[tuple[str, int, int]] = []
     # Enumerated through fs_path, relative_to the SAME prefixed root: a long
@@ -1612,8 +1630,8 @@ def build_snapshot(folder: Path, config: ToolConfig) -> FileSnapshot | None:
         if marker.is_file():
             raw_marker = marker.read_bytes()
             try:
-                colour_digest = calibration_digest(json.loads(raw_marker))
-            except (ValueError, TypeError, UnicodeError):
+                colour_digest = calibration_digest(parse_completion_marker(raw_marker))
+            except (CalibrationError, ValueError, TypeError, UnicodeError):
                 # Still create a snapshot so admission can record/back off the
                 # error. _start_folder validates before submitting any image.
                 colour_digest = hashlib.sha256(raw_marker).hexdigest()

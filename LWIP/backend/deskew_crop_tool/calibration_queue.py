@@ -18,9 +18,12 @@ from color_cal_tool.task_protocol import (
 
 LOG = logging.getLogger("deskew_crop.calibration")
 
-# Bound metadata-only checks even when a share preserves file timestamps.
+# Finished tasks stay in place this long, then move to .archive; archived
+# tasks are deleted after the second period.
 COMPLETED_RETENTION_SECONDS = 30 * 86400
 ARCHIVE_RETENTION_SECONDS = 90 * 86400
+# Invalid task-folder names are reported once each, up to this many names.
+IGNORED_NAME_LOG_LIMIT = 256
 
 
 class AnalysisTimeout(RuntimeError):
@@ -75,6 +78,7 @@ class CalibrationQueue:
         self._completed_checks = {}
         self._terminal_signatures = {}
         self._last_cleanup = 0
+        self._ignored_names = set()
         # The ledger grows with jobs; its size is not limited by the wire protocol.
         self.records = json.loads(self.ledger_path.read_text(encoding="utf-8")) if self.ledger_path.exists() else {}
 
@@ -303,17 +307,22 @@ class CalibrationQueue:
             if now - completed < COMPLETED_RETENTION_SECONDS:
                 continue
             # Archive first, atomically on the same share. A failed rename
-            # leaves both retry state and local worker data intact.
-            archive.mkdir(exist_ok=True)
-            plain_path(archive)
-            os.replace(plain_path(folder), archive / folder.name)
-            work = self.local / folder.name
-            if work.exists():
-                shutil.rmtree(plain_path(work))
-            del self.records[folder.name]
+            # leaves both retry state and local worker data intact. Each task
+            # fails on its own: one locked folder must not stall the others.
+            try:
+                archive.mkdir(exist_ok=True)
+                plain_path(archive)
+                os.replace(plain_path(folder), archive / folder.name)
+            except OSError as exc:
+                LOG.warning("Calibration retention: could not archive %s: %s", folder.name, exc)
+                continue
             self._terminal_signatures.pop(folder.name, None)
             self._completed_checks.pop(folder.name, None)
-            self._save()
+            # The record outlives a failed local cleanup; the loop below
+            # retries it because the share folder is now gone.
+            if self._drop_local(folder.name):
+                del self.records[folder.name]
+                self._save()
         # Covers a crash after archive rename, and tasks removed by an
         # administrator. Never prune a pending/publishing record this way.
         for task_id, record in list(self.records.items()):
@@ -327,16 +336,14 @@ class CalibrationQueue:
                 continue
             if now - completed < COMPLETED_RETENTION_SECONDS:
                 continue
-            work = self.local / task_id
-            if work.exists():
-                shutil.rmtree(plain_path(work))
-            del self.records[task_id]
             self._terminal_signatures.pop(task_id, None)
             self._completed_checks.pop(task_id, None)
-            self._save()
+            if self._drop_local(task_id):
+                del self.records[task_id]
+                self._save()
         if archive.exists():
             plain_path(archive)
-            for folder in archive.iterdir():
+            for folder in sorted(archive.iterdir()):
                 try:
                     if str(uuid.UUID(folder.name)) != folder.name:
                         continue
@@ -345,8 +352,31 @@ class CalibrationQueue:
                     completed = datetime.fromisoformat(result["completed_at"]).timestamp()
                     if now - completed > ARCHIVE_RETENTION_SECONDS:
                         shutil.rmtree(folder)
-                except (ValueError, KeyError, TypeError):
+                except (OSError, ProtocolError, ValueError, KeyError, TypeError) as exc:
+                    # Kept for inspection (an archive entry without a readable
+                    # result has no known age); never blocks the other entries.
+                    LOG.info("Calibration archive entry %s kept: %s", folder.name, exc)
                     continue
+
+    def _drop_local(self, task_id):
+        """Remove a retired task's local work folder; False keeps its record."""
+        work = self.local / task_id
+        try:
+            if work.exists():
+                shutil.rmtree(plain_path(work))
+        except OSError as exc:
+            LOG.warning("Calibration retention: could not remove local work for %s: %s", task_id, exc)
+            return False
+        return True
+
+    def _note_ignored(self, name):
+        # Dot entries (.archive, .consumer.lock) belong to the protocol.
+        if name.startswith(".") or name in self._ignored_names:
+            return
+        if len(self._ignored_names) >= IGNORED_NAME_LOG_LIMIT:
+            return
+        self._ignored_names.add(name)
+        LOG.warning("Calibration: ignoring %r, not a canonical task id", name)
 
     def tick(self):
         plain_path(self.config.input_root)
@@ -357,9 +387,11 @@ class CalibrationQueue:
         tasks = []
         for p in self.root.iterdir():
             try:
-                if str(uuid.UUID(p.name)) != p.name:
-                    continue
+                canonical = str(uuid.UUID(p.name)) == p.name
             except ValueError:
+                canonical = False
+            if not canonical:
+                self._note_ignored(p.name)
                 continue
             if p.is_dir() and (p / "ready.json").is_file():
                 tasks.append(p)
