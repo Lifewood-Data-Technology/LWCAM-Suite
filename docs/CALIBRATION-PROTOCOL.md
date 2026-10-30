@@ -121,6 +121,16 @@ LWIP thumbnails and QC previews apply it for display. Geometry-only approval
 writes operations. Export applies geometry followed by colour once and encodes
 the final file. Explicit luminance edits remain the existing pixel-edit exception.
 
+A marker's `color_calibration.images` must name every page LWIP will read:
+LWIP fails the whole folder on a page without a binding. When a recapture adds
+the block to an older folder, Capture marks every untouched page `historical`,
+enumerating LWIP's default extensions (`DEFAULT_EXTENSIONS`: `.jpg`, `.jpeg`,
+`.png`, `.tif`, `.tiff`, `.bmp`, `.jxl`); `image_count` uses the same list.
+A site that changes LWIP's `extensions` setting is outside this contract: an
+added format in such a folder fails closed with "Missing calibration binding",
+and a removed format present in the folder leaves LWIP waiting for files it
+will not count.
+
 ## Executable fixtures
 
 `verification/calibration_protocol` is shared by Dart's

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
 import 'package:lwcam/models/capture_box_models.dart';
+import 'package:lwcam/services/color_capture_session.dart';
 import 'package:lwcam/services/processing_marker_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -365,6 +366,51 @@ void main() {
         (marker['color_calibration'] as Map)['images']['a.jpg']['reason'],
         'historical',
       );
+    });
+  });
+
+  group('LWIP image extensions', () {
+    test('Capture covers exactly LWIP DEFAULT_EXTENSIONS', () async {
+      // The per-page calibration contract fails a folder when LWIP reads a
+      // page that has no binding, so the two lists must not drift apart.
+      final config = await File(
+        p.join('..', 'LWIP', 'backend', 'deskew_crop_tool', 'config.py'),
+      ).readAsString();
+      final match = RegExp(
+        r'^DEFAULT_EXTENSIONS\s*=\s*\(([^)]*)\)',
+        multiLine: true,
+      ).firstMatch(config);
+      expect(match, isNotNull, reason: 'DEFAULT_EXTENSIONS not found');
+      final lwip = RegExp(r'"([^"]+)"')
+          .allMatches(match!.group(1)!)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(kLwipImageExtensions, lwip);
+    });
+
+    test('a mixed-format legacy folder binds and counts every LWIP page',
+        () async {
+      final folder = await _tempDir('legacy_formats_');
+      for (final name in ['page.jpg', 'untouched.bmp', 'untouched.jxl',
+          'other.PNG', 'notes.txt', 'page.jpg.part']) {
+        await File(p.join(folder.path, name)).writeAsBytes([1, 2]);
+      }
+      await ensureReworkCaptureMarker(folder.path, {
+        'project_key': 'p', 'box_name': 'b', 'folder_seq': 1,
+      });
+      await updateReworkColorBinding(
+        folder.path, 'page.jpg', ColorBinding.none('disabled'));
+      await setReworkInProgress(folder.path, false, requireReadable: true);
+      final marker = jsonDecode(await File(
+        p.join(folder.path, kProcessingMarkerName),
+      ).readAsString()) as Map;
+      final images = (marker['color_calibration'] as Map)['images'] as Map;
+      expect(images.keys.toSet(),
+          {'page.jpg', 'untouched.bmp', 'untouched.jxl', 'other.PNG'});
+      expect((images['untouched.bmp'] as Map)['reason'], 'historical');
+      expect((images['page.jpg'] as Map)['reason'], 'disabled');
+      expect(marker['image_count'], 4);
+      expect(marker.containsKey('rework_in_progress'), isFalse);
     });
   });
 }

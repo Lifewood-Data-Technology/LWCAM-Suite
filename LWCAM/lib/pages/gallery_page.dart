@@ -1241,7 +1241,9 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       // baseline on the next tick and is silently never ingested.
       final listed = await _listDeviceImageNamesOrNull();
       if (listed == null) {
-        ColorCaptureSession.reset();
+        // Pause binding until begin() identifies the phone again; the capture
+        // boundary itself survives a transient adb failure.
+        ColorCaptureSession.phoneUnavailable();
         return false;
       }
       final currentNames = listed.toSet();

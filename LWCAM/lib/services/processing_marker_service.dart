@@ -223,15 +223,22 @@ Future<void> _writeMarkerAtomic(
   await writeStringAtomic(target.path, jsonEncode(payload));
 }
 
-/// LWIP's image extensions (`DEFAULT_EXTENSIONS`); `.part`/`.tmp`/`.json` never
-/// count.
-const _imageExts = {'.jpg', '.jpeg', '.png', '.tif', '.tiff'};
+/// LWIP's default image extensions (`DEFAULT_EXTENSIONS` in
+/// `LWIP/backend/deskew_crop_tool/config.py`); `.part`/`.tmp`/`.json` never
+/// count. The marker's image count and its per-page calibration bindings must
+/// cover exactly the files LWIP will process: a page LWIP reads without a
+/// binding fails the whole folder ("Missing calibration binding"). A parity
+/// test keeps this in step with LWIP. Sites that change LWIP's `extensions`
+/// setting are not covered (see docs/CALIBRATION-PROTOCOL.md).
+const kLwipImageExtensions = {
+  '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.jxl',
+};
 
 /// Image files directly inside [dir] (the folder LWIP will fingerprint).
 Future<int> countImageFiles(Directory dir) async {
   var n = 0;
   await for (final e in dir.list(followLinks: false)) {
-    if (e is File && _imageExts.contains(p.extension(e.path).toLowerCase())) {
+    if (e is File && kLwipImageExtensions.contains(p.extension(e.path).toLowerCase())) {
       n++;
     }
   }
@@ -329,7 +336,7 @@ Future<void> updateReworkColorBinding(String inputFolder, String imageName, Colo
     final legacyHash = legacyPayload == null ? null : sha256.convert(utf8.encode(legacyPayload)).toString();
     if (legacyHash != null) profiles[legacyHash] = legacyPayload;
     await for (final entry in Directory(longPath(inputFolder)).list()) {
-      if (entry is File && _imageExts.contains(p.extension(entry.path).toLowerCase())) {
+      if (entry is File && kLwipImageExtensions.contains(p.extension(entry.path).toLowerCase())) {
         images[p.basename(entry.path)] = legacyHash == null
             ? {'profile': null, 'reason': 'historical'} : {'profile': legacyHash};
       }

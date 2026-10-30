@@ -40,37 +40,89 @@ class ColorBinding {
   };
 }
 
+/// One established capture boundary: the phone, the day, the photos that were
+/// already on the phone when it was set up, and the operator's decision.
+class _CaptureBoundary {
+  final String deviceId;
+  final String serial;
+  final String day;
+  final Set<String> before;
+  final ColorBinding binding;
+  const _CaptureBoundary(
+    this.deviceId,
+    this.serial,
+    this.day,
+    this.before,
+    this.binding,
+  );
+}
+
+/// Which colour binding a newly captured page gets.
+///
+/// States: no boundary yet; a boundary that is verified (the phone answered
+/// with the same serial today); and a boundary that is temporarily unverified
+/// (a serial or listing probe failed). While unverified, [begin] returns false
+/// and callers pause ingestion, so no page is bound until the phone is
+/// identified again. The boundary is kept: when the same phone comes back the
+/// same day, its photos taken meanwhile still get the session's decision
+/// (calibrated or skipped) rather than `historical`. A different serial or a
+/// new day sets up a new boundary, so one phone's profile never reaches
+/// another. Only an explicit operator action ([reset], [skip], recalibration)
+/// replaces a boundary otherwise.
 class ColorCaptureSession {
   @visibleForTesting
   static AdbDeviceService Function() adbFactory = AdbDeviceService.new;
-  static String? _key;
-  static ColorBinding? _binding;
-  static Set<String> _before = {};
+  @visibleForTesting
+  static DateTime Function() clock = DateTime.now;
+
+  /// Asks the operator whether to continue without colour correction.
+  @visibleForTesting
+  static Future<bool?> Function() promptWithoutCorrection = _askOperator;
+
+  static _CaptureBoundary? _boundary;
+  static bool _verified = false;
   static Future<bool>? _starting;
   static bool get enabled =>
       Get.isRegistered<NodeConfigService>() &&
       (Get.find<NodeConfigService>().cached?.colorCalEnabled ?? false);
 
+  static String _today() => clock().toIso8601String().substring(0, 10);
+
+  /// Ends the boundary on an explicit operator action (a new profile saved,
+  /// recalibration). The next [begin] sets up a new one.
   static void reset() {
-    _key = null;
-    _binding = null;
-    _before = {};
+    _boundary = null;
+    _verified = false;
   }
 
+  /// A probe outside [begin] (the live-sync listing) could not reach the phone.
+  /// Keeps the boundary but requires the next [begin] to identify the phone
+  /// before any page is bound.
+  static void phoneUnavailable() {
+    _verified = false;
+  }
+
+  /// The operator chose to continue without correction for this phone today.
   static Future<void> skip(String deviceId) async {
     final adb = adbFactory();
     final serial = await adb.deviceSerial();
     final before = await adb.listDeviceImageNames();
     if (before == null || serial == null) {
-      reset();
       throw StateError('Phone unavailable; reconnect before continuing capture');
     }
-    final day = DateTime.now().toIso8601String().substring(0, 10);
-    _key = '$deviceId|$serial|$day';
-    _before = before.toSet();
-    _binding = ColorBinding.none('skipped');
+    _boundary = _CaptureBoundary(
+      deviceId,
+      serial,
+      _today(),
+      before.toSet(),
+      ColorBinding.none('skipped'),
+    );
+    _verified = true;
   }
 
+  /// Verifies (or sets up) the boundary before pages are bound. False means
+  /// do not ingest now: the phone could not be identified, or the operator
+  /// went back instead of choosing.
   static Future<bool> begin(String deviceId, {bool force = false}) {
     if (force) reset();
     return _starting ??= _begin(deviceId).whenComplete(() => _starting = null);
@@ -79,71 +131,84 @@ class ColorCaptureSession {
   static Future<bool> _begin(String deviceId) async {
     if (!enabled) {
       reset();
-      _binding = ColorBinding.none('disabled');
       return true;
     }
     final adb = adbFactory();
     final serial = await adb.deviceSerial();
-    final day = DateTime.now().toIso8601String().substring(0, 10);
-    final key = '$deviceId|$serial|$day';
-    if (serial != null && key == _key && _binding != null) return true;
-    final before = await adb.listDeviceImageNames();
-    if (before == null || serial == null) {
-      reset();
+    if (serial == null) {
+      // Unknown phone: never bind, never discard an established boundary.
+      _verified = false;
       return false;
     }
+    final day = _today();
+    final current = _boundary;
+    if (current != null &&
+        current.deviceId == deviceId &&
+        current.serial == serial &&
+        current.day == day) {
+      _verified = true;
+      return true;
+    }
+    // First boundary, a different phone, another station id, or a new day.
+    _verified = false;
+    final before = await adb.listDeviceImageNames();
+    if (before == null) return false;
+    final ColorBinding binding;
     final active = await ColorCalService().loadActive();
     if (active?.deviceId == deviceId &&
         active?.phoneSerial == serial &&
         evaluateCalibrationGate(enabled: true, active: active) == CalibrationGate.calibratedToday) {
       final payload = jsonEncode({...active!.toJson(), 'schema_version': 1});
-      _binding = ColorBinding(
+      binding = ColorBinding(
         payload: payload,
         profile: sha256.convert(utf8.encode(payload)).toString(),
         reason: '',
-        boundAt: DateTime.now().toIso8601String(),
+        boundAt: clock().toIso8601String(),
       );
     } else {
-      final skip = await Get.dialog<bool>(
-        AlertDialog(
-          title: const Text('No valid colour calibration'),
-          content: const Text(
-            'This phone has no verified calibration for today. Continue without colour correction, or go back and calibrate.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Get.back(result: false),
-              child: const Text('Back'),
-            ),
-            FilledButton(
-              onPressed: () => Get.back(result: true),
-              child: const Text('Continue without correction'),
-            ),
-          ],
-        ),
-        barrierDismissible: false,
-      );
-      if (skip != true) return false;
-      _binding = ColorBinding.none('skipped');
+      if (await promptWithoutCorrection() != true) return false;
+      binding = ColorBinding.none('skipped');
     }
-    _key = key;
-    _before = before.toSet();
+    _boundary = _CaptureBoundary(deviceId, serial, day, before.toSet(), binding);
+    _verified = true;
     return true;
   }
+
+  static Future<bool?> _askOperator() => Get.dialog<bool>(
+    AlertDialog(
+      title: const Text('No valid colour calibration'),
+      content: const Text(
+        'This phone has no verified calibration for today. Continue without colour correction, or go back and calibrate.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Get.back(result: false),
+          child: const Text('Back'),
+        ),
+        FilledButton(
+          onPressed: () => Get.back(result: true),
+          child: const Text('Continue without correction'),
+        ),
+      ],
+    ),
+    barrierDismissible: false,
+  );
 
   static Future<ColorBinding> bindingFor(
     String deviceId,
     String filename,
   ) async {
     if (!enabled) return ColorBinding.none('disabled');
-    final day = DateTime.now().toIso8601String().substring(0, 10);
-    final current = _key;
-    if ((current == null || !current.startsWith('$deviceId|') ||
-        !current.endsWith('|$day') || _binding == null) &&
+    final current = _boundary;
+    if ((!_verified ||
+            current == null ||
+            current.deviceId != deviceId ||
+            current.day != _today()) &&
         !await begin(deviceId)) {
       throw StateError('Colour calibration requires operator attention');
     }
-    if (_before.contains(filename)) return ColorBinding.none('historical');
-    return _binding ?? ColorBinding.none('historical');
+    final boundary = _boundary!;
+    if (boundary.before.contains(filename)) return ColorBinding.none('historical');
+    return boundary.binding;
   }
 }
