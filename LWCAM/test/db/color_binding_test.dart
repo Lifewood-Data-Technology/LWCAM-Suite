@@ -310,4 +310,57 @@ void main() {
     expect(await store.clearColorIntegrityIfOpenPagesBound('station'), isTrue);
     expect(await db.query('color_integrity'), isEmpty);
   });
+
+  test(
+    'folder preflight reads only its own pages and their profiles',
+    () async {
+      final boxId = await store.insertCaptureBox(
+        deviceId: 'station',
+        boxDetails: 'BOX',
+      );
+      Future<int> folderWith(List<String> names, String volume) async {
+        final folderId = await store.insertCaptureFolder(
+          deviceId: 'station',
+          folder: CaptureFolder(boxId: boxId, title: 'T', volume: volume),
+          isComplete: true,
+        );
+        for (final name in names) {
+          await store.assignImageToFolder(
+            deviceId: 'station',
+            boxId: boxId,
+            folderId: folderId,
+            deviceFilename: name,
+            colorBinding: binding('{"shared":1}'),
+          );
+        }
+        return folderId;
+      }
+
+      final mine = await folderWith(['a.jpg', 'b.jpg'], 'A');
+      await folderWith(['c.jpg', 'd.jpg'], 'B');
+      final db = await store.getDatabase('station');
+      // Another folder's damaged binding and pending page are not this
+      // folder's problem; history from other folders is not read at all.
+      await db.update('color_bindings', {'binding_json': '{bad'},
+          where: 'image_name = ?', whereArgs: ['c.jpg']);
+      await store.markColorReplacementPending('station', 'd.jpg');
+      for (var i = 0; i < 1500; i++) {
+        await db.insert('color_bindings', {
+          'image_name': 'history_$i.jpg',
+          'binding_json': jsonEncode({'profile': null, 'reason': 'historical'}),
+        });
+      }
+
+      final check = await store.checkFolderColorCalibration('station', mine);
+      expect(check.issues, isEmpty);
+      final shared = binding('{"shared":1}')['profile'] as String;
+      expect(check.marker['profiles'], {shared: '{"shared":1}'});
+      expect((check.marker['images'] as Map).keys.toSet(), {'a.jpg', 'b.jpg'});
+
+      // A referenced profile that is really missing is still reported.
+      await db.delete('color_profiles');
+      final broken = await store.checkFolderColorCalibration('station', mine);
+      expect(broken.issues.map((i) => i.reason).toSet(), {'missing profile payload'});
+    },
+  );
 }

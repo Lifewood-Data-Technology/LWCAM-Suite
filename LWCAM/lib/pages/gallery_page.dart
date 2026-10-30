@@ -1520,11 +1520,26 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     // on the device are excluded from the QC grid — the original slot's
     // tile already displays them.
     if (_boxSession != null) {
-      for (final name in _boxSession!.assignments.keys) {
-        final recovered = await ColorReworkStore.recoverCaptureSlot(
-          auth.deviceId.value, name, dateKey: _dateKeyFromFilename(name),
-          username: auth.username.value);
-        if (recovered != null) await _boxSession!.replaceDurableImage(name, recovered);
+      final recovery = await ColorReworkStore.recoverCaptureSlots(
+        auth.deviceId.value,
+        _boxSession!.assignments.keys.toList(),
+        dateKeyFor: _dateKeyFromFilename,
+        username: auth.username.value,
+      );
+      for (final entry in recovery.recovered.entries) {
+        await _boxSession!.replaceDurableImage(entry.key, entry.value);
+      }
+      if (recovery.failed.isNotEmpty) {
+        // The record, its bytes and the page's pending flag stay as they are,
+        // so transfer keeps refusing the page until a retake completes.
+        final pages = recovery.failed.keys.join(', ');
+        print('⚠️ Replacement recovery failed:\n'
+            '${recovery.failed.entries.map((e) => '${e.key}: ${e.value}').join('\n')}');
+        showAppSnackBar(
+          'Replacement not recovered',
+          'Retake ${recovery.failed.length == 1 ? 'this page' : 'these pages'}: '
+              '$pages. ${recovery.failed.values.first}',
+        );
       }
     }
     await _restoreReplacementStateFromDb();
@@ -5172,21 +5187,36 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         .toList();
     c.groupedImages.clear();
     final resolved = await Future.wait(awaiting.map(_resolveReworkInput));
+    final recoveryNotes = <String>[];
     for (var i = 0; i < awaiting.length; i++) {
+      final item = awaiting[i];
       final target = resolved[i].file;
-      if (target == null || _reworkStaged.containsKey(awaiting[i].imageName)) continue;
+      if (target == null || _reworkStaged.containsKey(item.imageName)) continue;
       try {
-        final recovered = await ColorReworkStore.recoverApplying(auth.deviceId.value, target.path);
-        if (recovered != null) _reworkStaged[awaiting[i].imageName] = recovered;
+        final recovered =
+            await ColorReworkStore.recoverApplying(auth.deviceId.value, target.path) ??
+            // The same page's interrupted apply recorded under an older path:
+            // continued here only when that path is proven to be this folder.
+            await ColorReworkStore.relocateApplying(
+              auth.deviceId.value,
+              folderKey: item.folderKey,
+              folderPath: item.folderPath,
+              newTarget: target.path,
+            );
+        if (recovered != null) _reworkStaged[item.imageName] = recovered;
       } catch (e) {
-        print('Rework recovery needs attention: $e');
+        recoveryNotes.add('${item.imageName}: $e');
       }
     }
+    recoveryNotes.addAll(await _hiddenReworkRecords());
     final missing = resolved.where((r) => r.file == null).length;
     final down = resolved.any((r) => r.unreachable);
     if (!mounted) return;
     setState(() {
-      statusMsg = awaiting.isEmpty
+      statusMsg = recoveryNotes.isNotEmpty
+          ? '${recoveryNotes.length} interrupted recapture(s) need attention — '
+                '${recoveryNotes.first}'
+          : awaiting.isEmpty
           ? 'All rework in this group is submitted — waiting for QC.'
           : down
           ? _kInputShareDown
@@ -5195,6 +5225,58 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
           : '${awaiting.length} image(s) awaiting rework — $missing source '
                 'file(s) could not be found on this PC.';
     });
+    if (recoveryNotes.isNotEmpty) {
+      print('⚠️ Rework recovery needs attention:\n${recoveryNotes.join('\n')}');
+      showAppSnackBar(
+        'Interrupted recapture',
+        recoveryNotes.join('\n'),
+      );
+    }
+  }
+
+  /// Interrupted or unreadable recapture records for this group's folders
+  /// whose page is not being recovered on this screen (a sibling outside the
+  /// worklist, a record under another path, an unattributable record). They
+  /// keep blocking the folder's submit; this names them.
+  Future<List<String>> _hiddenReworkRecords() async {
+    final notes = <String>[];
+    final seen = <String>{};
+    // Records being recovered on this screen, directly or as the old path a
+    // relocated generation continues.
+    final handled = <String>{};
+    for (final file in _reworkStaged.values) {
+      handled.add(p.normalize(file.parent.path).toLowerCase());
+      try {
+        final old = await ColorReworkStore.supersededGeneration(file);
+        if (old != null) handled.add(p.normalize(old.parent.path).toLowerCase());
+      } catch (_) {
+        // Reported by the submit guard; nothing is handled here.
+      }
+    }
+    final folders = <String, ReworkItem>{
+      for (final item in _reworkItems) item.folderKey: item,
+    };
+    for (final item in folders.values) {
+      try {
+        final records = await ColorReworkStore.outstanding(
+          auth.deviceId.value,
+          folderKey: item.folderKey,
+          folderPath: item.folderPath,
+        );
+        for (final record in records) {
+          if (!seen.add(record.directory.path)) continue;
+          if (handled.contains(p.normalize(record.directory.path).toLowerCase())) continue;
+          notes.add(record.unattributed
+              ? 'unattributed recapture record (${record.describe()}; '
+                    '${record.problem}) — an administrator must resolve it'
+              : '${item.folderName}: ${record.describe()}'
+                    '${record.problem == null ? '' : ' (${record.problem})'}');
+        }
+      } catch (e) {
+        notes.add('${item.folderName}: could not read recapture records: $e');
+      }
+    }
+    return notes;
   }
 
   /// The "Rework Mode" pill, beside the overflow menu.
@@ -6288,9 +6370,15 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                   : 'Metadata corrected in LWCAM (was: ${item.reason})',
             );
             if (resolution == 'Recapture') {
-              await ColorReworkStore.recordCommitted(
-                txn, _reworkStaged[item.imageName]!,
-              );
+              final staged = _reworkStaged[item.imageName]!;
+              await ColorReworkStore.recordCommitted(txn, staged);
+              // A relocated generation retires the old-path record it
+              // continues, in the same transaction as the closure.
+              final superseded =
+                  await ColorReworkStore.supersededGeneration(staged);
+              if (superseded != null) {
+                await ColorReworkStore.recordCommitted(txn, superseded);
+              }
             }
             closedInFolder++;
             settled[item] = resolution;
@@ -6339,11 +6427,17 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
           );
           if (resolution == 'Recapture' && verified[item.reworkId] != null) {
             try {
+              final superseded = staged == null
+                  ? null
+                  : await ColorReworkStore.supersededGeneration(staged);
               await ColorReworkStore.complete(
                 deviceId,
                 verified[item.reworkId]!.path,
                 staged: staged,
               );
+              if (superseded != null) {
+                await ColorReworkStore.completeGeneration(superseded);
+              }
             } catch (e) {
               // The closure is already in the outbox; an intent-cleanup
               // failure must not abort the rest of the submit.

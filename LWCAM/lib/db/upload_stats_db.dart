@@ -2995,9 +2995,42 @@ class UploadStatsDB {
         where: 'folder_id = ?',
         whereArgs: [folderId],
       );
-      final bindingRows = await txn.query('color_bindings');
-      final profileRows = await txn.query('color_profiles');
-      final pendingRows = await txn.query('color_pending');
+      // Only this folder's pages and the profiles they reference: the binding
+      // and profile tables grow with every page the station has captured.
+      const folderImages =
+          'SELECT image_name FROM capture_images WHERE folder_id = ?';
+      final bindingRows = await txn.query(
+        'color_bindings',
+        where: 'image_name IN ($folderImages)',
+        whereArgs: [folderId],
+      );
+      final referenced = <String>{};
+      for (final row in bindingRows) {
+        try {
+          final decoded = jsonDecode(row['binding_json'] as String);
+          if (decoded is Map && decoded['profile'] is String) {
+            referenced.add(decoded['profile'] as String);
+          }
+        } catch (_) {
+          // Reported as a damaged binding below.
+        }
+      }
+      final profileRows = <Map<String, Object?>>[];
+      final hashes = referenced.toList();
+      for (var i = 0; i < hashes.length; i += 500) {
+        final end = i + 500 < hashes.length ? i + 500 : hashes.length;
+        final chunk = hashes.sublist(i, end);
+        profileRows.addAll(await txn.query(
+          'color_profiles',
+          where: 'hash IN (${List.filled(chunk.length, '?').join(', ')})',
+          whereArgs: chunk,
+        ));
+      }
+      final pendingRows = await txn.query(
+        'color_pending',
+        where: 'image_name IN ($folderImages)',
+        whereArgs: [folderId],
+      );
       final integrityRows = await txn.query('color_integrity');
 
       final bindings = <String, Map<String, dynamic>>{

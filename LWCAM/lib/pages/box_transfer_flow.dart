@@ -118,8 +118,12 @@ Future<bool> runBoxTransferFlow({
                           'local calibration history could not be recovered. '
                           'Continuing records them as historical (no colour '
                           'correction); pages with a valid profile keep it.'
-                    : 'These pages cannot be transferred until the local '
-                          'database backup is restored or the page is retaken.',
+                    : 'These pages cannot be transferred yet. Retake each '
+                          'listed page in this box: the new photo gets a new '
+                          'colour decision. A page whose replacement is still '
+                          'in progress finishes when the box is reopened, or '
+                          'is reported there for a retake. There is no in-app '
+                          'restore of lost calibration data.',
               ),
               const SizedBox(height: 8),
               ...calibration.issues.map(
