@@ -12,6 +12,23 @@ not change, then publishes the output folder.
 
 It is a stand-alone install (`LWIPSetup.exe`). No other app starts or watches it.
 
+The same service also consumes immutable colour-chart tasks in
+`input_root/.calibration` independently of document work. One owned child process
+analyses at a time (120-second execution limit), using the bundled ColorCal
+algorithm. The existing console exposes read-only queue status. Capture polls
+files and requires operator confirmation; no capture-side Python or HTTP call.
+The reserved directory is excluded at both document folder depths.
+See [protocol](../docs/CALIBRATION-PROTOCOL.md) and
+[deployment](../docs/COLOR-CALIBRATION.zh-CN.md). Start
+`python -m deskew_crop_tool.service --config <path>` to test both queues from source;
+the document-only `--once` entry does not run calibration.
+
+Completed calibration tasks keep lightweight request/ready and photo metadata checks on each scan.
+The photo is fully revalidated on the first scan after restart, when its metadata changes,
+or every five minutes. Missing results and interrupted publication still require full validation
+before republishing; analysis is not repeated for completed tasks. Invalid-request failures
+remain failures and can be republished without trying to validate the already-rejected photo.
+
 ## Where it sits in the pipeline
 
 ```

@@ -16,6 +16,9 @@ Ideas to know before editing:
 """
 from __future__ import annotations
 
+from color_cal_tool.apply import apply_profile_to_pil
+from color_cal_tool.contract import validate_correction
+
 import logging
 import math
 import os
@@ -333,10 +336,13 @@ def deskew_crop_file(
     thumbnail_quality: int = 85,
     deskew_min_degrees: float = DEFAULT_DESKEW_MIN_DEGREES,
     mat_fill: bool = True,
+    color_profile: dict | None = None,
 ) -> dict[str, object]:
     """Process one image: write the cropped file (and thumbnail) and return a
     result dict (angle, crop box, qc_ops, lossless flag, ...) that the
     orchestrator stores in the folder manifest. Raises OSError if unreadable."""
+    if color_profile is not None:
+        validate_correction(color_profile)
     source = Path(source_value)
     destination = Path(destination_value)
     is_jxl = source.suffix.lower() == ".jxl"
@@ -461,6 +467,7 @@ def deskew_crop_file(
                 max_width=thumbnail_width,
                 quality=thumbnail_quality,
                 qc_ops=qc_ops,
+                color_profile=color_profile,
             )
             thumbnail_created = True
         except Exception:
@@ -473,6 +480,7 @@ def deskew_crop_file(
         "width": int(image.shape[1]),
         "height": int(image.shape[0]),
         "thumbnail_created": thumbnail_created,
+        "color_profile_applied": thumbnail_created and color_profile is not None,
         "lossless": lossless_bytes is not None,
         "crop": list(crop_box) if crop_box else None,
         "qc_ops": qc_ops,
@@ -856,6 +864,7 @@ def _write_thumbnail_atomic(
     max_width: int,
     quality: int,
     qc_ops: list[dict[str, object]] | None = None,
+    color_profile: dict | None = None,
 ) -> None:
     """The rail shows LWIP's thumbnail, so it must look straight even though
     the delivered file never is. Downscale FIRST, then replay the same
@@ -871,6 +880,8 @@ def _write_thumbnail_atomic(
         thumbnail = thumbnail.resize((max_width, new_height), Image.LANCZOS)
     if qc_ops:
         thumbnail = apply_qc_ops(thumbnail, qc_ops)
+    if color_profile is not None:
+        thumbnail = apply_profile_to_pil(thumbnail, color_profile)
     fs_path(destination.parent).mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(
         f".{destination.stem}.{os.getpid()}.tmp{destination.suffix}"

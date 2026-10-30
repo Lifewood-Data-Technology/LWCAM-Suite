@@ -110,6 +110,9 @@ class NodeConfig {
   /// project that wants it turns it on in Station Setup.
   final bool luminanceEnabled;
 
+  /// Capture-only daily colour calibration. Consumers use folder data.
+  final bool colorCalEnabled;
+
   /// Worker processes the QC export uses to convert and hash images.
   ///
   /// 0 sizes it from the hardware the same way [processingWorkers] does for
@@ -171,6 +174,7 @@ class NodeConfig {
     this.exportWorkerCount = 0,
     this.exportZipOutput = true,
     this.luminanceEnabled = false,
+    this.colorCalEnabled = false,
     this.qcJwtSecret,
     this.qcJwtExpireMinutes = 480,
     this.exportCsvEncoding = 'utf-8',
@@ -208,6 +212,7 @@ class NodeConfig {
     int? exportWorkerCount,
     bool? exportZipOutput,
     bool? luminanceEnabled,
+    bool? colorCalEnabled,
     String? qcJwtSecret,
     int? qcJwtExpireMinutes,
     String? exportCsvEncoding,
@@ -244,6 +249,7 @@ class NodeConfig {
       exportWorkerCount: exportWorkerCount ?? this.exportWorkerCount,
       exportZipOutput: exportZipOutput ?? this.exportZipOutput,
       luminanceEnabled: luminanceEnabled ?? this.luminanceEnabled,
+      colorCalEnabled: colorCalEnabled ?? this.colorCalEnabled,
       qcJwtSecret: qcJwtSecret ?? this.qcJwtSecret,
       qcJwtExpireMinutes: qcJwtExpireMinutes ?? this.qcJwtExpireMinutes,
       exportCsvEncoding: exportCsvEncoding ?? this.exportCsvEncoding,
@@ -286,6 +292,7 @@ class NodeConfig {
     'exportWorkerCount': exportWorkerCount,
     'exportZipOutput': exportZipOutput,
     'luminanceEnabled': luminanceEnabled,
+    'colorCalEnabled': colorCalEnabled,
     'qcJwtSecret': qcJwtSecret,
     'qcJwtExpireMinutes': qcJwtExpireMinutes,
     'exportCsvEncoding': exportCsvEncoding,
@@ -330,6 +337,7 @@ class NodeConfig {
       exportWorkerCount: (json['exportWorkerCount'] as num?)?.toInt() ?? 0,
       exportZipOutput: json['exportZipOutput'] as bool? ?? true,
       luminanceEnabled: json['luminanceEnabled'] as bool? ?? false,
+      colorCalEnabled: json['colorCalEnabled'] as bool? ?? false,
       qcJwtSecret: json['qcJwtSecret']?.toString(),
       qcJwtExpireMinutes: (json['qcJwtExpireMinutes'] as num?)?.toInt() ?? 480,
       exportCsvEncoding: json['exportCsvEncoding']?.toString() ?? 'utf-8',

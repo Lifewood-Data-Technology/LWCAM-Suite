@@ -57,7 +57,7 @@ void main() {
           containsAll(['capture_boxes', 'capture_folders', 'capture_images']));
       // v2 added the stable-schema migration (_migrateStableSchemaV2); a fresh
       // onCreate still lands directly on the current version.
-      expect(await database.getVersion(), 2);
+      expect(await database.getVersion(), 3);
       // Cloud-mirroring columns (LWCam_database_unified_*.sql) + local-only.
       final boxColumns = (await database.rawQuery('PRAGMA table_info(capture_boxes)'))
           .map((r) => r['name'] as String)

@@ -56,6 +56,7 @@ class OrphanEntry {
   final String? reason;
   final DateTime? stashedAt;
   final String? note;
+  final Map<String, dynamic>? colorBinding;
 
   const OrphanEntry({
     required this.file,
@@ -67,6 +68,7 @@ class OrphanEntry {
     this.reason,
     this.stashedAt,
     this.note,
+    this.colorBinding,
   });
 
   /// Auto-healable: we know exactly which box+folder this belonged to.
@@ -125,6 +127,7 @@ class OrphanImageStore {
     int? folderId,
     required String reason,
     DateTime? stashedAt,
+    Map<String, dynamic>? colorBinding,
   }) async {
     try {
       final dir = await _deviceDir(deviceId);
@@ -140,6 +143,7 @@ class OrphanImageStore {
           'boxId': boxId,
           'folderId': folderId,
           'reason': reason,
+          'colorBinding': colorBinding,
           'stashedAt': at.toIso8601String(),
           'note': null,
         }),
@@ -154,6 +158,7 @@ class OrphanImageStore {
         boxId: boxId,
         folderId: folderId,
         reason: reason,
+        colorBinding: colorBinding,
         stashedAt: at,
       );
     } catch (e) {
@@ -226,6 +231,7 @@ class OrphanImageStore {
         reason: json['reason'] as String?,
         stashedAt: DateTime.tryParse(json['stashedAt']?.toString() ?? ''),
         note: json['note'] as String?,
+        colorBinding: (json['colorBinding'] as Map?)?.cast<String, dynamic>(),
       );
     } catch (_) {
       // Corrupt sidecar → treat as intent-unknown (admin resolves).
@@ -249,6 +255,7 @@ class OrphanImageStore {
         'boxId': null,
         'folderId': null,
         'reason': e.reason,
+        'colorBinding': e.colorBinding,
         'stashedAt': (e.stashedAt ?? DateTime.now()).toIso8601String(),
         'note': note,
       }),

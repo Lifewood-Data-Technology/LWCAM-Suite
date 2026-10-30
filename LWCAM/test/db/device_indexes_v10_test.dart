@@ -40,7 +40,7 @@ void main() {
       addTearDown(() => db.debugCloseAllForTests());
 
       final fresh = await db.getDatabase('devFresh10');
-      expect(await fresh.getVersion(), 2);
+      expect(await fresh.getVersion(), 3);
       expect(await _indexNames(fresh), containsAll(_deviceIndexes));
     });
 
@@ -55,7 +55,7 @@ void main() {
 
       await db.debugCloseAllForTests();
       final second = await db.getDatabase('devReopen');
-      expect(await second.getVersion(), 2);
+      expect(await second.getVersion(), 3);
       expect(await _indexNames(second), containsAll(_deviceIndexes));
     });
   });

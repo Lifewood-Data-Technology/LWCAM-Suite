@@ -10,14 +10,16 @@ If a count differs from the table, the change is yours. Find out why before you 
 
 | Suite | Run from | Command | Expected on a clean checkout |
 | --- | --- | --- | --- |
-| QC backend | `LWCam_QC_Platform/backend` | `python -m unittest discover -s tests -t .` | 391 tests, 8 skipped (database tests, see section 2) |
+| QC backend | `LWCam_QC_Platform/backend` | `python -m unittest discover -s tests -t .` | 405 tests, 8 skipped (database tests, see section 2) |
 | QC frontend | `LWCam_QC_Platform/frontend` | `npm ci` then `npm run build` | Builds with no type errors. The build runs `vue-tsc --noEmit && vite build`. |
-| LWIP | `LWIP/backend` | `python -m unittest discover -s tests` | 235 tests, 7 skipped, 2 known failures (section 3) |
-| Upload | `LWCam_Upload/backend` | `python -m unittest discover -s tests` | 158 tests pass |
-| LWCAM | `LWCAM` | `flutter analyze` then `flutter test` | Analyze: 5 infos. Test: 455 pass. |
-| LWCam Admin | `LWCamAdmin` | `flutter analyze` then `flutter test` | Analyze: clean. Test: 135 pass, 1 skipped. |
+| LWIP | `LWIP/backend` | `python -m unittest discover -s tests` | 328 tests; skips and the two long-path controls depend on the environment (section 3) |
+| Upload | `LWCam_Upload/backend` | `python -m unittest discover -s tests` | 160 tests pass |
+| LWCAM | `LWCAM` | `flutter analyze` then `flutter test` | Analyze: 5 infos. Test: 546 pass. |
+| LWCam Admin | `LWCamAdmin` | `flutter analyze` then `flutter test` | Analyze: clean. Test: 136 pass. |
 
-The suites use `unittest`. You do not need pytest. `LWIP/RUN_TESTS.bat` runs the LWIP suite with a private runtime that setup built; on a dev PC use the command above.
+The ColorCal algorithm tests (59, including 2 skips) and directory protocol tests (23) are included in LWIP. Shared transport fixtures live in `verification/calibration_protocol`. See [current verification](COLOR-CALIBRATION-VERIFICATION.md) for environment-specific failures and field-test limits.
+
+The Python suites use `unittest`. You do not need pytest. `LWIP/RUN_TESTS.bat` runs the LWIP suite with a private runtime that setup built; on a dev PC use the command above.
 
 Use `python` from your Python 3.14.8 install. Run the Python suites with `unittest discover -s tests -t .` or `-s tests` as shown. This form puts the working tree on `sys.path`. Do not test with the `._pth` runtime of an installed copy (see the trap in [DEV-SETUP.md](DEV-SETUP.md)).
 

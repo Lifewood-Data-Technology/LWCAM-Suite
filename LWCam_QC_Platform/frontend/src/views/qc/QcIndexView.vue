@@ -1968,6 +1968,8 @@ onBeforeUnmount(() => {
               <strong>{{ image ? `${currentImageIndex} / ${current.imageCount}` : '–' }}</strong>
             </div>
             <p class="qc-current-image-name">{{ image ? image.filename : t('qc.currentImagePlaceholder') }}</p>
+            <p v-if="image?.calibrationError" role="alert">Colour calibration error: {{ image.calibrationError }}</p>
+            <p v-else-if="image?.calibrationProfileId">Colour calibration: {{ image.calibrationProfileId }}</p>
           </section>
           <section class="qc-comment-card">
             <!--
@@ -3557,8 +3559,9 @@ onBeforeUnmount(() => {
 }
 
 .qc-desk--compact {
-  height: 100vh;
-  max-height: 100vh;
+  /* The shell content excludes the system-status banner above the desk. */
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
 }
 

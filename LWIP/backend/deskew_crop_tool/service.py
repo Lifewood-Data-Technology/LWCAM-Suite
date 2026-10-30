@@ -1376,6 +1376,7 @@ def build_handler(ctx: ServiceContext) -> type[BaseHTTPRequestHandler]:
                         "last_report_at": summary["last_report_at"],
                     },
                     "queue": summary["queue"],
+                    "calibration": snap.get("calibration", {}),
                     "config_error": config_error,
                     "schema_problem": snap.get("schema_problem"),
                     "version": getattr(ctx.supervisor, "version", "dev"),
@@ -1464,6 +1465,15 @@ def main() -> int:
     netlogin.start_keeper()
     protect_stored_password(args.config)
     supervisor = Supervisor(args.config)
+    from .calibration_queue import CalibrationMonitor
+    calibration = CalibrationMonitor(args.config, supervisor.state)
+    calibration.thread.start()
+
+    def run_supervisor():
+        try:
+            return supervisor.run()
+        finally:
+            calibration.close()
     port, bind = read_ui_settings(args.config)
     ctx = ServiceContext(config_path=args.config, supervisor=supervisor)
     # A console that cannot bind (port taken, bad ui_bind) must not take image
@@ -1473,14 +1483,14 @@ def main() -> int:
         tls.wrap_if_configured(httpd, args.config)
     except OSError as exc:
         LOGGER.error("LWIP console could not listen on %s:%s: %s", bind, port, exc)
-        return supervisor.run()
+        return run_supervisor()
     http_thread = threading.Thread(
         target=httpd.serve_forever, name="lwip-console-http", daemon=True
     )
     http_thread.start()
     LOGGER.info("LWIP console listening on %s:%s", bind, port)
     try:
-        return supervisor.run()
+        return run_supervisor()
     finally:
         httpd.shutdown()
 

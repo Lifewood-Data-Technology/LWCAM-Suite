@@ -115,6 +115,9 @@ class NodeConfig {
   /// Station Setup no longer shows the switch.
   final bool luminanceEnabled;
 
+  /// Capture-only daily colour calibration. Consumers use folder data.
+  final bool colorCalEnabled;
+
   /// The old capture-path prefix remap the QC engine used to read from here.
   /// Round-trip only: the QC server replaced the pair with `qcImagesRoot` in
   /// its own `config.txt`. `captureImageHostPath` was the prefix as RECORDED,
@@ -212,6 +215,7 @@ class NodeConfig {
     this.exportWorkerCount = 0,
     this.exportZipOutput = true,
     this.luminanceEnabled = false,
+    this.colorCalEnabled = false,
     this.captureImageHostPath,
     this.captureImageContainerPath,
     this.qcJwtSecret,
@@ -260,6 +264,7 @@ class NodeConfig {
     int? exportWorkerCount,
     bool? exportZipOutput,
     bool? luminanceEnabled,
+    bool? colorCalEnabled,
     String? captureImageHostPath,
     String? captureImageContainerPath,
     String? qcJwtSecret,
@@ -310,6 +315,7 @@ class NodeConfig {
       exportWorkerCount: exportWorkerCount ?? this.exportWorkerCount,
       exportZipOutput: exportZipOutput ?? this.exportZipOutput,
       luminanceEnabled: luminanceEnabled ?? this.luminanceEnabled,
+      colorCalEnabled: colorCalEnabled ?? this.colorCalEnabled,
       captureImageHostPath: captureImageHostPath ?? this.captureImageHostPath,
       captureImageContainerPath:
           captureImageContainerPath ?? this.captureImageContainerPath,
@@ -364,6 +370,7 @@ class NodeConfig {
     'exportWorkerCount': exportWorkerCount,
     'exportZipOutput': exportZipOutput,
     'luminanceEnabled': luminanceEnabled,
+    'colorCalEnabled': colorCalEnabled,
     'captureImageHostPath': captureImageHostPath,
     'captureImageContainerPath': captureImageContainerPath,
     'qcJwtSecret': qcJwtSecret,
@@ -418,6 +425,7 @@ class NodeConfig {
       exportWorkerCount: (json['exportWorkerCount'] as num?)?.toInt() ?? 0,
       exportZipOutput: json['exportZipOutput'] as bool? ?? true,
       luminanceEnabled: json['luminanceEnabled'] as bool? ?? false,
+      colorCalEnabled: json['colorCalEnabled'] as bool? ?? false,
       captureImageHostPath: json['captureImageHostPath'] as String?,
       captureImageContainerPath: json['captureImageContainerPath'] as String?,
       qcJwtSecret: json['qcJwtSecret']?.toString(),

@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-28",
+  "reviewed_parent": "40ca65c11ea419105b7e42a19809875936c85786",
+  "extra_finding": "committed intent incorrectly re-staged by recovery entry",
+  "extra_finding_fixed": true,
+  "flutter_passed": 546,
+  "portable_metadata_recovery_tests": 20,
+  "atomic_real_pg_host_passed": 26,
+  "initial_pg_run": {
+    "passed": 19,
+    "connection_failures": 7
+  },
+  "after_original_pg_restored": "all 26 passed",
+  "analyze": {
+    "errors": 0,
+    "warnings": 0,
+    "existing_infos": 5
+  },
+  "capture_release": "passed",
+  "app_so_sha256": "3bf1daa19052d8876d5daf2146e1c201998dcc5fb36b15ebf7bc9e7c53e65dc3",
+  "new_ui_round_trip": false,
+  "final_installer_upgrade_acceptance": false,
+  "maintainer_policy_decision": "unknown history requires explicit confirmation even when calibration is off"
+}

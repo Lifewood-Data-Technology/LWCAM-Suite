@@ -78,6 +78,7 @@ class SeparatedChildRejectionGuardTests(unittest.TestCase):
         image = SimpleNamespace(id=1, image_name="p1.jpg")
         base = dict(
             id=9,
+            folder_path="",
             qc_status="PENDING",
             qc_locked_by="rev",
             qc_locked_at=None,
@@ -111,7 +112,7 @@ class SeparatedChildRejectionGuardTests(unittest.TestCase):
             qc, "read_manifest", return_value={}
         ), patch.object(qc, "cancel_ai_jobs_after_finalization"), patch.object(
             qc, "discard_draft"
-        ), patch.object(qc, "write_qc_audit"):
+        ), patch.object(qc, "write_qc_audit"), patch.object(qc, "effective_profile", return_value=None):
             qc.reject_task(9, request, SimpleNamespace(id=1, user_id="rev"), Mock())
         self.assertEqual(folder.qc_status, "REWORK")
 
@@ -132,6 +133,6 @@ class SeparatedChildRejectionGuardTests(unittest.TestCase):
             qc, "commit_current_draft", return_value=(None, lambda: None, lambda: None)
         ), patch.object(qc, "cancel_ai_jobs_after_finalization"), patch.object(
             qc, "discard_draft"
-        ), patch.object(qc, "write_qc_audit"):
+        ), patch.object(qc, "write_qc_audit"), patch.object(qc, "effective_profile", return_value=None):
             qc.approve_task(9, request, SimpleNamespace(id=1, user_id="rev"), Mock())
         self.assertEqual(folder.qc_status, "PASS")

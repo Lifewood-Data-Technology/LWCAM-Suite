@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
 import 'package:lwcam/models/capture_box_models.dart';
+import 'package:lwcam/services/color_capture_session.dart';
 import 'package:lwcam/services/processing_marker_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -64,6 +65,19 @@ void main() {
       expect(payload['folder_name'], 'BOX-1 - 4471 - 0001');
       expect(payload['created_at'], startsWith('2026-07-22'));
     });
+  });
+
+  test('reworkReadinessHeld reads the marker and fails closed on damage',
+      () async {
+    final dir = await _tempDir('marker_readiness_');
+    expect(await reworkReadinessHeld(dir.path), isFalse);
+    final marker = File(p.join(dir.path, kProcessingMarkerName));
+    await marker.writeAsString(jsonEncode({'rework_in_progress': true}));
+    expect(await reworkReadinessHeld(dir.path), isTrue);
+    await marker.writeAsString(jsonEncode({'rework_in_progress': false}));
+    expect(await reworkReadinessHeld(dir.path), isFalse);
+    await marker.writeAsString('broken');
+    await expectLater(reworkReadinessHeld(dir.path), throwsStateError);
   });
 
   group('writeBoxProcessingMarkers', () {
@@ -292,6 +306,111 @@ void main() {
       );
       expect(blank.isSuccess, isFalse);
       expect(blank.failedWrites, 1);
+    });
+
+    test('a recovered unbound page names the cause and can be accepted',
+        () async {
+      final (db, boxId) = await boxWithFolders('marker_colour_', ['F-ONE']);
+      final folders = await db.getCaptureFolders(
+        deviceId: 'SAX01',
+        boxId: boxId,
+      );
+      final folderId = folders.single.id;
+      await db.assignImageToFolder(
+        deviceId: 'SAX01',
+        boxId: boxId,
+        folderId: folderId,
+        deviceFilename: 'a.jpg',
+      );
+      final root = await _tempDir('marker_colour_dest_');
+      final dest = await db.markCaptureBoxTransferStarted(
+        deviceId: 'SAX01',
+        boxId: boxId,
+        destinationRoot: root.path,
+      );
+      final folderDir = Directory(p.join(dest, 'F-ONE'))
+        ..createSync(recursive: true);
+      File(p.join(folderDir.path, 'a.jpg')).writeAsBytesSync([1, 2, 3]);
+      final raw = await db.getDatabase('SAX01');
+      await raw.delete('color_bindings');
+      await raw.insert('color_integrity', {
+        'id': 1,
+        'reason': 'damaged ledger',
+      });
+
+      final blocked = await writeBoxProcessingMarkers(
+        db: db,
+        deviceId: 'SAX01',
+        boxId: boxId,
+        legacyRoot: root.path,
+      );
+      expect(blocked.failedWrites, 1);
+      expect(blocked.folderFailures.single, contains('damaged ledger'));
+      expect(
+        File(p.join(folderDir.path, kProcessingMarkerName)).existsSync(),
+        isFalse,
+      );
+
+      await db.bindHistoricalIfUnbound('SAX01', folderId);
+      final accepted = await writeBoxProcessingMarkers(
+        db: db,
+        deviceId: 'SAX01',
+        boxId: boxId,
+        legacyRoot: root.path,
+      );
+      expect(accepted.isSuccess, isTrue);
+      final marker = jsonDecode(
+        File(p.join(folderDir.path, kProcessingMarkerName)).readAsStringSync(),
+      ) as Map;
+      expect(
+        (marker['color_calibration'] as Map)['images']['a.jpg']['reason'],
+        'historical',
+      );
+    });
+  });
+
+  group('LWIP image extensions', () {
+    test('Capture covers exactly LWIP DEFAULT_EXTENSIONS', () async {
+      // The per-page calibration contract fails a folder when LWIP reads a
+      // page that has no binding, so the two lists must not drift apart.
+      final config = await File(
+        p.join('..', 'LWIP', 'backend', 'deskew_crop_tool', 'config.py'),
+      ).readAsString();
+      final match = RegExp(
+        r'^DEFAULT_EXTENSIONS\s*=\s*\(([^)]*)\)',
+        multiLine: true,
+      ).firstMatch(config);
+      expect(match, isNotNull, reason: 'DEFAULT_EXTENSIONS not found');
+      final lwip = RegExp(r'"([^"]+)"')
+          .allMatches(match!.group(1)!)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(kLwipImageExtensions, lwip);
+    });
+
+    test('a mixed-format legacy folder binds and counts every LWIP page',
+        () async {
+      final folder = await _tempDir('legacy_formats_');
+      for (final name in ['page.jpg', 'untouched.bmp', 'untouched.jxl',
+          'other.PNG', 'notes.txt', 'page.jpg.part']) {
+        await File(p.join(folder.path, name)).writeAsBytes([1, 2]);
+      }
+      await ensureReworkCaptureMarker(folder.path, {
+        'project_key': 'p', 'box_name': 'b', 'folder_seq': 1,
+      });
+      await updateReworkColorBinding(
+        folder.path, 'page.jpg', ColorBinding.none('disabled'));
+      await setReworkInProgress(folder.path, false, requireReadable: true);
+      final marker = jsonDecode(await File(
+        p.join(folder.path, kProcessingMarkerName),
+      ).readAsString()) as Map;
+      final images = (marker['color_calibration'] as Map)['images'] as Map;
+      expect(images.keys.toSet(),
+          {'page.jpg', 'untouched.bmp', 'untouched.jxl', 'other.PNG'});
+      expect((images['untouched.bmp'] as Map)['reason'], 'historical');
+      expect((images['page.jpg'] as Map)['reason'], 'disabled');
+      expect(marker['image_count'], 4);
+      expect(marker.containsKey('rework_in_progress'), isFalse);
     });
   });
 }

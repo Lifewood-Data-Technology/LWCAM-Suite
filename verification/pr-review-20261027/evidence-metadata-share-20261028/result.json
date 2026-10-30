@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-28",
+  "base_commit": "ef29c64093ac255438efb502646afd51d8f7cb04",
+  "workspace_patch_committed_or_pushed": false,
+  "flutter_passed": 544,
+  "new_portable_guard_tests": 18,
+  "atomic_pg_host_passed": 25,
+  "analyze": {
+    "errors": 0,
+    "warnings": 0,
+    "existing_infos": 5,
+    "exit_code": 1
+  },
+  "negative_control": "old Submit probes offline input twice; expected zero",
+  "release_build": "passed",
+  "aot_sha256": "1318f324be608fe61e38ecb90f5341f1337a3ba2c1f2e19da6928863e0073f91",
+  "aot_control_strings": {
+    "Rework submitted": true,
+    "rework_committed:": true,
+    "Cannot safely submit metadata for this folder:": true
+  },
+  "ordinary_metadata_input_share_probes": 0,
+  "legacy_exception": "ambiguous pre-v2 records require bounded recovery verification",
+  "schema_migration": false,
+  "new_ui_round_trip": false,
+  "installer_and_upgrade_acceptance": "not performed"
+}

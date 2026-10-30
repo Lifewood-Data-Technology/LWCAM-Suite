@@ -144,6 +144,7 @@ class StationSetupController extends GetxController {
   /// The image destination root LWCAM's transfers land in. Empty = not
   /// configured; LWCAM refuses to start a transfer until it is set.
   final destinationPath = ''.obs;
+  final colorCalEnabled = false.obs;
 
   /// What first-run provisioning did, for the page to show once. Empty when
   /// there was nothing to do - which is every launch after the first.
@@ -184,6 +185,7 @@ class StationSetupController extends GetxController {
     usersStorePath.value = config.usersStorePath ?? '';
     pgConnectionEnabled.value = config.pgConnectionEnabled;
     lwcamSyncEnabled.value = config.syncEnabled;
+    colorCalEnabled.value = config.colorCalEnabled;
     // Unset folders start on the suite's own pipeline layout rather than
     // blank, so a fresh station is one Save away from working. An admin can
     // still point any of them anywhere (a NAS, another drive, a UNC share);
@@ -222,6 +224,7 @@ class StationSetupController extends GetxController {
       adminPgPasswordProtected: '',
       pgUseSsl: pgUseSsl.value,
       syncEnabled: lwcamSyncEnabled.value,
+      colorCalEnabled: colorCalEnabled.value,
       syncIntervalSeconds: syncIntervalSeconds.value,
       usersStorePath: usersStorePath.value.trim().isEmpty
           ? defaultLwcamDbsDir()

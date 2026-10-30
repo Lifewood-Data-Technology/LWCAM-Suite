@@ -86,6 +86,93 @@ Future<bool> runBoxTransferFlow({
     return false;
   }
 
+  // Recovery integrity is per-page: check before the plan so the empty-plan
+  // branch (which calls markTransferred directly) cannot bypass the decision.
+  late final BoxColorCalibrationPreflight calibration;
+  try {
+    calibration = await session.colorCalibrationPreflight(box);
+  } catch (e) {
+    showAppSnackBar(
+      'Colour calibration check failed',
+      '$e',
+      backgroundColor: Get.theme.colorScheme.error,
+      colorText: Get.theme.colorScheme.onError,
+    );
+    return false;
+  }
+  if (calibration.hasIssues) {
+    if (!context.mounted) return false;
+    final canContinue = calibration.canContinueUncalibrated;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Colour calibration needs attention'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                canContinue
+                    ? 'Some pages have no stored colour decision because the '
+                          'local calibration history could not be recovered. '
+                          'Continuing records them as historical (no colour '
+                          'correction); pages with a valid profile keep it.'
+                    : 'These pages cannot be transferred yet. Retake each '
+                          'listed page in this box: the new photo gets a new '
+                          'colour decision. A page whose replacement is still '
+                          'in progress finishes when the box is reopened, or '
+                          'is reported there for a retake. There is no in-app '
+                          'restore of lost calibration data.',
+              ),
+              const SizedBox(height: 8),
+              ...calibration.issues.map(
+                (issue) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '• ${issue.folderName} / ${issue.imageName}: ${issue.message}',
+                    style: TextStyle(
+                      color: canContinue
+                          ? Theme.of(ctx).colorScheme.onSurfaceVariant
+                          : LifewoodColors.of(ctx).warning,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(canContinue ? 'Cancel' : 'Close'),
+          ),
+          if (canContinue)
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Continue without colour calibration'),
+            ),
+        ],
+      ),
+    );
+    if (proceed != true) return false;
+    try {
+      await session.acceptUncalibratedColorBindings(box, calibration);
+    } catch (e) {
+      showAppSnackBar(
+        'Colour calibration needs repair',
+        '$e',
+        backgroundColor: Get.theme.extension<LifewoodColors>()!.warning,
+        colorText: Get.theme.extension<LifewoodColors>()!.onWarning,
+      );
+      return false;
+    }
+  } else {
+    // Every page already has a valid decision; retire a stale recovery flag
+    // left by an earlier recovery. Safe and best-effort.
+    await session.clearResolvedColorIntegrity();
+  }
+
   // Plan (computes + persists folder names / finalized volumes).
   final BoxTransferPlan plan;
   try {
