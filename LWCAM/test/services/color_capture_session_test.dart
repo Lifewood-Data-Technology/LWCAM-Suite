@@ -6,6 +6,7 @@ import 'package:lwcam/auth/auth_controller.dart';
 import 'package:lwcam/models/project.dart';
 import 'package:lwcam/services/users_store_service.dart';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:lwcam/db/upload_stats_db.dart';
@@ -96,6 +97,23 @@ void main() {
     adb.names = null;
     expect(await auth.enterCaptureWithProject(project, calibrationConfirmed: true), isFalse);
     expect(adb.listingCalls, 1);
+    auth.passwordController.dispose();
+    auth.usernameController.dispose();
+  });
+  testWidgets('Auth capture entry dialog: Cancel stays out of capture', (tester) async {
+    await tester.pumpWidget(const GetMaterialApp(home: SizedBox()));
+    final auth = AuthController()..usersStore = KeyingStore();
+    auth.deviceId.value = 'station';
+    final project = Project(key: 'p', projectId: 'P', name: 'Project', startDate: DateTime.now());
+    adb.names = ['old.jpg'];
+    bool? entered;
+    auth.enterCaptureWithProject(project).then((value) => entered = value);
+    await tester.pumpAndSettle();
+    expect(find.text('Box colour calibration'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(entered, isFalse);
+    expect(adb.listingCalls, 0);
     auth.passwordController.dispose();
     auth.usernameController.dispose();
   });

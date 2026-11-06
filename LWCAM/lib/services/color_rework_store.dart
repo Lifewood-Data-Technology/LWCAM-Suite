@@ -218,6 +218,15 @@ class ColorReworkStore {
     await writeStringAtomic(intent.path, jsonEncode(data));
   }
 
+  /// Reverses [beginApply] when submit failed before touching the folder's
+  /// in-progress flag or the photo, so Undo is allowed again.
+  static Future<void> abortApply(String deviceId, String target) async {
+    final intent = await _intentFile(deviceId, target);
+    final data = Map<String, dynamic>.from(jsonDecode(await intent.readAsString()) as Map);
+    data['applying'] = false;
+    await writeStringAtomic(intent.path, jsonEncode(data));
+  }
+
   /// The closure and this receipt commit together. If deleting the intent then
   /// fails, later metadata must recognise this exact committed generation;
   /// receipts for older generations never exempt a newer replacement.

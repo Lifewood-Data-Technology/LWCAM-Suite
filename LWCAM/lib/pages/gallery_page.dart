@@ -6242,6 +6242,32 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         final flagged = <String>{};
         final failedFolders = <String>{};
 
+        // Checked BEFORE any write: a folder that fails here must not be left
+        // with replaced pixels and its in-progress flag holding LWIP off.
+        final open = [
+          for (final item in items)
+            if (!session.reworkClosed.contains(item.imageName)) item,
+        ];
+        final stagedHere = [
+          for (final item in open)
+            if (_reworkStaged[item.imageName] != null)
+              _reworkStaged[item.imageName]!,
+        ];
+        if (stagedHere.isNotEmpty ||
+            open.any((item) => _reworkMetadataFixed.contains(item.imageName))) {
+          try {
+            await ColorReworkStore.assertMetadataSafe(
+              deviceId,
+              folderKey: items.first.folderKey,
+              folderPath: items.first.folderPath,
+              completing: stagedHere,
+            );
+          } catch (e) {
+            failures.add('${items.first.folderName}: $e');
+            continue;
+          }
+        }
+
         for (final item in items) {
           if (session.reworkClosed.contains(item.imageName)) continue;
           final staged = _reworkStaged[item.imageName];
@@ -6264,6 +6290,9 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
             folderBlocked = true;
             continue;
           }
+          // True while only the local intent says "applying": nothing in the
+          // input folder has been touched yet.
+          var appliedLocallyOnly = false;
           try {
             final source = await reworkSourceForItem(
               staged: staged,
@@ -6277,6 +6306,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
             // Persist locally before even holding the remote marker. After a
             // crash, metadata can detect interrupted work without that share.
             await ColorReworkStore.beginApply(deviceId, target.path);
+            appliedLocallyOnly = true;
             if (!flagged.contains(inputDir)) {
               // Fail closed: an unflagged folder could be fingerprinted by LWIP
               // half-replaced, so a failed flag write skips the replacement.
@@ -6285,9 +6315,11 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                 'box_name': item.boxName, 'folder_seq': item.folderSeq,
                 'folder_name': item.folderName, 'device_id': deviceId,
               });
+              appliedLocallyOnly = false;
               await setReworkInProgress(inputDir, true, requireReadable: true);
               flagged.add(inputDir);
             }
+            appliedLocallyOnly = false;
             setState(() => statusMsg = 'Replacing ${item.imageName}…');
             await _overwriteReworkFileAtomically(
               source: source,
@@ -6302,27 +6334,16 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
             verified[item.reworkId] = target;
             await _refreshSavedBoxThumbnail(box.id, item.imageName, target);
           } catch (e) {
+            if (appliedLocallyOnly) {
+              try {
+                await ColorReworkStore.abortApply(deviceId, target.path);
+              } catch (abortError) {
+                print('⚠️ Could not reset recapture intent for ${item.imageName}: $abortError');
+              }
+            }
             failedFolders.add(target.parent.path);
             print('⚠️ Rework write failed for ${item.imageName}: $e');
             failures.add('${item.imageName}: $e');
-          }
-        }
-
-        if (metadataReady.isNotEmpty || recaptured.isNotEmpty) {
-          try {
-            await ColorReworkStore.assertMetadataSafe(
-              deviceId,
-              folderKey: items.first.folderKey,
-              folderPath: items.first.folderPath,
-              completing: [
-                for (final item in items)
-                  if (recaptured.contains(item.reworkId))
-                    _reworkStaged[item.imageName]!,
-              ],
-            );
-          } catch (e) {
-            folderBlocked = true;
-            failures.add('${items.first.folderName}: $e');
           }
         }
 

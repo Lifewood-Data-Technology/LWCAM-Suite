@@ -46,6 +46,16 @@ void main() {
     expect(await intent.readAsString(), '{broken');
     expect(await staged.exists(), isTrue);
   });
+  test('an aborted apply allows Undo again', () async {
+    final source = await File(p.join(root.path, 'aborted.jpg')).writeAsBytes([1]);
+    final target = p.join(root.path, 'aborted-target.jpg');
+    final staged = await ColorReworkStore.stage(
+      'station', target, source, ColorBinding.none('disabled'));
+    await ColorReworkStore.beginApply('station', target);
+    await ColorReworkStore.abortApply('station', target);
+    await ColorReworkStore.discardStaged(staged);
+    expect(await ColorReworkStore.pending('station', target), isNull);
+  });
   test('applying survives Undo, restaging and recovery', () async {
     final source = await File(p.join(root.path, 'shot.jpg')).writeAsBytes([1]);
     final target = p.join(root.path, 'target.jpg');
