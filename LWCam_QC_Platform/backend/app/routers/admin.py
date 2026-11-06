@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, lazyload, selectinload
 from app.core import netlogin, runtime_settings
 from app.core.config import Settings, settings
 from app.core.errors import ApiCodes, BusinessError
+from app.core.node_config import node_config_mode
 from app.core.paths import fs_path, relocate_under
 from app.core.responses import ApiResponse, PageResult, ok
 from app.core.security import end_user_sessions, hash_password
@@ -872,6 +873,10 @@ def update_server_settings(
     Export paths reuse validate_path_settings; omitted AI fields stay
     untouched so older consoles can still save the other settings.
     """
+    if node_config_mode():
+        # config.txt is not read on an All-In-One station; a save here would
+        # report success and change nothing.
+        raise BusinessError(ApiCodes.BAD_REQUEST, "Settings on this station are changed in LWCam Admin's Station Setup.", 409)
     export_temp_dir = request.exportTempDir.strip()
     export_output_dir = request.exportOutputDir.strip()
     images_root = request.qcImagesRoot.strip()

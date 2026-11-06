@@ -159,6 +159,19 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> ToolConfig:
     db_use_ssl = raw.get("db_use_ssl", False)
     if not isinstance(db_use_ssl, bool):
         raise ValueError("db_use_ssl must be true or false")
+    node_path = os.environ.get("LWCAM_NODE_CONFIG", "").strip()
+    if node_path:
+        # All-In-One: the database login lives only in LWCam Admin's
+        # lwcam_node_config.json; the db_* keys above are ignored.
+        node = json.loads(Path(node_path).read_text(encoding="utf-8"))
+        if not isinstance(node, dict):
+            raise ValueError(f"LWCam node config is not a JSON object: {node_path}")
+        db_host = str(node.get("pgHost", "")).strip()
+        db_port = int(node.get("pgPort") or 5432)
+        db_name = str(node.get("pgDatabase", "")).strip() or "lwcam"
+        db_user = str(node.get("pgUser", "")).strip()
+        db_password = lwcam_secrets.unprotect(str(node.get("pgPassword", "")), "pgPassword")
+        db_use_ssl = bool(node.get("pgUseSsl", False))
     ui_port = int(raw.get("ui_port", 8090))
     ui_bind = str(raw.get("ui_bind", "0.0.0.0")).strip() or "0.0.0.0"
     tls_cert_file = str(raw.get("tls_cert_file", "")).strip()

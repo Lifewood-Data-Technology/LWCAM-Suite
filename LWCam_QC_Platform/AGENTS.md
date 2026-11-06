@@ -37,8 +37,12 @@ cd backend
 python run_server.py    # port from config.txt, else 8080
 ```
 
-Everything comes from `config.txt` (below). The server does not read LWCam
-Admin's `lwcam_node_config.json`, so `LWCAM_NODE_CONFIG` does nothing here. The
+Everything comes from `config.txt` (below). The one exception is the All-In-One
+edition: when `LWCAM_NODE_CONFIG` is set (LWCAM starts the engine that way), the
+settings come from LWCam Admin's `lwcam_node_config.json` instead
+(`app/core/node_config.py`), `config.txt` is ignored, and `PUT /admin/settings`
+answers 409. LWIP's `load_config` takes its database login from the same file
+in that mode. A Module install never sets the variable. The
 file needs at least `dbHost`/`dbName`/`dbUser`/`dbPassword`. Without `jwtSecret`
 the development secret is used, and the server refuses it on any non-loopback
 `bindHost`. Copy `config.example.txt` to `config.txt` to start (the real file is
