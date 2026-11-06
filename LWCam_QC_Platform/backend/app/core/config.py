@@ -165,7 +165,10 @@ class Settings(BaseSettings):
     ai_review_compare_output_mode: Literal["json_schema", "json_object", "prompt_json"] = "json_schema"
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_extract_model: str = "qwen/qwen3-vl-8b-instruct"
+    # Must have an OpenRouter provider that supports `reasoning` (extract runs
+    # with it "enabled" and require_parameters=True). qwen3-vl-8b-instruct lost
+    # its last such provider in 2026-11 and every job failed with 404.
+    openrouter_extract_model: str = "qwen/qwen3.6-35b-a3b"
     openrouter_compare_model: str = "qwen/qwen3.5-flash-02-23"
     export_temp_dir: str = ""
     export_output_dir: str = ""
