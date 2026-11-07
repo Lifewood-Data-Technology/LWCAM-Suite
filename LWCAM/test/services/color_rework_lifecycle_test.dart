@@ -158,4 +158,48 @@ void main() {
       expect(await done.exists(), isFalse);
     },
   );
+  test('completion drops an uncalibrated copy and keeps a calibrated one', () async {
+    final source = await File(p.join(root.path, 'copy.jpg')).writeAsBytes([1]);
+    final plain = await ColorReworkStore.stage(
+        'station', 'plain', source, ColorBinding.none('disabled'));
+    final calibrated = await ColorReworkStore.stage('station', 'calibrated', source,
+        const ColorBinding(profile: 'p', reason: 'calibrated', boundAt: 't'));
+    final slot = await ColorReworkStore.stage(
+        'station', 'capture-slot:a.jpg', source, ColorBinding.none('disabled'));
+    await ColorReworkStore.complete('station', 'plain', staged: plain);
+    await ColorReworkStore.complete('station', 'calibrated', staged: calibrated);
+    await ColorReworkStore.complete('station', 'capture-slot:a.jpg', staged: slot);
+    expect(await plain.exists(), isFalse);
+    expect(await File('${plain.path}.color.json').exists(), isFalse);
+    expect(await calibrated.exists(), isTrue);
+    expect(await slot.exists(), isTrue);
+  });
+  test('retention prunes records written before owner.json', () async {
+    final source = await File(p.join(root.path, 'legacy.jpg')).writeAsBytes([1]);
+    const binding = ColorBinding(profile: 'p', reason: 'calibrated', boundAt: 't');
+    Future<File> legacy(String target) async {
+      final staged = await ColorReworkStore.stage('station', target, source, binding);
+      await ColorReworkStore.complete('station', target, staged: staged);
+      await File(p.join(staged.parent.path, 'owner.json')).delete();
+      return staged;
+    }
+    final unreferenced = await legacy('unreferenced');
+    final referenced = await legacy('referenced');
+    // Another operator on this PC still displays this photo, unsent.
+    await db.insertReplacementRecord(
+      deviceId: 'other',
+      sequenceIndex: 0,
+      dateKey: '2026-10-27',
+      originalFilename: 'a.jpg',
+      replacementFilename: 'b.jpg',
+      replacementLocalPath: referenced.path,
+    );
+    final pending = await ColorReworkStore.stage('station', 'pending-legacy', source, binding);
+    await File(p.join(pending.parent.path, 'owner.json')).delete();
+    await ColorReworkStore.prune(
+        'station', now: DateTime.now().add(const Duration(days: 31)));
+    expect(await unreferenced.parent.exists(), isFalse);
+    expect(await referenced.exists(), isTrue);
+    expect(await pending.exists(), isTrue);
+  });
 }
