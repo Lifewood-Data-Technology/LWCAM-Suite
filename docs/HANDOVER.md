@@ -47,10 +47,11 @@ Create these as GitHub Issues (labels in `CONTRIBUTING.md`).
 
 ### Feature
 
-- **Color Calibration integration into the Module edition** (`enhancement`).
-  Daily colour calibration, AI-review reliability work and volume carry-over
-  pre-fill exist only in the All-In-One edition (`lwcam-all-in-one`). Decide
-  what to port, and where it belongs in the five-module layout.
+- **Port the remaining All-In-One features to the Module edition** (`enhancement`).
+  AI-review reliability work and volume carry-over pre-fill exist only in the
+  All-In-One edition (`lwcam-all-in-one`). Decide what to port, and where it
+  belongs in the five-module layout. Daily colour calibration is done (PR #1,
+  `docs/CALIBRATION-PROTOCOL.md`).
 
 ### Refactors (`refactor`, one issue per item)
 
