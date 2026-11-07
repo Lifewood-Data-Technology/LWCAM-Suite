@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' show Transaction;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' show Transaction, openReadOnlyDatabase;
 import '../db/upload_stats_db.dart';
 import 'color_capture_session.dart';
 import 'fs_probe.dart';
@@ -793,10 +793,12 @@ class ColorReworkStore {
     final records = await UploadStatsDB().getReplacementRecords(deviceId);
     final protected = records.where((r) => r['transferred_at'] == null)
         .map((r) => r['replacement_local_path']).whereType<String>().toSet();
+    Set<String>? everyDevice;
     await for (final entry in root.list(followLinks: false)) {
       if (entry is! Directory || !RegExp(r'^[0-9a-f]{64}$').hasMatch(p.basename(entry.path))) continue;
       try {
-        await _pruneRecord(deviceId, entry, cutoff, protected);
+        await _pruneRecord(deviceId, entry, cutoff, protected,
+            () async => everyDevice ??= await _protectedOnThisPc());
       } catch (e) {
         // One unreadable record must not stop retention for the others.
         print('ℹ️ Recapture retention skipped ${entry.path}: $e');
@@ -805,10 +807,26 @@ class ColorReworkStore {
   }
 
   static Future<void> _pruneRecord(String deviceId, Directory entry,
-      DateTime cutoff, Set<String> protected) async {
+      DateTime cutoff, Set<String> deviceProtected,
+      Future<Set<String>> Function() protectedOnThisPc) async {
+    var protected = deviceProtected;
     final owner = File(p.join(entry.path, _ownerName));
-    if (!await owner.exists() || (jsonDecode(await owner.readAsString()) as Map)['device_id'] != deviceId) return;
     final intent = File(p.join(entry.path, _intentName));
+    if (await owner.exists()) {
+      if ((jsonDecode(await owner.readAsString()) as Map)['device_id'] != deviceId) return;
+    } else if (await intent.exists()) {
+      // Written before owner.json existed: the directory name is a hash of
+      // the device and the intent's target, so it proves whose record it is.
+      final data = jsonDecode(await intent.readAsString());
+      if (data is! Map || data['target'] is! String ||
+          _keyFor(deviceId, data['target'] as String) != p.basename(entry.path)) {
+        return;
+      }
+    } else {
+      // A finished record written before owner.json existed names no device.
+      // Its photo may still be any operator's unsent capture-slot replacement.
+      protected = await protectedOnThisPc();
+    }
     if (await intent.exists()) {
       final data = jsonDecode(await intent.readAsString());
       if (data is! Map || data['target'] is! String) return;
@@ -827,10 +845,33 @@ class ColorReworkStore {
       if ((await candidate.stat()).modified.isBefore(cutoff)) await candidate.delete();
     }
     final remaining = await entry.list(followLinks: false).toList();
-    if (remaining.length == 1 && remaining.single.path == owner.path) {
-      await owner.delete();
+    if (remaining.every((e) => e.path == owner.path)) {
+      if (remaining.isNotEmpty) await owner.delete();
       await entry.delete();
     }
+  }
+
+  /// Unsent replacement photos of every device database on this PC. Opened
+  /// read-only, so no database is created or migrated; a monthly file has no
+  /// `replacement_records` table and is skipped.
+  static Future<Set<String>> _protectedOnThisPc() async {
+    final result = <String>{};
+    final base = Directory(await UploadStatsDB().getBaseFolder());
+    await for (final file in base.list(followLinks: false)) {
+      if (file is! File || !RegExp(r'^lwcam_stats_.+\.db$').hasMatch(p.basename(file.path))) continue;
+      final db = await openReadOnlyDatabase(file.path);
+      try {
+        final hasTable = await db.query('sqlite_master',
+            where: "type = 'table' AND name = 'replacement_records'");
+        if (hasTable.isEmpty) continue;
+        final rows = await db.query('replacement_records',
+            columns: ['replacement_local_path'], where: 'transferred_at IS NULL');
+        result.addAll(rows.map((r) => r['replacement_local_path']).whereType<String>());
+      } finally {
+        await db.close();
+      }
+    }
+    return result;
   }
 
   /// True when [file] is a generation inside the per-device/target recapture
@@ -918,8 +959,27 @@ class ColorReworkStore {
       if (current != p.basename(staged.path)) return;
     }
     await intent.delete();
-    // Keep captured generations for recovery; never delete an operator's photo
-    // as a side effect of clearing the published intent.
+    // Keep calibrated generations for recovery; [prune] retires them.
+    // With calibration off the copy only made this submit crash-safe, and the
+    // committed target now holds those bytes, so it goes now. A capture-slot
+    // copy can be the photo its replacement record displays, so it stays.
+    if (staged != null && !target.startsWith('capture-slot:')) {
+      await _dropUncalibratedCopy(staged);
+    }
+  }
+
+  static Future<void> _dropUncalibratedCopy(File staged) async {
+    if (!isStoreFile(staged)) return;
+    final sidecar = File('${staged.path}.color.json');
+    try {
+      final binding = jsonDecode(await sidecar.readAsString());
+      if (binding is! Map || binding['reason'] != 'disabled') return;
+      await staged.delete();
+      await sidecar.delete();
+    } catch (e) {
+      // The intent is already gone; [prune] removes the copy within 30 days.
+      print('ℹ️ Could not remove uncalibrated recapture copy ${staged.path}: $e');
+    }
   }
 }
 
