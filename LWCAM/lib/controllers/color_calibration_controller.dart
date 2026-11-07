@@ -397,7 +397,14 @@ class ColorCalibrationController extends GetxController {
   /// Leaves calibration without activating a profile.
   Future<void> continueWithoutCalibrating() async {
     cancel();
-    await ColorCaptureSession.skip(_deviceId);
+    try {
+      await ColorCaptureSession.skip(_deviceId);
+    } catch (e) {
+      // e.g. the phone is unplugged: say so instead of an unhandled error.
+      phase.value = CalPhase.error;
+      status.value = 'Cannot continue without calibrating. $e';
+      return;
+    }
     await _continue();
   }
 

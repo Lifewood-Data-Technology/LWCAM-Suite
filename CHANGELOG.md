@@ -7,6 +7,21 @@ Newest first. The All-In-One edition keeps its own changelog on branch
 
 ## [Unreleased]
 
+- Check a rework folder's recapture records before replacing any photo, so a
+  blocked folder is never left half-replaced and held from LWIP.
+- Allow Undo again when a recapture submit fails before touching the folder
+  (unreadable or mismatched capture marker).
+- Show the reason when "Continue without calibrating" fails (phone unplugged).
+- LWIP calibration retention: replace an older archived copy of a republished
+  task, defer (not crash) when `.calibration\.archive` is a link, and log a
+  task's persistent error once instead of every scan.
+- Recapture with colour calibration off: delete the store copy as soon as the
+  request is closed, instead of keeping it 30 days.
+- Recapture retention also prunes records written before `owner.json` existed,
+  unless any operator on the PC still has the photo as an unsent replacement.
+- Remove the committed test-log evidence under
+  `verification/pr-review-20261027/` (kept in history at 126f2b9).
+
 - Do not recover already committed recaptures after an interrupted intent
   cleanup, or carry their applying state into a newly staged photo.
 - Submit metadata-only rework without opening the photo share; retain local

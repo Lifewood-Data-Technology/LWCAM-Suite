@@ -79,6 +79,7 @@ class CalibrationQueue:
         self._terminal_signatures = {}
         self._last_cleanup = 0
         self._ignored_names = set()
+        self._last_errors = {}
         # The ledger grows with jobs; its size is not limited by the wire protocol.
         self.records = json.loads(self.ledger_path.read_text(encoding="utf-8")) if self.ledger_path.exists() else {}
 
@@ -312,8 +313,13 @@ class CalibrationQueue:
             try:
                 archive.mkdir(exist_ok=True)
                 plain_path(archive)
-                os.replace(plain_path(folder), archive / folder.name)
-            except OSError as exc:
+                target = archive / folder.name
+                if target.exists():
+                    # An older copy of the same task id (capture republished it
+                    # after it was archived); the live folder supersedes it.
+                    shutil.rmtree(plain_path(target))
+                os.replace(plain_path(folder), target)
+            except (OSError, ProtocolError) as exc:
                 LOG.warning("Calibration retention: could not archive %s: %s", folder.name, exc)
                 continue
             self._terminal_signatures.pop(folder.name, None)
@@ -398,7 +404,8 @@ class CalibrationQueue:
         tasks.sort()
         try:
             self._retire(tasks)
-        except OSError as exc:
+        except (OSError, ProtocolError) as exc:
+            # ProtocolError: .archive became a link/junction (plain_path).
             LOG.warning("Calibration retention deferred: %s", exc)
         self.status(state="idle", error=None, queued=sum(self.records.get(p.name, {}).get("state") not in ("succeeded", "failed") for p in tasks))
         for folder in tasks:
@@ -416,10 +423,15 @@ class CalibrationQueue:
                 # another validation, never an unchecked cache hit.
                 if terminal and signature is not None:
                     self._terminal_signatures[folder.name] = signature
+                self._last_errors.pop(folder.name, None)
             except InterruptedError:
                 return
             except Exception as exc:
-                LOG.warning("Calibration %s: %s", folder.name, exc)
+                # A persistent failure retries every scan; log it once until
+                # it changes or clears, not every 2 s.
+                if self._last_errors.get(folder.name) != str(exc):
+                    self._last_errors[folder.name] = str(exc)
+                    LOG.warning("Calibration %s: %s", folder.name, exc)
                 self.status(state="publishing" if self.records.get(folder.name, {}).get("state") == "publishing" else "file_access_failed", task_id=folder.name, error=str(exc))
 
 

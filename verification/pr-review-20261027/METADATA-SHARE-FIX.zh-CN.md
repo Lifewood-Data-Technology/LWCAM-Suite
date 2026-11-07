@@ -26,7 +26,7 @@
 - 覆盖新旧暂存、正常 Undo、共享目录离线、替换中断、同目录隐藏 sibling、路径变化、混合提交、事务回滚、marker 首次写入失败、提交后 intent 残留与旧凭据保护。
 - 当前修改未触及 Python 服务、Admin、几何或色彩算法，无新依赖、无 schema migration。既有 Python/Admin 测试结果为上一轮证据，本轮未重跑。
 
-证据见 `evidence-metadata-share-20261028/`，含修复前失败、完整测试、扩展宿主、分析日志和源码 SHA256。Windows Release 构建结果另见该目录的构建日志与最终结果 JSON。
+证据见 `evidence-metadata-share-20261028/`（已移出仓库，见提交 126f2b9），含修复前失败、完整测试、扩展宿主、分析日志和源码 SHA256。Windows Release 构建结果另见该目录的构建日志与最终结果 JSON。
 
 本轮未重新点击完整原生/浏览器 UI 闭环，不能把提取生产方法的集成宿主描述为新的 Computer Use 验收。最终安装包和覆盖升级验收仍待构建输入准备完成。
 

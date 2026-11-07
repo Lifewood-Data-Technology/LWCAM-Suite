@@ -221,6 +221,39 @@ class QueueTests(unittest.TestCase):
         self.assertFalse((archive / valid.name).exists())
         self.assertTrue(broken.exists(), "an entry of unknown age is kept")
 
+    def test_republished_task_replaces_its_older_archive_copy(self):
+        task_id = "00000000-0000-4000-8000-000000000004"
+        self.retire([self.finished(task_id, 40)])
+        archived = self.folder.parent / ".archive" / task_id
+        (archived / "old.txt").write_text("older copy")
+        again = self.finished(task_id, 40)  # capture published the id again
+        self.retire([again])
+        self.assertFalse(again.exists())
+        self.assertFalse((archived / "old.txt").exists())
+        self.assertNotIn(task_id, self.queue.records)
+
+    def test_archive_junction_defers_retention_without_escaping_tick(self):
+        import time
+        from deskew_crop_tool import calibration_queue
+        self.queue.tick()
+        original = calibration_queue.plain_path
+        def guarded(path):
+            if Path(path).name == ".archive":
+                raise ProtocolError("link")
+            return original(path)
+        with patch("deskew_crop_tool.calibration_queue.plain_path", guarded), \
+                patch("deskew_crop_tool.calibration_queue.time.time", return_value=time.time() + 31 * 86400):
+            self.queue.tick()  # must not raise
+        self.assertTrue(self.folder.exists())
+        self.assertIn(self.folder.name, self.queue.records)
+
+    def test_persistent_task_error_is_logged_once(self):
+        with patch.object(self.queue, "process", side_effect=PermissionError("denied")), \
+                patch("deskew_crop_tool.calibration_queue.LOG.warning") as warning:
+            for _ in range(3):
+                self.queue.tick()
+        self.assertEqual(sum("denied" in str(c) for c in warning.call_args_list), 1)
+
     def test_local_cleanup_failure_keeps_record_for_retry(self):
         task = self.finished("00000000-0000-4000-8000-000000000003", 40)
         with patch("deskew_crop_tool.calibration_queue.shutil.rmtree", side_effect=PermissionError("busy")):
