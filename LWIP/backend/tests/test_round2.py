@@ -80,12 +80,20 @@ class MarkerImageCountTests(Base):
         _jpeg(self.folder / "b.jpg")
         self.assertEqual(FolderOrchestrator(self.config).run_once(), 1)
 
-    def test_a_marker_without_the_field_or_with_junk_behaves_as_before(self) -> None:
+    def test_a_marker_without_a_valid_count_behaves_as_before(self) -> None:
         _jpeg(self.folder / "a.jpg")
-        for text in ("{}", '{"image_count": "x"}', "not json", '{"image_count": true}'):
+        for text in ("{}", '{"image_count": "x"}', '{"image_count": true}'):
             (self.folder / "marker.json").write_text(text, encoding="utf-8")
             snapshot = build_snapshot(self.folder, self.config)
             self.assertTrue(FolderOrchestrator(self.config)._is_ready(snapshot), text)
+
+    def test_unreadable_marker_cannot_silently_drop_calibration(self):
+        _jpeg(self.folder / "a.jpg")
+        (self.folder / "marker.json").write_text("not json", encoding="utf-8")
+        runner = FolderOrchestrator(self.config)
+        self.assertEqual(runner.run_once(), 0)
+        self.assertTrue(runner.state.data["failures"])
+        self.assertFalse((self.root / "output" / "job").exists())
 
 
 class FailureBackoffTests(Base):

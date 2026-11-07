@@ -10,12 +10,12 @@
 
 | 套件 | 运行位置 | 命令 | 干净检出时的预期结果 |
 | --- | --- | --- | --- |
-| QC 后端 | `LWCam_QC_Platform/backend` | `python -m unittest discover -s tests -t .` | 391 个测试，跳过 8 个（数据库测试，见第 2 节） |
+| QC 后端 | `LWCam_QC_Platform/backend` | `python -m unittest discover -s tests -t .` | 405 个测试，跳过 8 个（数据库测试，见第 2 节） |
 | QC 前端 | `LWCam_QC_Platform/frontend` | `npm ci`，然后 `npm run build` | 构建成功且没有类型错误。构建会运行 `vue-tsc --noEmit && vite build`。 |
-| LWIP | `LWIP/backend` | `python -m unittest discover -s tests` | 235 个测试，跳过 7 个，2 个已知失败（第 3 节） |
-| Upload | `LWCam_Upload/backend` | `python -m unittest discover -s tests` | 158 个测试全部通过 |
-| LWCAM | `LWCAM` | `flutter analyze`，然后 `flutter test` | Analyze：5 条 info。Test：455 个通过。 |
-| LWCam Admin | `LWCamAdmin` | `flutter analyze`，然后 `flutter test` | Analyze：无任何提示。Test：135 个通过，跳过 1 个。 |
+| LWIP | `LWIP/backend` | `python -m unittest discover -s tests` | 328 个测试；跳过数及两项长路径对照结果取决于环境（第 3 节） |
+| Upload | `LWCam_Upload/backend` | `python -m unittest discover -s tests` | 160 个测试全部通过 |
+| LWCAM | `LWCAM` | `flutter analyze`，然后 `flutter test` | Analyze：5 条 info。Test：546 个通过。 |
+| LWCam Admin | `LWCamAdmin` | `flutter analyze`，然后 `flutter test` | Analyze：无任何提示。Test：136 个通过。 |
 
 测试套件使用 `unittest`，不需要 pytest。`LWIP/RUN_TESTS.bat` 使用安装程序构建的私有运行时运行 LWIP 测试套件；在开发用 PC 上请使用上表中的命令。
 

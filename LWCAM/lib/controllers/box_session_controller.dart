@@ -8,6 +8,8 @@
 // The file also builds the transfer plan, stages files for the transfer queue
 // and marks boxes transferred, after which LWIP picks the folders up.
 import 'dart:async';
+import '../services/color_capture_session.dart';
+import '../services/color_rework_store.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -55,6 +57,48 @@ class CaptureBoxEntry {
   });
 
   bool get needsRework => reworkCount > 0;
+}
+
+class BoxColorCalibrationIssue {
+  final int folderId;
+  final String folderName;
+  final String imageName;
+  final ColorCalibrationIssueKind kind;
+  final String message;
+
+  const BoxColorCalibrationIssue({
+    required this.folderId,
+    required this.folderName,
+    required this.imageName,
+    required this.kind,
+    required this.message,
+  });
+
+  bool get canContinueUncalibrated =>
+      kind == ColorCalibrationIssueKind.unknownBinding;
+}
+
+class BoxColorCalibrationPreflight {
+  final List<BoxColorCalibrationIssue> issues;
+
+  const BoxColorCalibrationPreflight({required this.issues});
+
+  bool get hasIssues => issues.isNotEmpty;
+
+  bool get canContinueUncalibrated =>
+      issues.isNotEmpty && issues.every((issue) => issue.canContinueUncalibrated);
+
+  List<String> get folderNames => {
+    for (final issue in issues) issue.folderName,
+  }.toList();
+
+  List<String> get imageNames => {
+    for (final issue in issues) issue.imageName,
+  }.toList();
+
+  String get summary => issues
+      .map((issue) => '${issue.folderName} / ${issue.imageName}: ${issue.message}')
+      .join('; ');
 }
 
 /// List order: rework first, then boxes still being captured, then completed
@@ -208,6 +252,11 @@ class BoxSessionController extends GetxController {
   /// image name → recaptured photo waiting to be written.
   final Map<String, File> reworkStaged = {};
 
+  /// image names whose rework closure is already in the outbox. Kept in the
+  /// session so a partial submit does not re-count an applied page as open,
+  /// and so a retry never rewrites it.
+  final Set<String> reworkClosed = {};
+
   /// image names the operator marked as fixed by a metadata correction.
   final Set<String> reworkMetadataFixed = {};
 
@@ -220,9 +269,21 @@ class BoxSessionController extends GetxController {
   /// Drops staged rework work and its files. [keepFiles] when the files have
   /// just been consumed by a submit and moved into place.
   Future<void> clearReworkStaging({bool keepFiles = false}) async {
+    final staged = Map<String, File>.from(reworkStaged);
     reworkStaged.clear();
     reworkMetadataFixed.clear();
+    reworkClosed.clear();
     reworkStagedBoxId = null;
+    for (final file in staged.values) {
+      if (!ColorReworkStore.isStoreFile(file)) continue;
+      try {
+        await ColorReworkStore.discardStaged(file);
+      } catch (e) {
+        // Applying intents survive navigation. Gallery reload restores only
+        // these generations; unsubmitted abandoned photos stay inert.
+        print('ℹ️ Could not discard rework intent for ${file.path}: $e');
+      }
+    }
     final dir = reworkStagingDir;
     reworkStagingDir = null;
     if (dir == null || keepFiles) return;
@@ -306,6 +367,11 @@ class BoxSessionController extends GetxController {
   Future<void> loadBoxes() async {
     if (deviceId.isEmpty) return;
     await healOrphans();
+    try {
+      await ColorReworkStore.prune(deviceId);
+    } catch (e) {
+      print('Recapture retention deferred: $e');
+    }
     isLoading.value = true;
     loadError.value = null;
     try {
@@ -756,14 +822,17 @@ class BoxSessionController extends GetxController {
     }
     if (_folderIdByFilename.containsKey(deviceFilename)) return;
 
+    ColorBinding? binding;
     final bool ok;
     try {
+      binding = await ColorCaptureSession.bindingFor(deviceId, deviceFilename);
       ok = await retrying(
         () => _db.assignImageToFolder(
           deviceId: deviceId,
           boxId: box.id,
           folderId: folder.id,
           deviceFilename: deviceFilename,
+          colorBinding: binding?.toJson(),
         ),
       );
     } catch (e) {
@@ -774,6 +843,7 @@ class BoxSessionController extends GetxController {
         boxId: box.id,
         folderId: folder.id,
         reason: 'db-error: $e',
+        colorBinding: binding?.toJson(),
       );
       return;
     }
@@ -804,6 +874,7 @@ class BoxSessionController extends GetxController {
     int? boxId,
     int? folderId,
     required String reason,
+    Map<String, dynamic>? colorBinding,
   }) async {
     if (localFile == null || !await localFile.exists()) {
       print('⚠️ Orphan $deviceFilename has no local bytes to stash ($reason).');
@@ -816,6 +887,7 @@ class BoxSessionController extends GetxController {
       boxId: boxId,
       folderId: folderId,
       reason: reason,
+      colorBinding: colorBinding,
     );
     if (entry != null) {
       await _auditOrNull?.log(
@@ -1339,6 +1411,104 @@ class BoxSessionController extends GetxController {
     }
   }
 
+  /// True when a Submit Rework was interrupted after holding the LWIP
+  /// readiness gate. A metadata-only submit must not close that page while
+  /// the folder still says rework is in progress.
+  Future<bool> isReworkInProgress(String inputFolder) =>
+      reworkReadinessHeld(inputFolder);
+
+  /// Reads the box's folder calibration before a transfer, without writing
+  /// markers. No issues means the normal path is unchanged; an issue list is
+  /// shown to the operator with the real reason.
+  Future<BoxColorCalibrationPreflight> colorCalibrationPreflight(
+    CaptureBox box,
+  ) async {
+    final folders = await _db.getCaptureFolders(
+      deviceId: deviceId,
+      boxId: box.id,
+    );
+    final issues = <BoxColorCalibrationIssue>[];
+    for (final folder in folders) {
+      final check = await _db.checkFolderColorCalibration(deviceId, folder.id);
+      if (!check.hasIssues) continue;
+      final name = folder.folderName?.trim() ?? '';
+      final folderName =
+          name.isEmpty ? 'Folder ${folder.folderSeq}' : name;
+      for (final issue in check.issues) {
+        issues.add(BoxColorCalibrationIssue(
+          folderId: folder.id,
+          folderName: folderName,
+          imageName: issue.imageName,
+          kind: issue.kind,
+          message: issue.message,
+        ));
+      }
+    }
+    return BoxColorCalibrationPreflight(issues: issues);
+  }
+
+  /// Writes the audited "continue without colour correction" decision for
+  /// every unbound page in [preflight], then re-checks before letting the
+  /// transfer proceed. Never overwrites a profile that appeared meanwhile.
+  Future<int> acceptUncalibratedColorBindings(
+    CaptureBox box,
+    BoxColorCalibrationPreflight preflight,
+  ) async {
+    if (!preflight.canContinueUncalibrated) {
+      throw StateError(
+        'Colour calibration needs a repair before it can be accepted: '
+        '${preflight.summary}',
+      );
+    }
+    final byFolder = <int, List<BoxColorCalibrationIssue>>{};
+    for (final issue in preflight.issues) {
+      if (issue.kind != ColorCalibrationIssueKind.unknownBinding) continue;
+      byFolder.putIfAbsent(issue.folderId, () => []).add(issue);
+    }
+    final accepted = await _db.bindHistoricalIfUnboundFolders(
+      deviceId,
+      byFolder.keys,
+    );
+    final remaining = await colorCalibrationPreflight(box);
+    var cleared = false;
+    if (!remaining.hasIssues) {
+      try {
+        cleared = await _db.clearColorIntegrityIfOpenPagesBound(deviceId);
+      } catch (e) {
+        print('ℹ️ Could not clear colour-integrity flag after accept: $e');
+      }
+    }
+    await _auditOrNull?.log(
+      AuditActions.colorCalibrationAccepted,
+      details: {
+        'box': box.boxDetails,
+        'folders': preflight.folderNames.join(','),
+        'images': preflight.imageNames.join(','),
+        'reason': preflight.issues.map((issue) => issue.message).toSet().join(' | '),
+        'accepted': accepted,
+        'remaining': remaining.issues.length,
+        'integrity_cleared': cleared,
+      },
+    );
+    if (remaining.hasIssues) {
+      throw StateError(
+        'Colour calibration could not be resolved: ${remaining.summary}',
+      );
+    }
+    return accepted;
+  }
+
+  /// Retires a stale recovery flag when every OPEN page already has a valid
+  /// binding. Best-effort: a failed cleanup never blocks a transfer.
+  Future<bool> clearResolvedColorIntegrity() async {
+    try {
+      return await _db.clearColorIntegrityIfOpenPagesBound(deviceId);
+    } catch (e) {
+      print('ℹ️ Could not clear resolved colour-integrity flag: $e');
+      return false;
+    }
+  }
+
   /// Marks the box transferred (call ONLY on a full-success batch result) and
   /// deletes its durable local image store — the copies exist only to spare
   /// re-pulling; once transferred and verified they are redundant.
@@ -1361,9 +1531,10 @@ class BoxSessionController extends GetxController {
       legacyRoot: legacyRoot,
     );
     if (!markers.isSuccess) {
+      final detail = markers.details.isEmpty ? '' : ' ${markers.details}';
       throw StateError(
         'Processing markers were not completed for "${box.boxDetails}": '
-        '${markers.summary}. Retry the transfer after fixing the destination.',
+        '${markers.summary}.$detail',
       );
     }
 

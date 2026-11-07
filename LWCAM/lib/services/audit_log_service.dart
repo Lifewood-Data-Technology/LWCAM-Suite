@@ -34,6 +34,7 @@ abstract final class AuditActions {
   static const transferFailed = 'TRANSFER_FAILED';
   static const transferFileFailed = 'TRANSFER_FILE_FAILED';
   static const transferRetry = 'TRANSFER_RETRY';
+  static const colorCalibrationAccepted = 'COLOR_CALIBRATION_ACCEPTED';
   static const settingsChanged = 'SETTINGS_CHANGED';
   static const syncConfigSaved = 'SYNC_CONFIG_SAVED';
   static const userManaged = 'USER_MANAGED';

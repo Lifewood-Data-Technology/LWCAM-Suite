@@ -115,7 +115,7 @@ class TlsTests(unittest.TestCase):
         self.assertNotIn("slow.example", dns)
 
     def test_leaf_reissued_when_a_name_is_missing_but_ca_is_not(self) -> None:
-        base = ({"localhost"}, {"127.0.0.1"})
+        base = ({"localhost"}, {"127.0.0.1", "10.0.0.5"})
         with patch.object(tls, "local_names", return_value=base):
             tls.ensure_certificates(self.dir)
             first_leaf = (self.dir / "server.crt").read_bytes()
@@ -127,6 +127,47 @@ class TlsTests(unittest.TestCase):
         self.assertNotEqual((self.dir / "server.crt").read_bytes(), first_leaf)
         self.assertIn("10.0.0.7", tls._san_set(self._load("server.crt")))
         self.assertEqual((self.dir / "lwcam-ca.crt").read_bytes(), ca)
+
+    def test_new_network_keeps_localhost_valid_without_expanding_ca(self) -> None:
+        base = ({"localhost"}, {"127.0.0.1", "10.23.101.5"})
+        with patch.object(tls, "local_names", return_value=base):
+            tls.ensure_certificates(self.dir)
+        ca_before = (self.dir / "lwcam-ca.crt").read_bytes()
+        first_leaf = (self.dir / "server.crt").read_bytes()
+        moved = ({"localhost"}, {"127.0.0.1", "192.168.1.127", "2001:db8::5"})
+        with patch.object(tls, "local_names", return_value=moved):
+            tls.ensure_certificates(self.dir)
+            self.assertEqual(tls._san_set(self._load("server.crt")), {"localhost", "127.0.0.1", "10.23.101.5"})
+            self.assertEqual((self.dir / "server.crt").read_bytes(), first_leaf)
+            config = {"tls_cert_file": str(self.dir / "server.crt"), "tls_key_file": str(self.dir / "server.key")}
+            httpd, _ = self._serve(config)
+            context = ssl.create_default_context(cafile=str(self.dir / "lwcam-ca.crt"))
+            with urllib.request.urlopen(f"https://localhost:{httpd.server_address[1]}/", context=context, timeout=5) as reply:
+                self.assertEqual(reply.status, 200)
+        self.assertEqual((self.dir / "lwcam-ca.crt").read_bytes(), ca_before)
+
+    def test_existing_forbidden_san_is_reissued_even_when_wanted_names_present(self) -> None:
+        base = ({"localhost"}, {"127.0.0.1"})
+        with patch.object(tls, "local_names", return_value=base):
+            tls.ensure_certificates(self.dir)
+            ca = self._load("lwcam-ca.crt")
+            ca_before = (self.dir / "lwcam-ca.crt").read_bytes()
+            ca_key = serialization.load_pem_private_key((self.dir / "lwcam-ca.key").read_bytes(), None)
+            leaf_key = serialization.load_pem_private_key((self.dir / "server.key").read_bytes(), None)
+            leaf = (x509.CertificateBuilder().subject_name(ca.subject).issuer_name(ca.subject)
+                .public_key(leaf_key.public_key()).serial_number(x509.random_serial_number())
+                .not_valid_before(tls._now() - dt.timedelta(days=1))
+                .not_valid_after(tls._now() + dt.timedelta(days=365))
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                    x509.IPAddress(ipaddress.ip_address("192.168.1.127"))]), critical=False)
+                .sign(ca_key, hashes.SHA256()))
+            (self.dir / "server.crt").write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
+            self.assertFalse(tls._leaf_usable(self.dir / "server.crt", self.dir / "server.key", ca, {"localhost", "127.0.0.1"}))
+            tls.ensure_certificates(self.dir)
+        self.assertEqual(tls._san_set(self._load("server.crt")), {"localhost", "127.0.0.1"})
+        self.assertEqual((self.dir / "lwcam-ca.crt").read_bytes(), ca_before)
 
     def test_leaf_reissued_when_nearly_expired(self) -> None:
         tls.ensure_certificates(self.dir)

@@ -270,6 +270,7 @@ class _OrphanResolutionPageState extends State<OrphanResolutionPage> {
             boxId: box.id,
             folderId: folder!.id,
             deviceFilename: e.deviceFilename,
+          colorBinding: e.colorBinding,
           ));
       if (!ok) {
         showAppSnackBar('Already assigned',

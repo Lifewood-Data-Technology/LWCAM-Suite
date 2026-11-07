@@ -79,6 +79,8 @@ from app.services.ai_review import (
 from app.services.ai_preanalysis import ai_preanalysis_scheduler
 from app.services.geometry_ops import replay_pending_ops
 from app.services.luminance import apply_luminance
+from app.services.page_calibration import effective_profile, profile_version
+from color_cal_tool.contract import CalibrationError
 from app.services.lwip_baseline import baseline_ops
 from app.services.previews import (
     PREVIEW_MIME_TYPE,
@@ -1029,7 +1031,15 @@ def to_task_vo(db, folder: CaptureFolder, viewer_user_id: str) -> MetadataQcTask
                 page_ops = [op for op in (entry.get("ops") or []) if isinstance(op, dict)]
                 page_baseline = [] if entry.get("ignore_lwip") else baseline_ops(folder_path, image.image_name)
                 version = version ^ ops_cache_component(page_baseline + page_ops)
+        try:
+            colour = effective_profile(folder_path, image.image_name, draft_item)
+            colour_error = None
+        except CalibrationError as exc:
+            colour, colour_error = None, str(exc)
+        version = int(version or 0) ^ profile_version(colour)
         images.append(MetadataQcImageVO(
+            calibrationProfileId=colour.get("profile_id") if colour else None,
+            calibrationError=colour_error,
             id=image.id,
             filename=image.image_name,
             # A page whose file went missing is repaired by replacing it, and
@@ -1758,7 +1768,7 @@ def commit_current_draft(
             # ignore_lwip: this page was never in LWIP's manifest, and a name
             # it happens to reuse must not drag a dead baseline in with it.
             inserted_ops = pending_ops_of(manifest, image_id)
-            qc_ops_updates[image_name] = {"ops": inserted_ops, "ignore_lwip": True, "kept": "inserted"}
+            qc_ops_updates[image_name] = {"ops": inserted_ops, "ignore_lwip": True, "kept": "inserted", "color_disabled": True}
             staged_names.add(image_name)
             new_image = CaptureImage(
                 image_name=image_name,
@@ -1792,6 +1802,7 @@ def commit_current_draft(
             # restore) must leave the delivered page file BYTE IDENTICAL - see
             # the module docstring - so its geometry becomes qc_ops.json data
             # instead, replayed once at export.
+            colour = effective_profile(folder_path, image.image_name, item)
             full_pixel_commit = status == "replaced" or bool(item.get("baked"))
 
             if full_pixel_commit:
@@ -1855,7 +1866,7 @@ def commit_current_draft(
                 target_thumbnail = thumbnail_target_path(folder, image)
                 if target_thumbnail is not None:
                     staged_thumbnail = _stage_sibling(target_thumbnail, "draft_commit_tmp")
-                    if generate_thumbnail_file(staged, staged_thumbnail, deferred_ops) is None:
+                    if generate_thumbnail_file(staged, staged_thumbnail, deferred_ops, color_profile=colour) is None:
                         fs_path(staged_thumbnail).unlink(missing_ok=True)
                         raise ValueError(f"Thumbnail generation failed: {target_thumbnail}")
                     abort_steps.append(lambda s=staged_thumbnail: fs_path(s).unlink(missing_ok=True))
@@ -1867,7 +1878,9 @@ def commit_current_draft(
                 # this session's edits. Nothing left to describe as data, and
                 # ignore_lwip=True stops a future read from replaying the
                 # baseline on top of pixels that already contain it.
-                qc_ops_updates[image.image_name] = {"ops": deferred_ops, "ignore_lwip": True}
+                qc_ops_updates[image.image_name] = {**((read_qc_ops(folder_path).get("images") or {}).get(image.image_name) or {}), "ops": deferred_ops, "ignore_lwip": True}
+                if status == "replaced" or item.get("color_disabled"):
+                    qc_ops_updates[image.image_name]["color_disabled"] = True
                 if not item.get("baked"):
                     # A replacement is a page QC owns: it is kept through a
                     # capture rework (see services/qc_kept_pages).
@@ -1885,7 +1898,7 @@ def commit_current_draft(
                 else:
                     new_ops = qc_ops_committed(folder_path, image.image_name) + pending
                     new_ignore = qc_ops_ignore_lwip(folder_path, image.image_name)
-                qc_ops_updates[image.image_name] = {"ops": new_ops, "ignore_lwip": new_ignore}
+                qc_ops_updates[image.image_name] = {**({} if item.get("restored") else ((read_qc_ops(folder_path).get("images") or {}).get(image.image_name) or {})), "ops": new_ops, "ignore_lwip": new_ignore}
                 target_thumbnail = thumbnail_target_path(folder, image)
                 if target_thumbnail is not None:
                     # LWIP's own thumbnail is only right until now - regenerate
@@ -1898,7 +1911,7 @@ def commit_current_draft(
                     render_ops = ([] if new_ignore else baseline_ops(folder_path, image.image_name)) + new_ops
                     source_path = expected_image_path(folder, image)
                     staged_thumbnail = _stage_sibling(target_thumbnail, "draft_commit_tmp")
-                    if generate_thumbnail_file(source_path, staged_thumbnail, render_ops) is not None:
+                    if generate_thumbnail_file(source_path, staged_thumbnail, render_ops, color_profile=colour) is not None:
                         abort_steps.append(lambda s=staged_thumbnail: fs_path(s).unlink(missing_ok=True))
                         finalize_steps.append(
                             lambda s=staged_thumbnail, o=target_thumbnail: os.replace(fs_path(s), fs_path(final_target(o)))
@@ -2324,6 +2337,13 @@ def approve_task(folder_id: int, request: ReviewRequest, current_user: QcUser, d
     template = metadata_template(folder)
     effective_metadata = effective_metadata_snapshot(folder, manifest, template)
     validate_metadata_for_approval(effective_metadata, template)
+    try:
+        for page in folder.images:
+            item = draft_image_item(manifest, page.id)
+            if not item or item.get("status") != "deleted":
+                effective_profile(to_local(folder.folder_path), page.image_name, item)
+    except CalibrationError as exc:
+        raise BusinessError(ApiCodes.BAD_REQUEST, str(exc), 400) from exc
 
     # Every page the APPROVAL will publish has to be readable - which is not
     # the same as every row currently in the database. The draft is applied by
@@ -3405,6 +3425,12 @@ def preview(folder_id: int, image_id: int, current_user: QcUser, db: DbSession) 
     if claimed_by_viewer:
         source_path = draft_image_path(folder.id, current_user.user_id, image_id)
     image = next((item for item in folder.images if item.id == image_id), None) if image_id > 0 else None
+    folder_path = to_local(folder.folder_path) if folder.folder_path else None
+    draft_item = draft_image_item(manifest, image_id)
+    try:
+        colour = effective_profile(folder_path, image.image_name, draft_item) if image else None
+    except CalibrationError as exc:
+        raise BusinessError(ApiCodes.BAD_REQUEST, str(exc), 400) from exc
     used_thumbnail = False
     if source_path is None:
         if image is None:
@@ -3433,9 +3459,12 @@ def preview(folder_id: int, image_id: int, current_user: QcUser, db: DbSession) 
     # The full chain is applied to the PREVIEW, never the source: that is what
     # makes an edit click feel instant AND what keeps the delivered page file
     # untouched. See preview_ops.
+    if used_thumbnail and colour is not None:
+        source_path = resolve_image_file(folder, image)
+        used_thumbnail = False
     ops = [] if used_thumbnail else preview_ops(folder, image, manifest, image_id, claimed_by_viewer)
     try:
-        preview_path = generate_preview_image(source_path, ops)
+        preview_path = generate_preview_image(source_path, ops, color_profile=None if used_thumbnail else colour)
     except Exception as error:
         raise BusinessError(ApiCodes.BAD_REQUEST, "Generating the image preview failed.", 400) from error
     if preview_path is None:

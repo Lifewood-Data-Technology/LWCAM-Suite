@@ -23,6 +23,8 @@ import 'package:lwcam/pages/settings_page.dart' show SettingsController;
 import 'package:lwcam/services/audit_log_service.dart';
 import 'package:lwcam/services/device_registry.dart';
 import 'package:lwcam/services/node_config_service.dart';
+import '../services/color_capture_session.dart';
+import '../pages/color_calibration_page.dart';
 import 'package:lwcam/services/scrcpy_service.dart';
 import 'package:lwcam/services/snackbar_service.dart';
 import 'package:lwcam/services/sync_bootstrap.dart';
@@ -342,7 +344,7 @@ class AuthController extends GetxController {
   /// thing being replaced - the login auto-route, and the single-card handoff,
   /// which stands in for the area page so Back should reach the projects list.
   Future<bool> enterCaptureWithProject(Project project,
-      {bool replaceRoute = true}) async {
+      {bool replaceRoute = true, bool calibrationConfirmed = false}) async {
     final gate = await DeviceRegistry().registerOrCheck(
       deviceId: deviceId.value,
       username: currentUser.value?.username ?? username.value,
@@ -368,6 +370,28 @@ class AuthController extends GetxController {
     }
     activeProject.value = project;
     final keyingOn = usersStore?.metadataKeyingEnabled ?? false;
+    if (ColorCaptureSession.enabled) {
+      if (!keyingOn) {
+        showAppSnackBar('Colour calibration', 'Normal Mode does not apply colour calibration. Use Box Mode for calibrated capture.');
+      } else if (calibrationConfirmed) {
+        if (!await ColorCaptureSession.begin(deviceId.value)) return false;
+      } else {
+        final choice = await Get.dialog<String>(AlertDialog(
+          title: const Text('Box colour calibration'),
+          content: const Text('Calibrate this phone, or continue using the valid profile for today. If none is valid you can explicitly skip correction.'),
+          actions: [
+            TextButton(onPressed: () => Get.back(result: 'cancel'), child: const Text('Cancel')),
+            TextButton(onPressed: () => Get.back(result: 'calibrate'), child: const Text('Calibrate')),
+            FilledButton(onPressed: () => Get.back(result: 'continue'), child: const Text('Continue')),
+          ],
+        ));
+        if (choice == 'calibrate') {
+          await Get.to(() => ColorCalibrationPage(resumeProject: project));
+          return true;
+        }
+        if (choice != 'continue' || !await ColorCaptureSession.begin(deviceId.value, force: true)) return false;
+      }
+    }
     final route = keyingOn ? '/boxes' : '/gallery';
     if (replaceRoute) {
       Get.offNamed(route);

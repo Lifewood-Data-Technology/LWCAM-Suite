@@ -27,6 +27,10 @@ Ideas to know before editing:
 """
 from __future__ import annotations
 
+from color_cal_tool.apply import apply_profile_to_pil
+from color_cal_tool.contract import validate_correction
+from app.services.page_calibration import effective_profile
+
 import csv
 import hashlib
 import json
@@ -310,6 +314,7 @@ class ImageSource:
     # draft is discarded at approval. Replayed once here, the same way a
     # reviewer's preview and commit did - see convert_to_tiff.
     ops: list[dict] = field(default_factory=list)
+    color_profile: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -600,6 +605,7 @@ def load_folder_snapshot(db: Session, folder_id: int) -> FolderExportSnapshot:
                 size=source_stat.st_size,
                 mtime_ns=source_stat.st_mtime_ns,
                 ops=effective_ops(image_dir, image.image_name),
+                color_profile=effective_profile(image_dir, image.image_name),
             )
         )
     if not image_sources:
@@ -677,7 +683,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def convert_to_tiff(source_path: Path, target_path: Path, ops: list[dict] | None = None) -> tuple[int, int]:
+def convert_to_tiff(source_path: Path, target_path: Path, ops: list[dict] | None = None, color_profile: dict | None = None) -> tuple[int, int]:
     """Decode [source_path], replay [ops], and write the lossless TIFF.
 
     [ops] is the ONLY place LWIP's baseline straighten/crop and a reviewer's
@@ -695,8 +701,11 @@ def convert_to_tiff(source_path: Path, target_path: Path, ops: list[dict] | None
             frame = source.copy()
             if ops:
                 frame = replay_pending_ops(frame, ops)
+            if color_profile is not None:
+                validate_correction(color_profile)
+                frame = apply_profile_to_pil(frame, color_profile)
             save_options: dict[str, Any] = {"compression": "tiff_adobe_deflate"}
-            if source.info.get("icc_profile"):
+            if source.info.get("icc_profile") and color_profile is None:
                 save_options["icc_profile"] = source.info["icc_profile"]
             if source.info.get("dpi"):
                 save_options["dpi"] = source.info["dpi"]
@@ -726,6 +735,8 @@ def convert_to_tiff(source_path: Path, target_path: Path, ops: list[dict] | None
             # accepts ONE tiffinfo: passing it separately would drop the camera
             # tags this block just assembled. Set unconditionally, so a page
             # whose EXIF carried nothing still gets the smaller encoding.
+            if color_profile is not None:
+                carried[305] = (str(carried.get(305, "")) + " color_profile=" + str(color_profile.get("profile_id", ""))).strip()
             carried[TIFF_PREDICTOR_TAG] = TIFF_PREDICTOR_HORIZONTAL
             save_options["tiffinfo"] = carried
             frame.save(fs_path(temp_path), format="TIFF", **save_options)
@@ -744,7 +755,7 @@ def convert_to_tiff(source_path: Path, target_path: Path, ops: list[dict] | None
     return width, height
 
 
-def convert_to_jpeg(source_path: Path, target_path: Path, ops: list[dict] | None = None) -> tuple[int, int]:
+def convert_to_jpeg(source_path: Path, target_path: Path, ops: list[dict] | None = None, color_profile: dict | None = None) -> tuple[int, int]:
     """Toggle-OFF sibling of convert_to_tiff: writes the JPEG artifact instead.
 
     A page with NO pending ops has nothing for a replay to change, so it is
@@ -767,7 +778,7 @@ def convert_to_jpeg(source_path: Path, target_path: Path, ops: list[dict] | None
     fs_path(target_path.parent).mkdir(parents=True, exist_ok=True)
     temp_path = target_path.with_name(f".{target_path.name}.tmp")
     try:
-        if not ops:
+        if not ops and color_profile is None:
             shutil.copyfile(fs_path(source_path), fs_path(temp_path))
         else:
             # Lazy import: app.routers.qc imports app.services.export at
@@ -786,7 +797,11 @@ def convert_to_jpeg(source_path: Path, target_path: Path, ops: list[dict] | None
                         save_kwargs[key] = value
                 if save_kwargs.get("exif"):
                     save_kwargs["exif"] = sanitise_capture_exif(save_kwargs["exif"])
-                frame = replay_pending_ops(frame, ops)
+                frame = replay_pending_ops(frame, ops or [])
+                if color_profile is not None:
+                    validate_correction(color_profile)
+                    frame = apply_profile_to_pil(frame, color_profile)
+                    save_kwargs.pop("icc_profile", None)
                 if frame.mode not in {"RGB", "L"}:
                     frame = frame.convert("RGB")
                 save_kwargs["quality"] = 100
@@ -839,6 +854,8 @@ def verify_sources_unchanged(snapshot: FolderExportSnapshot) -> None:
             raise ExportError("sourceDeleted", {"filename": source.name})
         current = fs_path(source.path).stat()
         if current.st_size != source.size or current.st_mtime_ns != source.mtime_ns:
+            raise ExportError("sourceChanged", {"filename": source.name})
+        if effective_profile(source.path.parent, source.name) != source.color_profile:
             raise ExportError("sourceChanged", {"filename": source.name})
 
 
@@ -941,12 +958,15 @@ def convert_and_hash(job: tuple[str, str, str, list[dict], bool]) -> dict[str, A
     the intermediate construction cannot throw either. (Verified in
     test_export_parallel.py, which fails if that ever stops being true.)
     """
-    source_path, target_path, artifact_name, ops, tiff_output = job
+    source_path, target_path, artifact_name, ops, tiff_output = job[:5]
+    color_profile = job[5] if len(job) > 5 else None
     target = Path(target_path)
+    if color_profile is not None:
+        logger.info("Export calibration %s: %s", artifact_name, color_profile.get("profile_id"))
     if tiff_output:
-        width, height = convert_to_tiff(Path(source_path), target, ops)
+        width, height = convert_to_tiff(Path(source_path), target, ops, color_profile)
     else:
-        width, height = convert_to_jpeg(Path(source_path), target, ops)
+        width, height = convert_to_jpeg(Path(source_path), target, ops, color_profile)
     return {
         "Filename": artifact_name,
         "File Size": fs_path(target).stat().st_size,
@@ -981,6 +1001,7 @@ def build_export_zip(
             artifact_filename(group_id, index, config.tiff_output),
             source.ops,
             config.tiff_output,
+            source.color_profile,
         )
         for index, source in enumerate(snapshot.images, start=1)
     ]

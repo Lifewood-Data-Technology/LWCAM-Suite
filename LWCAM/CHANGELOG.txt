@@ -1,3 +1,7 @@
+2026-10-19 - Independent colour calibration (Issue #1)
+Station option defaults off. Box capture freezes per-page profiles;
+ColorCal runs inside LWIP; capture submits/resumes shared-folder tasks without Python. See docs/COLOR-CALIBRATION.zh-CN.md.
+
 ================================================================================
  LWCAM (Lifewood Capture) - CHANGELOG
 ================================================================================

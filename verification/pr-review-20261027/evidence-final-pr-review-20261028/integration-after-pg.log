@@ -1,0 +1,349 @@
+source= D:\LWCAM-Suite\LWCAM\lib\pages\gallery_page.dart sha256= 277bab8b8374e7dee1cdc2eb396614ed8b4752c4e3604da8c0bf705e64723f50
+00:00 +0: loading D:/LWCAM-Suite/verification/pr-review-20261027/_blocking_fix_review_test.dart
+00:00 +0: fixed: partial retry skips completed page and can finish remaining page
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_72fc35e2\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_72fc35e2\lwcam_stats_station.db
+⚠️ Rework write failed for 2.jpg: Bad state: Recapture binding is damaged; retake this page
+SNACK Partly submitted: 1 item(s) failed: 2.jpg: Bad state: Recapture binding is damaged; retake this page. Fix the cause and submit again.
+SNACK Rework submitted: 1 image(s) replaced, 1 request(s) closed. The folder returns to QC once image processing finishes.
+00:01 +1: fixed: Undo disables Submit and submit entry rejects the call
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_238d2bb2\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_238d2bb2\lwcam_stats_station.db
+00:02 +2: fixed: restart with held gate refuses Metadata closure
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_2c99091d\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_2c99091d\lwcam_stats_station.db
+SNACK Partly submitted: 1 item(s) failed: V1: Bad state: Cannot safely submit metadata for this folder: Bad state: Legacy recapture still needs recovery.. Fix the cause and submit again.
+00:03 +3: fixed: healthy abandoned staging with different target can close Metadata
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f712f24e\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f712f24e\lwcam_stats_station.db
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+00:03 +4: regression: legacy Undo poisoned intent still blocks metadata although target was never changed
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_29cd8a12\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_29cd8a12\lwcam_stats_station.db
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+00:03 +5: regression: Undo of installed page plus recapture of sibling publishes stale binding
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_7e2830b5\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_7e2830b5\lwcam_stats_station.db
+⚠️ Rework write failed for 1.jpg: FileSystemException: injected marker write failure, path = ''
+SNACK Partly submitted: 2 item(s) failed: 1.jpg: FileSystemException: injected marker write failure, path = '' (and 1 more). Fix the cause and submit again.
+SNACK Undo failed: Bad state: Recapture was already started; retry Submit before Undo
+SNACK Rework submitted: 2 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+00:04 +6: regression: folder-status enqueue failure leaves a CLOSED request without its QC reset after retry
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed3c6e7f\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed3c6e7f\lwcam_stats_station.db
+⚠️ Rework submit failed: SqfliteFfiException(sqlite_error: 1811, , SqliteException(1811): while executing statement, injected folder-status queue failure, constraint failed (code 1811)
+  Causing statement: INSERT OR REPLACE INTO sync_outbox (entity, entity_key, op, payload, created_at, updated_at, attempts, last_error, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL), parameters: capture_folder_rework, pk|BOX|1, upsert, {"project_key":"pk","project_id":"PRJ","box_name":"BOX","device_id":"station","folder_seq":1,"folder_name":"","metadata":{},"reset_qc_status":true,"is_created_thumbnail":null}, 2026-10-28T14:28:18.186978, 2026-10-28T14:28:18.186978, 0}) DatabaseException(SqliteException(1811): while executing statement, injected folder-status queue failure, constraint failed (code 1811)
+  Causing statement: INSERT OR REPLACE INTO sync_outbox (entity, entity_key, op, payload, created_at, updated_at, attempts, last_error, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL), parameters: capture_folder_rework, pk|BOX|1, upsert, {"project_key":"pk","project_id":"PRJ","box_name":"BOX","device_id":"station","folder_seq":1,"folder_name":"","metadata":{},"reset_qc_status":true,"is_created_thumbnail":null}, 2026-10-28T14:28:18.186978, 2026-10-28T14:28:18.186978, 0) sql 'INSERT OR REPLACE INTO sync_outbox (entity, entity_key, op, payload, created_at, updated_at, attempts, last_error, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)' args [capture_folder_rework, pk|BOX|1, upsert, {"project_key":"pk","project_id":"PRJ","box_name":..., 2026-10-28T14:28:18.186978, 2026-10-28T14:28:18.186978, 0] {details: {database: {path: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed3c6e7f\lwcam_stats_station.db, id: 7, readOnly: false, singleInstance: true}}}
+SNACK Submit failed: SqfliteFfiException(sqlite_error: 1811, , SqliteException(1811): while executing statement, injected folder-status queue failure, constraint failed (code 1811)
+  Causing statement: INSERT OR REPLACE INTO sync_outbox (entity, entity_key, op, payload, created_at, updated_at, attempts, last_error, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL), parameters: capture_folder_rework, pk|BOX|1, upsert, {"project_key":"pk","project_id":"PRJ","box_name":"BOX","device_id":"station","folder_seq":1,"folder_name":"","metadata":{},"reset_qc_status":true,"is_created_thumbnail":null}, 2026-10-28T14:28:18.186978, 2026-10-28T14:28:18.186978, 0}) DatabaseException(SqliteException(1811): while executing statement, injected folder-status queue failure, constraint failed (code 1811)
+  Causing statement: INSERT OR REPLACE INTO sync_outbox (entity, entity_key, op, payload, created_at, updated_at, attempts, last_error, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL), parameters: capture_folder_rework, pk|BOX|1, upsert, {"project_key":"pk","project_id":"PRJ","box_name":"BOX","device_id":"station","folder_seq":1,"folder_name":"","metadata":{},"reset_qc_status":true,"is_created_thumbnail":null}, 2026-10-28T14:28:18.186978, 2026-10-28T14:28:18.186978, 0) sql 'INSERT OR REPLACE INTO sync_outbox (entity, entity_key, op, payload, created_at, updated_at, attempts, last_error, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)' args [capture_folder_rework, pk|BOX|1, upsert, {"project_key":"pk","project_id":"PRJ","box_name":..., 2026-10-28T14:28:18.186978, 2026-10-28T14:28:18.186978, 0] {details: {database: {path: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed3c6e7f\lwcam_stats_station.db, id: 7, readOnly: false, singleInstance: true}}}
+AFTER FAILURE remaining worklist=(1.jpg, 2.jpg)
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+00:05 +7: regression: unreachable source bypasses interrupted-recapture guard and still closes Metadata
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_cf9e7082\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_cf9e7082\lwcam_stats_station.db
+SNACK Partly submitted: 1 item(s) failed: V1: Bad state: Cannot safely submit metadata for this folder: Bad state: Legacy recapture still needs recovery.. Fix the cause and submit again.
+00:05 +8: regression: legacy marker-less folders can be recaptured
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_2dfd9953\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_2dfd9953\lwcam_stats_station.db
+SNACK Rework submitted: 2 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+00:05 +9: livePG: Metadata submit reaches PostgreSQL with CLOSED and PENDING together
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_e9d6beb5\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_e9d6beb5\lwcam_stats_station.db
+ℹ️ Rework badges unavailable: Cannot reach the database. Rework requests come from QC — check the connection in LWCam Admin → Station Setup.
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+LIVE_PG Metadata: exact SQLite payloads applied, 2 CLOSED, 2 PENDING; source unchanged
+00:09 +10: livePG: Recapture closure does not prematurely reset QC before LWIP
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed4a4366\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed4a4366\lwcam_stats_station.db
+ℹ️ Rework badges unavailable: Cannot reach the database. Rework requests come from QC — check the connection in LWCam Admin → Station Setup.
+SNACK Rework submitted: 2 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+LIVE_PG Recapture: 2 CLOSED, folders remain REWORK until LWIP reports; file/binding/gate consistent
+00:11 +11: livePG: PostgreSQL error rolls back folder reset and closures and permits retry
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_59f61aff\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_59f61aff\lwcam_stats_station.db
+ℹ️ Rework badges unavailable: Cannot reach the database. Rework requests come from QC — check the connection in LWCam Admin → Station Setup.
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+LIVE_PG fault/retry: server constraint rolled back complete batch; exact durable batch retried successfully
+00:14 +12: livePG: unavailable database preserves the exact durable queue for later transport
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_d1e5f770\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_d1e5f770\lwcam_stats_station.db
+ℹ️ Rework badges unavailable: Cannot reach the database. Rework requests come from QC — check the connection in LWCam Admin → Station Setup.
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+LIVE_PG disconnect/reconnect: queue unchanged while unavailable, later batch applied
+00:18 +13: livePG: missing local DB recovers real PG snapshot and flags unknown bindings
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_e8fd9a96\lwcam_stats_station.db.recovering
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_e8fd9a96\lwcam_stats_station.db.recovering
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_e8fd9a96\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_e8fd9a96\lwcam_stats_station.db
+LIVE_PG recovery missing DB: 1/2/2 snapshot restored, unknown binding held, explicit per-folder acceptance clears last flag
+00:20 +14: livePG: actual snapshot rebuild carries known calibration and isolates unknown folder
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f1b71419\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f1b71419\lwcam_stats_station.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f1b71419\lwcam_stats_station.db.recovering
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f1b71419\lwcam_stats_station.db.recovering
+🧷 Recovery carried over 0 row(s) into sync_outbox
+🧷 Recovery carried over 0 row(s) into replacement_records
+🧷 Recovery carried over 0 row(s) into color_pending
+🧷 Recovery carried over 1 row(s) into color_integrity
+🧷 Recovery carried over 1 row(s) into color_profiles
+🧷 Recovery carried over 1 row(s) into color_bindings
+🧷 Recovery carried over 0 row(s) into upload_records
+🧷 Recovery carried over 0 row(s) into daily_summary
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f1b71419\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f1b71419\lwcam_stats_station.db
+LIVE_PG recovery known/unknown: profile and exact payload survived actual rebuild, healthy folder unblocked, final unknown accepted
+00:21 +15: marker: calibration OFF retains valid history and unrelated recovery does not block known group
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f12e6e6\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_f12e6e6\lwcam_stats_station.db
+MARKER OFF: actual marker publication succeeded for known group, original profile retained, unrelated global flag preserved
+00:22 +16: metadata offline: normal Undo then submit never resolves the input share
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_89f8545b\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_89f8545b\lwcam_stats_station.db
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+00:22 +17: metadata offline: unapplied abandoned staging does not require the share
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_a87a8fef\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_a87a8fef\lwcam_stats_station.db
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+00:22 +18: metadata offline: started replacement blocks sibling closure without probing the share
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_59fc8121\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_59fc8121\lwcam_stats_station.db
+SNACK Partly submitted: 1 item(s) failed: V1: Bad state: Cannot safely submit metadata for this folder: Bad state: An interrupted recapture in this folder must be completed before submitting metadata.. Fix the cause and submit again.
+00:23 +19: metadata mixed: successful recapture and metadata close together
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_415661e\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_415661e\lwcam_stats_station.db
+SNACK Rework submitted: 1 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+00:23 +20: metadata mixed: failed recapture cannot close its metadata sibling or reset QC
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_461bea75\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_461bea75\lwcam_stats_station.db
+⚠️ Rework write failed for 1.jpg: FileSystemException: injected marker write failure, path = ''
+SNACK Partly submitted: 2 item(s) failed: 1.jpg: FileSystemException: injected marker write failure, path = '' (and 1 more). Fix the cause and submit again.
+SNACK Rework submitted: 1 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+00:23 +21: metadata mixed: unavailable recapture source cannot close its metadata sibling
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_3dedb3e9\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_3dedb3e9\lwcam_stats_station.db
+SNACK Partly submitted: 1 item(s) failed: 1.jpg: offline. Fix the cause and submit again.
+SNACK Rework submitted: 1 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+00:24 +22: metadata safety: failed first marker write already has local applying evidence
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\lwcam_stats_station.db
+⚠️ Rework write failed for 1.jpg: PathAccessException: Cannot rename file to 'C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\input1\lwcam_capture_marker.json', path = 'C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\input1\lwcam_capture_marker.json.tmp' (OS Error: 拒绝访问。, errno = 5)
+⚠️ Rework write failed for 2.jpg: PathAccessException: Cannot rename file to 'C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\input1\lwcam_capture_marker.json', path = 'C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\input1\lwcam_capture_marker.json.tmp' (OS Error: 拒绝访问。, errno = 5)
+SNACK Partly submitted: 2 item(s) failed: 1.jpg: PathAccessException: Cannot rename file to 'C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\input1\lwcam_capture_marker.json', path = 'C:\Users\12699\AppData\Local\Temp\blocking_fix_review_8e448a49\input1\lwcam_capture_marker.json.tmp' (OS Error: 拒绝访问。, errno = 5) (and 1 more). Fix the cause and submit again.
+SNACK Partly submitted: 1 item(s) failed: V1: Bad state: Cannot safely submit metadata for this folder: Bad state: An interrupted recapture in this folder must be completed before submitting metadata.. Fix the cause and submit again.
+00:24 +23: metadata offline: committed generation with leftover intent does not strand the folder
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_92a76a4d\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_92a76a4d\lwcam_stats_station.db
+SNACK Rework submitted: 1 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+SNACK Rework submitted: 0 image(s) replaced, 1 request(s) closed. The folder is back in the QC queue.
+00:24 +24: metadata offline: actual PG receives CLOSED and PENDING from the offline-share submission
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ac0677f4\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ac0677f4\lwcam_stats_station.db
+ℹ️ Rework badges unavailable: Cannot reach the database. Rework requests come from QC — check the connection in LWCam Admin → Station Setup.
+SNACK Rework submitted: 0 image(s) replaced, 2 request(s) closed. The folder is back in the QC queue.
+00:26 +25: final review: reopening a later QC request must not resurrect a committed recapture
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed0f252c\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\blocking_fix_review_ed0f252c\lwcam_stats_station.db
+SNACK Rework submitted: 1 image(s) replaced, 2 request(s) closed. The folder returns to QC once image processing finishes.
+SNACK Rework submitted: 0 image(s) replaced, 1 request(s) closed. The folder is back in the QC queue.
+00:26 +26: All tests passed!

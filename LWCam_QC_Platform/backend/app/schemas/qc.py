@@ -41,6 +41,8 @@ class FolderMetadataVO(BaseModel):
 
 
 class MetadataQcImageVO(BaseModel):
+    calibrationProfileId: str | None = None
+    calibrationError: str | None = None
     id: int
     filename: str
     available: bool

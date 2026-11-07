@@ -1,0 +1,7 @@
+{
+  "LWCAM/lib/services/color_rework_store.dart": "8f3f3c8b553524b7b96b5e2b84f312215323628338a4c2faeb7bd09224fd5261",
+  "LWCAM/lib/pages/gallery_page.dart": "277bab8b8374e7dee1cdc2eb396614ed8b4752c4e3604da8c0bf705e64723f50",
+  "LWCAM/test/services/metadata_rework_guard_test.dart": "47e09d1126081109eb8cf3dcca17e7893091b71b6a7f6f72a35e3cb22200b64c",
+  "verification/pr-review-20261027/metadata_share_acceptance.template": "a54493669c1ef99bd984413331facab93bc8535a776e1744a437daf6ff1c5235",
+  "verification/pr-review-20261027/build_metadata_share_acceptance.py": "9e0126e19ee701755b1084ac87e0d828a90f3310fe16d244d0bb082b0a904e61"
+}

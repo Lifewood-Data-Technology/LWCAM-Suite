@@ -1,0 +1,1596 @@
+00:00 +0: loading D:/LWCAM-Suite/LWCAM/test/auth/offline_temp_password_test.dart
+00:00 +0: D:/LWCAM-Suite/LWCAM/test/auth/offline_temp_password_test.dart: three offline sign-ins are allowed, the fourth is refused
+00:00 +1: D:/LWCAM-Suite/LWCAM/test/auth/offline_temp_password_test.dart: seven days after the first one it is refused, per user
+00:00 +2: D:/LWCAM-Suite/LWCAM/test/auth/offline_temp_password_test.dart: clear resets the allowance
+00:00 +3: D:/LWCAM-Suite/LWCAM/test/controllers/box_entry_sort_test.dart: sortBoxEntries orders rework, then in-progress, then completed
+00:00 +4: D:/LWCAM-Suite/LWCAM/test/controllers/box_entry_sort_test.dart: sortBoxEntries newest first within a group
+00:00 +5: D:/LWCAM-Suite/LWCAM/test/controllers/box_entry_sort_test.dart: sortBoxEntries a rework box outranks an in-progress box
+00:00 +6: D:/LWCAM-Suite/LWCAM/test/controllers/box_color_preflight_test.dart: preflight aggregates the real reason and accept resolves the box
+00:00 +7: D:/LWCAM-Suite/LWCAM/test/controllers/box_color_preflight_test.dart: preflight aggregates the real reason and accept resolves the box
+00:00 +8: D:/LWCAM-Suite/LWCAM/test/controllers/box_color_preflight_test.dart: preflight aggregates the real reason and accept resolves the box
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_preflight_e28f2241\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_preflight_e28f2241\lwcam_stats_station.db
+00:01 +9: D:/LWCAM-Suite/LWCAM/test/controllers/box_color_preflight_test.dart: a fully bound box can retire a stale recovery flag
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_preflight_f3a8dec9\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_preflight_f3a8dec9\lwcam_stats_station.db
+00:01 +10: D:/LWCAM-Suite/LWCAM/test/controllers/box_color_preflight_test.dart: another OPEN box keeps the global flag but not this box
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_preflight_af431c29\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_preflight_af431c29\lwcam_stats_station.db
+00:01 +11: D:/LWCAM-Suite/LWCAM/test/controllers/durable_replace_test.dart: a swap refreshes the durable copy the grid reloads from
+00:01 +12: D:/LWCAM-Suite/LWCAM/test/controllers/durable_replace_test.dart: the durable copy is written even when none existed
+00:02 +13: D:/LWCAM-Suite/LWCAM/test/controllers/durable_replace_test.dart: a missing source leaves the existing copy alone
+00:02 +14: D:/LWCAM-Suite/LWCAM/test/controllers/durable_replace_test.dart: no active box is a no-op rather than a crash
+00:02 +15: D:/LWCAM-Suite/LWCAM/test/controllers/durable_replace_test.dart: (tearDownAll)
+00:02 +15: D:/LWCAM-Suite/LWCAM/test/controllers/folder_delete_guard_test.dart: refuses to delete the folder that is active for capture
+00:02 +16: D:/LWCAM-Suite/LWCAM/test/controllers/rework_staging_test.dart: staged photos and their files survive until explicitly cleared
+00:02 +17: D:/LWCAM-Suite/LWCAM/test/controllers/folder_delete_guard_test.dart: refuses while an unresolved orphan still targets the folder
+00:02 +18: D:/LWCAM-Suite/LWCAM/test/controllers/folder_delete_guard_test.dart: refuses while an unresolved orphan still targets the folder
+00:02 +19: D:/LWCAM-Suite/LWCAM/test/controllers/folder_delete_guard_test.dart: refuses while an unresolved orphan still targets the folder
+00:02 +20: D:/LWCAM-Suite/LWCAM/test/controllers/folder_delete_guard_test.dart: refuses while an unresolved orphan still targets the folder
+00:02 +21: D:/LWCAM-Suite/LWCAM/test/controllers/rework_staging_test.dart: clearReworkStaging also clears the closed set
+00:02 +22: D:/LWCAM-Suite/LWCAM/test/controllers/folder_delete_guard_test.dart: an orphan belonging to ANOTHER folder does not block this one
+📁 DB folder verified: C:\Users\12699\LWCAM_DBs
+📂 Using per-device database: C:\Users\12699\LWCAM_DBs\lwcam_stats_devA.db
+❌ Failed to open database at C:\Users\12699\LWCAM_DBs\lwcam_stats_devA.db: Bad state: databaseFactory not initialized
+databaseFactory is only initialized when using sqflite. When using `sqflite_common_ffi`
+You must call `databaseFactory = databaseFactoryFfi;` before using global openDatabase API
+
+00:02 +23: D:/LWCAM-Suite/LWCAM/test/controllers/rework_staging_test.dart: clearReworkStaging discards the durable intent of a staged page
+00:03 +24: D:/LWCAM-Suite/LWCAM/test/controllers/upload_name_resolution_test.dart: empty destination allocates _001
+00:03 +25: D:/LWCAM-Suite/LWCAM/test/controllers/upload_name_resolution_test.dart: an on-disk file with NO DB record is never overwritten - the next suffix is taken
+ℹ️ SAX01_IMG_20260720_100000_001.jpg exists in C:\Users\12699\AppData\Local\Temp\name_resolution_3f600a64 but this PC has no record of it - keeping it, using the next name.
+00:03 +26: D:/LWCAM-Suite/LWCAM/test/controllers/upload_name_resolution_test.dart: an on-disk file WITH a DB record keeps the original skip-to-next behavior
+00:03 +27: D:/LWCAM-Suite/LWCAM/test/controllers/upload_name_resolution_test.dart: recorded and unrecorded files both skip
+ℹ️ SAX01_IMG_20260720_100000_002.jpg exists in C:\Users\12699\AppData\Local\Temp\name_resolution_7c4eee03 but this PC has no record of it - keeping it, using the next name.
+00:03 +28: D:/LWCAM-Suite/LWCAM/test/controllers/upload_name_resolution_test.dart: a reserved name is never returned
+00:03 +29: D:/LWCAM-Suite/LWCAM/test/controllers/upload_name_resolution_test.dart: null recordedFilenames: on-disk always skips to the next suffix
+00:03 +30: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: (setUpAll)
+00:03 +30: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: schema fresh device DB has the three capture-box tables + template_json/project_key/record_type
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_fresh_e42a1eba\lwcam_stats_devA.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_fresh_e42a1eba\lwcam_stats_devA.db
+00:04 +30: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: v2 migration keeps old records and marks legacy pages historical
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_39cdb5f1\lwcam_stats_station.db
+00:04 +31: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: v2 migration keeps old records and marks legacy pages historical
+00:04 +31: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes insert/get/markTransferred round-trip with ordering
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_box_3b2d24e5\lwcam_stats_devA.db
+00:04 +31: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent getDatabase calls for different devices each return their OWN database
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\handle_race_1b1b294e\lwcam_stats_SAX04.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\handle_race_1b1b294e\lwcam_stats_SAX01.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\handle_race_1b1b294e\lwcam_stats_SAX07.db
+00:04 +31: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes insert/get/markTransferred round-trip with ordering
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_box_3b2d24e5\lwcam_stats_devA.db
+00:04 +31: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: v2 migration keeps old records and marks legacy pages historical
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_39cdb5f1\lwcam_stats_station.db
+00:04 +32: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: v2 migration keeps old records and marks legacy pages historical
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_39cdb5f1\lwcam_stats_station.db
+00:04 +32: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes updateCaptureBoxDetails renames the box
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_rename_1b23e7a3\lwcam_stats_devA.db
+00:04 +32: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: v2 migration keeps old records and marks legacy pages historical
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_39cdb5f1\lwcam_stats_station.db
+00:04 +32: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes fresh device DB has all five hot-query indexes
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\idx_fresh_4ced8fe3\lwcam_stats_devFresh10.db
+00:04 +32: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes updateCaptureBoxDetails renames the box
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_rename_1b23e7a3\lwcam_stats_devA.db
+00:04 +33: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent getDatabase calls for different devices each return their OWN database
+00:04 +33: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: page snapshots survive restart and later profile changes
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:04 +34: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent getDatabase calls for different devices each return their OWN database
+00:04 +34: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: page snapshots survive restart and later profile changes
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_601f12ba\lwcam_stats_station.db
+00:04 +34: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes insertCaptureBox(projectKey:) round-trips through CaptureBox.fromDbMap
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_project_f2a0c0f5\lwcam_stats_devA.db
+00:04 +34: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent getDatabase calls for different devices each return their OWN database
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\handle_race_1b1b294e\lwcam_stats_SAX04.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\handle_race_1b1b294e\lwcam_stats_SAX01.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\handle_race_1b1b294e\lwcam_stats_SAX07.db
+00:04 +34: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes insertCaptureBox(projectKey:) round-trips through CaptureBox.fromDbMap
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_project_f2a0c0f5\lwcam_stats_devA.db
+00:04 +34: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: page snapshots survive restart and later profile changes
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_601f12ba\lwcam_stats_station.db
+00:04 +35: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes fresh device DB has all five hot-query indexes
+00:04 +36: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes fresh device DB has all five hot-query indexes
+00:04 +36: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes insertCaptureBox(templateJson:) round-trips through CaptureBox.fromDbMap
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_template_5ffdc849\lwcam_stats_devA.db
+00:04 +36: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: page snapshots survive restart and later profile changes
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_601f12ba\lwcam_stats_station.db
+00:04 +36: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent calls for the SAME device share one handle (no leaked duplicate open)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\handle_single_flight_4abe3b2b\lwcam_stats_SAX01.db
+00:04 +36: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes fresh device DB has all five hot-query indexes
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\idx_fresh_4ced8fe3\lwcam_stats_devFresh10.db
+00:05 +37: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: page snapshots survive restart and later profile changes
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_601f12ba\lwcam_stats_station.db
+00:05 +38: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes insertCaptureBox(templateJson:) round-trips through CaptureBox.fromDbMap
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_template_5ffdc849\lwcam_stats_devA.db
+00:05 +39: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent calls for the SAME device share one handle (no leaked duplicate open)
+00:05 +39: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes re-opening a device DB keeps the indexes (idempotent)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\idx_reopen_b30e7401\lwcam_stats_devReopen.db
+00:05 +39: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation concurrent calls for the SAME device share one handle (no leaked duplicate open)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\handle_single_flight_4abe3b2b\lwcam_stats_SAX01.db
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes re-opening a device DB keeps the indexes (idempotent)
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: tampered or missing profile cannot silently disable correction
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_44de74a7\lwcam_stats_station.db
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes re-opening a device DB keeps the indexes (idempotent)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\idx_reopen_b30e7401\lwcam_stats_devReopen.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\idx_reopen_b30e7401\lwcam_stats_devReopen.db
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation a box captured on one device stays visible after the other device's DB is opened concurrently
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\handle_box_visibility_e841e007\lwcam_stats_SAX04.db
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes setBoxTransferState round-trips through CaptureBox.fromDbMap and is cleared by markCaptureBoxTransferred
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_transfer_state_899d0ac3\lwcam_stats_devA.db
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: tampered or missing profile cannot silently disable correction
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_44de74a7\lwcam_stats_station.db
+00:05 +40: D:/LWCAM-Suite/LWCAM/test/db/device_indexes_v10_test.dart: device DB indexes re-opening a device DB keeps the indexes (idempotent)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\idx_reopen_b30e7401\lwcam_stats_devReopen.db
+00:05 +41: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: tampered or missing profile cannot silently disable correction
+00:05 +41: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation a box captured on one device stays visible after the other device's DB is opened concurrently
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\handle_box_visibility_e841e007\lwcam_stats_SAX04.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\handle_box_visibility_e841e007\lwcam_stats_SAX01.db
+00:05 +41: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes setBoxTransferState round-trips through CaptureBox.fromDbMap and is cleared by markCaptureBoxTransferred
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_transfer_state_899d0ac3\lwcam_stats_devA.db
+00:05 +42: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: tampered or missing profile cannot silently disable correction
+00:05 +43: D:/LWCAM-Suite/LWCAM/test/db/device_db_handle_isolation_test.dart: per-device DB handle isolation a box captured on one device stays visible after the other device's DB is opened concurrently
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\handle_box_visibility_e841e007\lwcam_stats_SAX01.db
+00:05 +44: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: (setUpAll)
+00:05 +44: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes setBoxTransferState(state: null) clears an earlier marker
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_transfer_state_clear_36e4542c\lwcam_stats_devA.db
+00:05 +44: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: interrupted replacement blocks transfer until binding commit
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_4d48a1a0\lwcam_stats_station.db
+00:05 +44: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: (setUpAll)
+00:05 +44: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes setBoxTransferState(state: null) clears an earlier marker
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_transfer_state_clear_36e4542c\lwcam_stats_devA.db
+00:05 +44: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: interrupted replacement blocks transfer until binding commit
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_4d48a1a0\lwcam_stats_station.db
+00:05 +45: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: (setUpAll)
+00:05 +45: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: interrupted replacement blocks transfer until binding commit
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_4d48a1a0\lwcam_stats_station.db
+00:05 +45: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes getCaptureBoxes(projectKey:) filters per project; null returns all
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_project_filter_ce984434\lwcam_stats_devA.db
+00:05 +45: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: interrupted replacement blocks transfer until binding commit
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_4d48a1a0\lwcam_stats_station.db
+00:05 +46: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes getCaptureBoxes(projectKey:) filters per project; null returns all
+00:05 +46: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: fresh device DB has the 8 keyed-metadata snapshot columns on upload_records
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\meta_fresh_f952f3b4\lwcam_stats_devFresh.db
+00:05 +46: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: boxes getCaptureBoxes(projectKey:) filters per project; null returns all
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_project_filter_ce984434\lwcam_stats_devA.db
+00:05 +46: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: incomplete recovery blocks marker data instead of losing calibration
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_83eaed62\lwcam_stats_station.db
+00:05 +47: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: fresh device DB has the 8 keyed-metadata snapshot columns on upload_records
+00:05 +47: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: incomplete recovery blocks marker data instead of losing calibration
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_83eaed62\lwcam_stats_station.db
+00:05 +48: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: fresh device DB has the 8 keyed-metadata snapshot columns on upload_records
+00:05 +48: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders folder_seq allocates 1..N in creation order
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_seq_9809dcd2\lwcam_stats_devA.db
+00:05 +48: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: recovery integrity is checked per folder and can be resolved explicitly
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_c8db9b4c\lwcam_stats_station.db
+00:05 +48: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: fresh device DB has the 8 keyed-metadata snapshot columns on upload_records
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\meta_fresh_f952f3b4\lwcam_stats_devFresh.db
+00:05 +49: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: (setUpAll)
+00:06 +49: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: insertUploadRecord persists metadata snapshot columns
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\meta_snapshot_e824a66d\lwcam_stats_devSnapshot_2026-02.db
+00:06 +49: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders folder_seq allocates 1..N in creation order
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_seq_9809dcd2\lwcam_stats_devA.db
+00:06 +49: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: recovery integrity is checked per folder and can be resolved explicitly
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_c8db9b4c\lwcam_stats_station.db
+00:06 +49: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders folder_seq allocates 1..N in creation order
+00:06 +49: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_create_45b76000\lwcam_stats_SAX01_2026-07.db
+00:06 +49: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: insertUploadRecord persists metadata snapshot columns
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\meta_snapshot_e824a66d\lwcam_stats_devSnapshot_2026-02.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\meta_snapshot_e824a66d\lwcam_stats_devSnapshot_2026-10.db
+00:06 +50: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: recovery integrity is checked per folder and can be resolved explicitly
+00:06 +50: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderMetadata rewrites fields + is_complete
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_upd_d7815bae\lwcam_stats_devA.db
+00:06 +50: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: insertUploadRecord persists metadata snapshot columns
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\meta_snapshot_e824a66d\lwcam_stats_devSnapshot_2026-10.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\meta_snapshot_e824a66d\lwcam_stats_devSnapshot.db
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_create_45b76000\lwcam_stats_SAX01_2026-07.db
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: a mixed folder keeps the bound profile and only resolves the unbound page
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_create_45b76000\lwcam_stats_SAX01_2026-10.db
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderMetadata rewrites fields + is_complete
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_upd_d7815bae\lwcam_stats_devA.db
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: a mixed folder keeps the bound profile and only resolves the unbound page
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_aa9919b5\lwcam_stats_station.db
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/metadata_db_test.dart: insertUploadRecord persists metadata snapshot columns
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\meta_snapshot_e824a66d\lwcam_stats_devSnapshot.db
+📅 Daily summary updated for 2026-02-02 — Device: devSnapshot, Opr: alice, Count: 1
+🆕 Added upload record: SAX01_IMG_x_001.jpg (Device: devSnapshot)
+00:06 +51: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_create_45b76000\lwcam_stats_SAX01_2026-10.db
+00:06 +52: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_create_45b76000\lwcam_stats_SAX01.db
+00:06 +52: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderMetadata persists a keyed Record Type
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_rt_9f74dae9\lwcam_stats_devA.db
+00:06 +53: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+00:06 +53: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: a mixed folder keeps the bound profile and only resolves the unbound page
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_aa9919b5\lwcam_stats_station.db
+00:06 +53: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: v1 capture tables migrate to the current schema
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_migration_8444a726\lwcam_stats_SAX-MIGRATE.db
+00:06 +53: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_create_45b76000\lwcam_stats_SAX01.db
+00:06 +53: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderMetadata persists a keyed Record Type
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_rt_9f74dae9\lwcam_stats_devA.db
+00:06 +54: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+📅 Daily summary updated for 2026-07-18 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_1.jpg (Device: SAX01)
+00:06 +54: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: a damaged profile stays blocking and is never overwritten
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_7b515bee\lwcam_stats_station.db
+00:06 +55: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation first insertUploadRecord creates the monthly file with the right schema/indexes; stable DB upload_records stays untouched
+00:06 +55: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: v1 capture tables migrate to the current schema
+⚠️ Skipped an index this database cannot support: SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 75): CREATE INDEX IF NOT EXISTS idx_ur_opr_created ON upload_records(device_id, scanning_opr, created_at), parameters: }) DatabaseException(SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 75): CREATE INDEX IF NOT EXISTS idx_ur_opr_created ON upload_records(device_id, scanning_opr, created_at), parameters: ) sql 'CREATE INDEX IF NOT EXISTS idx_ur_opr_created ON upload_records(device_id, scanning_opr, created_at)' {details: {database: {path: C:\Users\12699\AppData\Local\Temp\stable_migration_8444a726\lwcam_stats_SAX-MIGRATE.db, id: 2, readOnly: false, singleInstance: true}}}
+⚠️ Skipped an index this database cannot support: SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 78): CREATE INDEX IF NOT EXISTS idx_ds_device_opr_date ON daily_summary(device_id, scanning_opr, date), parameters: }) DatabaseException(SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 78): CREATE INDEX IF NOT EXISTS idx_ds_device_opr_date ON daily_summary(device_id, scanning_opr, date), parameters: ) sql 'CREATE INDEX IF NOT EXISTS idx_ds_device_opr_date ON daily_summary(device_id, scanning_opr, date)' {details: {database: {path: C:\Users\12699\AppData\Local\Temp\stable_migration_8444a726\lwcam_stats_SAX-MIGRATE.db, id: 2, readOnly: false, singleInstance: true}}}
+00:06 +56: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: v1 capture tables migrate to the current schema
+⚠️ Skipped an index this database cannot support: SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 75): CREATE INDEX IF NOT EXISTS idx_ur_opr_created ON upload_records(device_id, scanning_opr, created_at), parameters: }) DatabaseException(SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 75): CREATE INDEX IF NOT EXISTS idx_ur_opr_created ON upload_records(device_id, scanning_opr, created_at), parameters: ) sql 'CREATE INDEX IF NOT EXISTS idx_ur_opr_created ON upload_records(device_id, scanning_opr, created_at)' {details: {database: {path: C:\Users\12699\AppData\Local\Temp\stable_migration_8444a726\lwcam_stats_SAX-MIGRATE.db, id: 2, readOnly: false, singleInstance: true}}}
+00:06 +56: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: a damaged profile stays blocking and is never overwritten
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_7b515bee\lwcam_stats_station.db
+00:06 +56: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: v1 capture tables migrate to the current schema
+⚠️ Skipped an index this database cannot support: SqfliteFfiException(sqlite_error: 1, , SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 78): CREATE INDEX IF NOT EXISTS idx_ds_device_opr_date ON daily_summary(device_id, scanning_opr, date), parameters: }) DatabaseException(SqliteException(1): while executing, no such column: scanning_opr, SQL logic error (code 1)
+  Causing statement (at position 78): CREATE INDEX IF NOT EXISTS idx_ds_device_opr_date ON daily_summary(device_id, scanning_opr, date), parameters: ) sql 'CREATE INDEX IF NOT EXISTS idx_ds_device_opr_date ON daily_summary(device_id, scanning_opr, date)' {details: {database: {path: C:\Users\12699\AppData\Local\Temp\stable_migration_8444a726\lwcam_stats_SAX-MIGRATE.db, id: 2, readOnly: false, singleInstance: true}}}
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_migration_8444a726\lwcam_stats_SAX-MIGRATE.db
+00:06 +57: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: a damaged profile stays blocking and is never overwritten
+00:06 +58: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderName persists the name and leaves Volume alone
+00:06 +58: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01_2026-01.db
+00:06 +58: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_b8270edb\lwcam_stats_SAX-RECOVER.db
+00:06 +58: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderName persists the name and leaves Volume alone
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_name_5c522868\lwcam_stats_devA.db
+00:06 +58: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: an interrupted recapture aborts the whole historical accept
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_7e697ff\lwcam_stats_station.db
+00:06 +58: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01_2026-01.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01_2026-10.db
+00:07 +58: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders updateCaptureFolderName persists the name and leaves Volume alone
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_name_5c522868\lwcam_stats_devA.db
+00:07 +59: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+00:07 +59: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: an interrupted recapture aborts the whole historical accept
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_7e697ff\lwcam_stats_station.db
+00:07 +59: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01_2026-10.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_b8270edb\lwcam_stats_SAX-RECOVER.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_b8270edb\lwcam_stats_SAX-RECOVER.db.recovering
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders deleteCaptureFolder refuses when images are assigned
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_del_d55b1f0f\lwcam_stats_devA.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_b8270edb\lwcam_stats_SAX-RECOVER.db.recovering
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: integrity clears only when every OPEN page is bound
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\color_bind_ee37a148\lwcam_stats_station.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: schema fresh device DB has sync_outbox with a unique (entity, entity_key) index
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_fresh_dc11eda2\lwcam_stats_devFresh9.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+📅 Daily summary updated for 2026-01-05 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_JAN.jpg (Device: SAX01)
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01_2026-03.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders deleteCaptureFolder refuses when images are assigned
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_del_d55b1f0f\lwcam_stats_devA.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+🧷 Recovery carried over 1 row(s) into sync_outbox
+🧷 Recovery carried over 0 row(s) into replacement_records
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/color_binding_test.dart: integrity clears only when every OPEN page is bound
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\color_bind_ee37a148\lwcam_stats_station.db
+00:07 +60: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation month routing: two inserts in different months land in two separate files, each with its own daily_summary
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_routing_efaa6be\lwcam_stats_SAX01_2026-03.db
+📅 Daily summary updated for 2026-03-09 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_MAR.jpg (Device: SAX01)
+00:07 +61: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+00:07 +62: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+🧷 Recovery carried over 0 row(s) into color_pending
+🧷 Recovery carried over 0 row(s) into color_integrity
+🧷 Recovery carried over 0 row(s) into color_profiles
+🧷 Recovery carried over 0 row(s) into color_bindings
+🧷 Recovery carried over 0 row(s) into upload_records
+🧷 Recovery carried over 0 row(s) into daily_summary
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_b8270edb\lwcam_stats_SAX-RECOVER.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_b8270edb\lwcam_stats_SAX-RECOVER.db
+00:07 +63: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild preserves the damaged file, generates no outbox rows of its own, and CARRIES OVER the un-drained ones (they exist nowhere else — the PG snapshot being restored is by definition missing that work)
+00:07 +63: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders deleteCaptureBox refuses while any image is assigned, then removes box + folders
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_delbox_4f3a0a94\lwcam_stats_devA.db
+00:07 +64: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: schema fresh device DB has sync_outbox with a unique (entity, entity_key) index
+00:07 +64: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01_2026-07.db
+00:07 +64: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_carryover_270ec1f0\lwcam_stats_SAX-CARRY.db
+00:07 +64: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: schema fresh device DB has sync_outbox with a unique (entity, entity_key) index
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_fresh_dc11eda2\lwcam_stats_devFresh9.db
+00:07 +64: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01_2026-07.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01_2026-10.db
+00:07 +65: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: schema fresh device DB has sync_outbox with a unique (entity, entity_key) index
+00:07 +65: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: folders deleteCaptureBox refuses while any image is assigned, then removes box + folders
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_delbox_4f3a0a94\lwcam_stats_devA.db
+00:07 +66: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: schema fresh device DB has sync_outbox with a unique (entity, entity_key) index
+00:07 +67: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01_2026-10.db
+00:07 +68: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01.db
+00:07 +68: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_carryover_270ec1f0\lwcam_stats_SAX-CARRY.db
+00:07 +68: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertUploadRecord enqueues NOTHING — upload_records left the sync pipeline (capture_images replaced it)
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\hooks_upload_58a2e3ce\lwcam_stats_devUpload_2026-01.db
+00:07 +69: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+00:07 +69: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_carryover_270ec1f0\lwcam_stats_SAX-CARRY.db.recovering
+00:07 +70: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+00:07 +70: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments assign is unique per filename; duplicate returns false
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_assign_df597ee\lwcam_stats_devA.db
+00:07 +70: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertUploadRecord enqueues NOTHING — upload_records left the sync pipeline (capture_images replaced it)
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_upload_58a2e3ce\lwcam_stats_devUpload_2026-01.db
+00:07 +70: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments assign is unique per filename; duplicate returns false
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_assign_df597ee\lwcam_stats_devA.db
+00:07 +70: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertUploadRecord enqueues NOTHING — upload_records left the sync pipeline (capture_images replaced it)
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\hooks_upload_58a2e3ce\lwcam_stats_devUpload_2026-10.db
+00:07 +71: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01.db
+00:07 +71: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_carryover_270ec1f0\lwcam_stats_SAX-CARRY.db.recovering
+🧷 Recovery carried over 1 row(s) into sync_outbox
+🧷 Recovery carried over 1 row(s) into replacement_records
+🧷 Recovery carried over 0 row(s) into color_pending
+🧷 Recovery carried over 0 row(s) into color_integrity
+🧷 Recovery carried over 0 row(s) into color_profiles
+🧷 Recovery carried over 0 row(s) into color_bindings
+🧷 Recovery carried over 0 row(s) into upload_records
+🧷 Recovery carried over 0 row(s) into daily_summary
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_carryover_270ec1f0\lwcam_stats_SAX-CARRY.db
+00:07 +71: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertUploadRecord enqueues NOTHING — upload_records left the sync pipeline (capture_images replaced it)
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_upload_58a2e3ce\lwcam_stats_devUpload_2026-10.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_upload_58a2e3ce\lwcam_stats_devUpload.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_upload_58a2e3ce\lwcam_stats_devUpload.db
+00:07 +71: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation a session spanning a month rollover just opens/creates the new month file on its own — no explicit rollover handling needed
+📅 Daily summary updated for 2026-07-31 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_JUL.jpg (Device: SAX01)
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01_2026-08.db
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_rollover_42b931e5\lwcam_stats_SAX01_2026-08.db
+📅 Daily summary updated for 2026-08-01 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_AUG.jpg (Device: SAX01)
+00:07 +72: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+00:07 +73: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+00:07 +73: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertUploadRecord enqueues NOTHING — upload_records left the sync pipeline (capture_images replaced it)
+📅 Daily summary updated for 2026-01-01 — Device: devUpload, Opr: alice, Count: 1
+00:07 +73: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassign frees the filename for a later box
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_unassign_7aa2fe5f\lwcam_stats_devA.db
+00:07 +73: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertUploadRecord enqueues NOTHING — upload_records left the sync pipeline (capture_images replaced it)
+🆕 Added upload record: IMG_1.jpg (Device: devUpload)
+00:07 +74: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+00:07 +75: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+00:07 +76: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+00:07 +77: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: snapshot rebuild carries over the local-only tables the cloud cannot restore (recapture history)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_carryover_270ec1f0\lwcam_stats_SAX-CARRY.db
+00:07 +78: D:/LWCAM-Suite/LWCAM/test/models/capture_box_models_test.dart: computeFolderNames the name is the Volume, verbatim
+00:07 +79: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +79: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureBox enqueues an upsert keyed by the local row id, payload in cloud shape (box_name, CAPS status, project_id)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_box_insert_7fb68d6f\lwcam_stats_devBox.db
+00:07 +80: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +81: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01_2025-12.db
+00:07 +82: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +82: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: failed recovery leaves the original database in place
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_failure_98b23a32\lwcam_stats_SAX-RECOVER-FAIL.db
+00:07 +83: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +84: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +85: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +86: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01_2025-12.db
+00:07 +87: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +87: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassign frees the filename for a later box
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_unassign_7aa2fe5f\lwcam_stats_devA.db
+00:07 +87: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01_2026-10.db
+00:07 +88: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +89: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +90: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +91: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01_2026-10.db
+00:07 +92: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:07 +92: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureBox enqueues an upsert keyed by the local row id, payload in cloud shape (box_name, CAPS status, project_id)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_box_insert_7fb68d6f\lwcam_stats_devBox.db
+00:07 +92: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01.db
+00:07 +92: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: failed recovery leaves the original database in place
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_failure_98b23a32\lwcam_stats_SAX-RECOVER-FAIL.db
+00:07 +93: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +94: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +95: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +95: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: failed recovery leaves the original database in place
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_failure_98b23a32\lwcam_stats_SAX-RECOVER-FAIL.db.recovering
+00:08 +96: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +96: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureBoxDetails and markCaptureBoxTransferred coalesce into a single pending outbox row carrying the latest snapshot + renamed_from
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_box_coalesce_f6d3b4b2\lwcam_stats_devBoxCoalesce.db
+00:08 +97: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +98: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +99: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +99: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassignImage refuses a transferred row (only QC may delete it) but still deletes an untransferred one
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_unassign_transferred_c405538c\lwcam_stats_devA.db
+00:08 +100: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01.db
+ℹ️ Skipping DB insert for IMG_LEGACY.jpg (already recorded for device SAX01).
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01_2026-05.db
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_dedup_b30355cb\lwcam_stats_SAX01_2026-05.db
+ℹ️ Skipping DB insert for IMG_MAY.jpg (already recorded for device SAX01).
+00:08 +101: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+📅 Daily summary updated for 2026-10-28 — Device: SAX01, Opr: alice, Count: 1
+00:08 +101: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: failed recovery leaves the original database in place
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_failure_98b23a32\lwcam_stats_SAX-RECOVER-FAIL.db.recovering
+00:08 +101: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureBoxDetails and markCaptureBoxTransferred coalesce into a single pending outbox row carrying the latest snapshot + renamed_from
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_box_coalesce_f6d3b4b2\lwcam_stats_devBoxCoalesce.db
+00:08 +101: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassignImage refuses a transferred row (only QC may delete it) but still deletes an untransferred one
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_unassign_transferred_c405538c\lwcam_stats_devA.db
+00:08 +101: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+🆕 Added upload record: IMG_NEW.jpg (Device: SAX01)
+00:08 +102: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation dedup spans months + the stable DB legacy archive: a filename already recorded anywhere is skipped, a fresh one still inserts
+00:08 +103: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureBoxDetails and markCaptureBoxTransferred coalesce into a single pending outbox row carrying the latest snapshot + renamed_from
+00:08 +103: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassignImage refuses a transferred row (only QC may delete it) but still deletes an untransferred one
+⛔ Refusing to unassign "IMG_1.jpg" — already transferred as "SAX01_IMG_1_001.jpg". Only QC may delete a transferred image.
+00:08 +104: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassignImage refuses a transferred row (only QC may delete it) but still deletes an untransferred one
+00:08 +105: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments unassignImage refuses a transferred row (only QC may delete it) but still deletes an untransferred one
+00:08 +105: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_empty_c8add829\lwcam_stats_SAX-RECOVER-EMPTY.db
+00:08 +106: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +106: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks a second rename keeps the ORIGINAL renamed_from (only-if-null rule)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_box_rename2_39e7dc06\lwcam_stats_devBoxRename2.db
+00:08 +107: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +107: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments countImagesPerFolder groups correctly
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\cap_count_6960c3d\lwcam_stats_devA.db
+00:08 +108: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +108: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getUploadedBaseNames unions the stable legacy archive with every monthly file
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_basenames_78ea3554\lwcam_stats_SAX01_2026-07.db
+00:08 +109: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getUploadedBaseNames unions the stable legacy archive with every monthly file
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_basenames_78ea3554\lwcam_stats_SAX01_2026-07.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_basenames_78ea3554\lwcam_stats_SAX01_2026-10.db
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/capture_box_db_test.dart: image assignments countImagesPerFolder groups correctly
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\cap_count_6960c3d\lwcam_stats_devA.db
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_empty_c8add829\lwcam_stats_SAX-RECOVER-EMPTY.db
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks a second rename keeps the ORIGINAL renamed_from (only-if-null rule)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_box_rename2_39e7dc06\lwcam_stats_devBoxRename2.db
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_empty_c8add829\lwcam_stats_SAX-RECOVER-EMPTY.db.recovering
+00:08 +110: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getUploadedBaseNames unions the stable legacy archive with every monthly file
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_basenames_78ea3554\lwcam_stats_SAX01_2026-10.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_basenames_78ea3554\lwcam_stats_SAX01.db
+00:08 +111: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +112: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +112: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markCaptureBoxTransferStarted stamps transfer_start_at and enqueues
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_box_start_2513dfad\lwcam_stats_devBoxStart.db
+00:08 +112: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+00:08 +112: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getUploadedBaseNames unions the stable legacy archive with every monthly file
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_basenames_78ea3554\lwcam_stats_SAX01.db
+00:08 +112: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: empty cloud history cannot replace an existing database
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_empty_c8add829\lwcam_stats_SAX-RECOVER-EMPTY.db.recovering
+00:08 +113: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getUploadedBaseNames unions the stable legacy archive with every monthly file
+📅 Daily summary updated for 2026-07-18 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: SAX01_IMG_20260718_100000_001.jpg (Device: SAX01)
+00:08 +113: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markCaptureBoxTransferStarted stamps transfer_start_at and enqueues
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_box_start_2513dfad\lwcam_stats_devBoxStart.db
+00:08 +114: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getUploadedBaseNames unions the stable legacy archive with every monthly file
+00:08 +115: D:/LWCAM-Suite/LWCAM/test/models/metadata_template_test.dart: MetadataTemplate.standard() parity with legacy constants dropdown option lists match the old k-constants
+00:08 +115: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation insertUploadRecord with sync ON writes the record but NO outbox row anywhere — upload_records is local-only now
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_outbox_atomic_b38e6201\lwcam_stats_SAX01_2026-04.db
+00:08 +115: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_434c9c8f\lwcam_stats_SAX-MISSING.db
+00:08 +115: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markCaptureBoxTransferStarted fixes the destination day dir once: a retry (even from another root) reuses it, a legacy bare root is replaced
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_box_dest_d60f8af1\lwcam_stats_devBoxDest.db
+00:08 +115: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation insertUploadRecord with sync ON writes the record but NO outbox row anywhere — upload_records is local-only now
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_outbox_atomic_b38e6201\lwcam_stats_SAX01_2026-04.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_outbox_atomic_b38e6201\lwcam_stats_SAX01_2026-10.db
+00:08 +116: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markCaptureBoxTransferStarted fixes the destination day dir once: a retry (even from another root) reuses it, a legacy bare root is replaced
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_box_dest_d60f8af1\lwcam_stats_devBoxDest.db
+00:08 +116: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_434c9c8f\lwcam_stats_SAX-MISSING.db
+00:08 +117: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markCaptureBoxTransferStarted fixes the destination day dir once: a retry (even from another root) reuses it, a legacy bare root is replaced
+00:08 +117: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation insertUploadRecord with sync ON writes the record but NO outbox row anywhere — upload_records is local-only now
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_outbox_atomic_b38e6201\lwcam_stats_SAX01_2026-10.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_outbox_atomic_b38e6201\lwcam_stats_SAX01.db
+00:08 +117: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_434c9c8f\lwcam_stats_SAX-MISSING.db.recovering
+00:09 +118: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markCaptureBoxTransferStarted fixes the destination day dir once: a retry (even from another root) reuses it, a legacy bare root is replaced
+00:09 +119: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_434c9c8f\lwcam_stats_SAX-MISSING.db.recovering
+00:09 +119: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation insertUploadRecord with sync ON writes the record but NO outbox row anywhere — upload_records is local-only now
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_outbox_atomic_b38e6201\lwcam_stats_SAX01.db
+📅 Daily summary updated for 2026-04-04 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_1.jpg (Device: SAX01)
+00:09 +119: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureFolder's payload carries the parent box's natural keys and the operator stamps
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_folder_insert_3cafee99\lwcam_stats_devFolder.db
+00:09 +120: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_434c9c8f\lwcam_stats_SAX-MISSING.db
+00:09 +121: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+00:09 +122: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+00:09 +123: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with the old file missing flags unknown colour bindings
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_434c9c8f\lwcam_stats_SAX-MISSING.db
+00:09 +124: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureFolder's payload carries the parent box's natural keys and the operator stamps
+00:09 +124: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_outbox_sources_9016923c\lwcam_stats_SAX01_2026-04.db
+00:09 +125: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureFolder's payload carries the parent box's natural keys and the operator stamps
+00:09 +125: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_no_images_b3cae867\lwcam_stats_SAX-NO-IMAGES.db
+00:09 +125: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureFolder's payload carries the parent box's natural keys and the operator stamps
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_folder_insert_3cafee99\lwcam_stats_devFolder.db
+00:09 +126: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertCaptureFolder's payload carries the parent box's natural keys and the operator stamps
+00:09 +127: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_outbox_sources_9016923c\lwcam_stats_SAX01_2026-04.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\monthly_outbox_sources_9016923c\lwcam_stats_SAX01_2026-10.db
+00:09 +128: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +128: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureFolderMetadata and updateCaptureFolderName coalesce into a single pending row that still carries the parent's natural keys
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_folder_coalesce_8015f78e\lwcam_stats_devFolderCoalesce.db
+00:09 +128: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_outbox_sources_9016923c\lwcam_stats_SAX01_2026-10.db
+00:09 +129: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +130: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\monthly_outbox_sources_9016923c\lwcam_stats_SAX01.db
+00:09 +131: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +131: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_no_images_b3cae867\lwcam_stats_SAX-NO-IMAGES.db
+00:09 +132: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +132: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_no_images_b3cae867\lwcam_stats_SAX-NO-IMAGES.db.recovering
+00:09 +133: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +134: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +135: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +136: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +137: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +137: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureFolderMetadata and updateCaptureFolderName coalesce into a single pending row that still carries the parent's natural keys
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_folder_coalesce_8015f78e\lwcam_stats_devFolderCoalesce.db
+00:09 +138: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\monthly_outbox_sources_9016923c\lwcam_stats_SAX01.db
+00:09 +139: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +140: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+📅 Daily summary updated for 2026-04-04 — Device: SAX01, Opr: alice, Count: 1
+🆕 Added upload record: IMG_1.jpg (Device: SAX01)
+00:09 +141: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +141: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_no_images_b3cae867\lwcam_stats_SAX-NO-IMAGES.db.recovering
+00:09 +142: D:/LWCAM-Suite/LWCAM/test/db/monthly_rotation_db_test.dart: monthly DB rotation getOutboxDatabases never includes a monthly file — only stable DBs carry an outbox
+00:09 +143: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+00:09 +143: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks deleteCaptureFolder after insert coalesces to a single delete op carrying the cloud natural key
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_folder_delete_be3cbfdc\lwcam_stats_devFolderDelete.db
+00:09 +143: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_no_images_b3cae867\lwcam_stats_SAX-NO-IMAGES.db
+00:09 +144: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+00:09 +145: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+00:09 +146: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_no_images_b3cae867\lwcam_stats_SAX-NO-IMAGES.db
+00:09 +147: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a rebuild with no recovered images does not flag colour integrity
+00:09 +148: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks deleteCaptureFolder after insert coalesces to a single delete op carrying the cloud natural key
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_folder_delete_be3cbfdc\lwcam_stats_devFolderDelete.db
+00:09 +149: D:/LWCAM-Suite/LWCAM/test/models/project_role_grants_test.dart: rolesForProjectKey a role reaches only the projects it was granted
+00:09 +150: D:/LWCAM-Suite/LWCAM/test/models/project_role_grants_test.dart: rolesForProjectKey a role reaches only the projects it was granted
+00:09 +151: D:/LWCAM-Suite/LWCAM/test/models/metadata_template_test.dart: Template variants: disabled / reorder field order follows list position (reorder)
+00:09 +152: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +153: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +153: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks deleteCaptureBox coalesces the box and each folder into delete ops that carry the cloud natural key
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_box_delete_467bdc1\lwcam_stats_devBoxDelete.db
+00:09 +153: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_color_905f93b0\lwcam_stats_SAX-MISSING-COLOUR.db
+00:09 +154: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +155: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +155: D:/LWCAM-Suite/LWCAM/test/models/node_config_test.dart: NodeConfigService a corrupt file on disk degrades to a fresh config rather than throwing
+⚠️ Node config read failed (C:\Users\12699\AppData\Local\Temp\node_config_9d750012\lwcam_node_config.json): FormatException: Unexpected character (at character 1)
+not json
+^
+ — using a fresh config.
+00:09 +156: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +157: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +158: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +159: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +160: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +161: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_color_905f93b0\lwcam_stats_SAX-MISSING-COLOUR.db
+00:09 +162: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +162: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks deleteCaptureBox coalesces the box and each folder into delete ops that carry the cloud natural key
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_box_delete_467bdc1\lwcam_stats_devBoxDelete.db
+00:09 +163: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +164: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +165: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +166: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +167: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_color_905f93b0\lwcam_stats_SAX-MISSING-COLOUR.db.recovering
+00:09 +167: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks assignImageToFolder enqueues a capture_images upsert with parent keys + file_format; unassignImage coalesces it into a delete
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_image_72a553eb\lwcam_stats_devImage.db
+00:09 +168: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +169: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +170: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +171: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +171: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks assignImageToFolder enqueues a capture_images upsert with parent keys + file_format; unassignImage coalesces it into a delete
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_image_72a553eb\lwcam_stats_devImage.db
+00:09 +172: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_color_905f93b0\lwcam_stats_SAX-MISSING-COLOUR.db.recovering
+🧷 Recovery carried over 3 row(s) into sync_outbox
+🧷 Recovery carried over 0 row(s) into replacement_records
+00:09 +173: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+🧷 Recovery carried over 0 row(s) into color_pending
+🧷 Recovery carried over 0 row(s) into color_integrity
+🧷 Recovery carried over 0 row(s) into color_profiles
+00:09 +174: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +175: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+🧷 Recovery carried over 0 row(s) into upload_records
+🧷 Recovery carried over 0 row(s) into daily_summary
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_color_905f93b0\lwcam_stats_SAX-MISSING-COLOUR.db
+00:09 +176: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+00:09 +176: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName sends the final name (with image_renamed_from) to the cloud while retaining the local identity
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_image_rename_266e845e\lwcam_stats_devImageRename.db
+00:09 +176: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v3 source with its binding table missing is flagged
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_missing_color_905f93b0\lwcam_stats_SAX-MISSING-COLOUR.db
+00:09 +177: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName sends the final name (with image_renamed_from) to the cloud while retaining the local identity
+00:10 +177: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v2 source without colour tables is not falsely flagged
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_v2_94bfac07\lwcam_stats_SAX-V2.db.recovering
+00:10 +177: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName sends the final name (with image_renamed_from) to the cloud while retaining the local identity
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_image_rename_266e845e\lwcam_stats_devImageRename.db
+⛔ Refusing to unassign "IMG_20260729_112403.jpg" — already transferred as "SAX04_IMG_20260729_112403_001.jpg". Only QC may delete a transferred image.
+00:10 +178: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v2 source without colour tables is not falsely flagged
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_v2_94bfac07\lwcam_stats_SAX-V2.db.recovering
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\stable_recovery_v2_94bfac07\lwcam_stats_SAX-V2.db
+00:10 +178: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueReworkClosed carries the natural keys the sink needs and coalesces per (folder, image)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_rework_b1c895b3\lwcam_stats_devRework.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_rework_b1c895b3\lwcam_stats_devRework.db
+00:10 +179: D:/LWCAM-Suite/LWCAM/test/db/stable_schema_recovery_test.dart: a v2 source without colour tables is not falsely flagged
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\stable_recovery_v2_94bfac07\lwcam_stats_SAX-V2.db
+00:10 +180: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueReworkClosed records a metadata-only resolution
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_rework_meta_b4675e95\lwcam_stats_devReworkMeta.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_rework_meta_b4675e95\lwcam_stats_devReworkMeta.db
+00:10 +181: D:/LWCAM-Suite/LWCAM/test/models/project_test.dart: generateProjectKey produces unique keys across rapid calls
+00:10 +182: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework carries only the changed columns and coalesces per folder
+00:10 +183: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework carries only the changed columns and coalesces per folder
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_folder_rework_2687b482\lwcam_stats_devFolderRework.db
+00:10 +184: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework carries only the changed columns and coalesces per folder
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_folder_rework_2687b482\lwcam_stats_devFolderRework.db
+00:10 +185: D:/LWCAM-Suite/LWCAM/test/models/project_test.dart: Project copyWith key is immutable across copyWith
+00:10 +186: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework skips a submit that changes nothing
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_folder_rework_noop_8c2c97a4\lwcam_stats_devNoop.db
+00:10 +187: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework skips a submit that changes nothing
+00:10 +188: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework skips a submit that changes nothing
+00:10 +189: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks enqueueFolderRework skips a submit that changes nothing
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_folder_rework_noop_8c2c97a4\lwcam_stats_devNoop.db
+00:10 +190: D:/LWCAM-Suite/LWCAM/test/models/user_role_qc_test.dart: qc role parsing parses the exact string the other apps write
+00:10 +191: D:/LWCAM-Suite/LWCAM/test/models/user_role_qc_test.dart: qc role parsing parses the exact string the other apps write
+00:10 +191: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureFolderEffectiveValues lands derived metadata on the row AND in the coalesced outbox payload
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_effective_a462c946\lwcam_stats_devEffective.db
+00:10 +192: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureFolderEffectiveValues lands derived metadata on the row AND in the coalesced outbox payload
+00:10 +193: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureFolderEffectiveValues lands derived metadata on the row AND in the coalesced outbox payload
+00:10 +194: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks updateCaptureFolderEffectiveValues lands derived metadata on the row AND in the coalesced outbox payload
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_effective_a462c946\lwcam_stats_devEffective.db
+00:11 +195: D:/LWCAM-Suite/LWCAM/test/models/user_role_qc_test.dart: the shared snapshot keeps a role this app cannot use a reviewer round-trips through the store unchanged
+00:11 +196: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName is a no-op when there is nothing to report
+00:11 +197: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName is a no-op when there is nothing to report
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_image_rename_noop_ec2f9045\lwcam_stats_devImageRenameNoop.db
+00:11 +198: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName is a no-op when there is nothing to report
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_image_rename_noop_ec2f9045\lwcam_stats_devImageRenameNoop.db
+00:11 +199: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks reportCaptureImageTransferName is a no-op when there is nothing to report
+00:11 +200: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +201: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +201: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks a duplicate assignImageToFolder returns false and enqueues nothing new
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_image_dup_fdd0f626\lwcam_stats_devImageDup.db
+00:11 +202: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +203: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +204: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +205: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +206: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +206: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks a duplicate assignImageToFolder returns false and enqueues nothing new
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_image_dup_fdd0f626\lwcam_stats_devImageDup.db
+00:11 +207: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +208: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +209: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +210: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +210: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks deleteCaptureFolder refuses (and enqueues nothing) when images are assigned
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_folder_delete_refuse_e42b8f0b\lwcam_stats_devFolderDeleteRefuse.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_folder_delete_refuse_e42b8f0b\lwcam_stats_devFolderDeleteRefuse.db
+00:11 +211: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +211: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks insertReplacementRecord enqueues nothing — replacements are local-only, never synced
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_replacement_insert_ae84ff2b\lwcam_stats_devReplacement.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_replacement_insert_ae84ff2b\lwcam_stats_devReplacement.db
+00:11 +212: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +212: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: outbox hooks markReplacementRecordSuperseded and markReplacementRecordsSuperseded (bulk) enqueue nothing
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\hooks_replacement_supersede_458a4a4e\lwcam_stats_devReplacementSupersede.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\hooks_replacement_supersede_458a4a4e\lwcam_stats_devReplacementSupersede.db
+00:11 +213: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:11 +213: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: cloud catch-up (queueCaptureRowsMissingFromCloud) queues every row PG lacks, parents first, and only once
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\catchup_all_aaf7c3bf\lwcam_stats_devCatchUp.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\catchup_all_aaf7c3bf\lwcam_stats_devCatchUp.db
+00:12 +214: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +214: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: cloud catch-up (queueCaptureRowsMissingFromCloud) rows PG already holds are never re-sent (QC edits stay)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\catchup_some_e42951e6\lwcam_stats_devCatchUpSome.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\catchup_some_e42951e6\lwcam_stats_devCatchUpSome.db
+00:12 +215: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +215: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: cloud catch-up (queueCaptureRowsMissingFromCloud) a transferred image is matched and sent under its final name
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\catchup_renamed_7ebfee7c\lwcam_stats_devCatchUpRenamed.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\catchup_renamed_7ebfee7c\lwcam_stats_devCatchUpRenamed.db
+00:12 +216: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +216: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: cloud catch-up (queueCaptureRowsMissingFromCloud) an unreachable PG leaves the job undone; an already-queued row is left exactly as it was
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\catchup_retry_b53b43f9\lwcam_stats_devCatchUpRetry.db
+00:12 +217: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +218: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +219: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +219: D:/LWCAM-Suite/LWCAM/test/db/sync_outbox_db_test.dart: cloud catch-up (queueCaptureRowsMissingFromCloud) an unreachable PG leaves the job undone; an already-queued row is left exactly as it was
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\catchup_retry_b53b43f9\lwcam_stats_devCatchUpRetry.db
+00:12 +220: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +221: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +222: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +223: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +224: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +225: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +226: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +227: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +228: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +229: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +230: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +231: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:12 +232: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:13 +233: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:13 +234: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:13 +235: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:13 +236: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:13 +237: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: a disabled station renders the switched-off message
+00:13 +238: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:13 +239: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:13 +240: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:13 +241: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:13 +242: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:13 +243: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:14 +244: D:/LWCAM-Suite/LWCAM/test/pages/project_area_page_test.dart: a QC-only account is sent to the QC console
+00:14 +245: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: the result view shows the mean ΔE00 and orders patches worst first
+00:14 +246: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: the result view shows the mean ΔE00 and orders patches worst first
+00:14 +247: D:/LWCAM-Suite/LWCAM/test/pages/color_calibration_page_test.dart: the result view shows the mean ΔE00 and orders patches worst first
+00:14 +248: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +249: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +250: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +251: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +252: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +253: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +253: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages happy path: intent-known orphan is assigned, filed, and de-stashed
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_2a58ad89\lwcam_stats_SAX04.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_2a58ad89\lwcam_stats_SAX04.db
+00:14 +254: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +255: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:14 +256: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +257: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +257: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages folder gone → demoted to intent-unknown
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_6eaffc07\lwcam_stats_SAX04.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_6eaffc07\lwcam_stats_SAX04.db
+00:15 +258: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +259: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +260: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +260: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages box already transferred → demoted
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_e4bc0778\lwcam_stats_SAX04.db
+00:15 +261: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +262: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +262: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages box already transferred → demoted
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_e4bc0778\lwcam_stats_SAX04.db
+00:15 +263: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +263: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages already assigned to the intended box → duplicate discarded
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_18f54008\lwcam_stats_SAX04.db
+00:15 +264: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +265: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +266: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +267: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +268: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +269: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +269: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages already assigned to the intended box → duplicate discarded
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_18f54008\lwcam_stats_SAX04.db
+00:15 +270: D:/LWCAM-Suite/LWCAM/test/pages/scope_bar_height_test.dart: the tabs are as tall as the constant the search box is pinned to
+00:15 +271: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages already assigned to the intended box → duplicate discarded
+00:15 +272: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared success fixture downloaded, not activated, and survives client restart
+00:15 +272: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages already assigned to a DIFFERENT box → demoted (conflict)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_abe66b1f\lwcam_stats_SAX04.db
+00:15 +273: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages already assigned to a DIFFERENT box → demoted (conflict)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_abe66b1f\lwcam_stats_SAX04.db
+00:16 +274: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: healOrphanImages already assigned to a DIFFERENT box → demoted (conflict)
+00:16 +275: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +276: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +277: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +278: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +279: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +280: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +281: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +282: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +282: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete all assigned images recorded + no orphans → null (complete)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_e6d9f066\lwcam_stats_SAX04.db
+00:16 +283: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: shared corrupt result fixture is rejected
+00:16 +284: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete all assigned images recorded + no orphans → null (complete)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_e6d9f066\lwcam_stats_SAX04.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\bi_db_e6d9f066\lwcam_stats_SAX04_2026-07.db
+00:16 +285: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete all assigned images recorded + no orphans → null (complete)
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_e6d9f066\lwcam_stats_SAX04_2026-07.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\bi_db_e6d9f066\lwcam_stats_SAX04_2026-10.db
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_e6d9f066\lwcam_stats_SAX04_2026-10.db
+📅 Daily summary updated for 2026-07-20 — Device: SAX04, Opr: alice, Count: 1
+🆕 Added upload record: SAX04_IMG_20260720_100000_001.jpg (Device: SAX04)
+00:16 +286: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: changed phone, request hash, and unsafe file each fail closed
+00:16 +286: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an assigned image with no upload record → "not verified"
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_3bfbad78\lwcam_stats_SAX04.db
+00:16 +287: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an assigned image with no upload record → "not verified"
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_3bfbad78\lwcam_stats_SAX04.db
+00:16 +288: D:/LWCAM-Suite/LWCAM/test/services/color_capture_session_test.dart: Auth capture entry refuses an unestablished phone boundary
+00:16 +288: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an intent-known orphan targeting the box → "unresolved"
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_30ea2846\lwcam_stats_SAX04.db
+00:16 +289: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: damaged profile cannot be used
+00:16 +289: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an intent-known orphan targeting the box → "unresolved"
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_30ea2846\lwcam_stats_SAX04.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\bi_db_30ea2846\lwcam_stats_SAX04_2026-07.db
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_30ea2846\lwcam_stats_SAX04_2026-07.db
+00:16 +290: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an intent-known orphan targeting the box → "unresolved"
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\bi_db_30ea2846\lwcam_stats_SAX04_2026-10.db
+00:16 +291: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an intent-known orphan targeting the box → "unresolved"
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_30ea2846\lwcam_stats_SAX04_2026-10.db
+📅 Daily summary updated for 2026-07-20 — Device: SAX04, Opr: alice, Count: 1
+🆕 Added upload record: SAX04_IMG_20260720_100000_001.jpg (Device: SAX04)
+00:17 +292: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an intent-known orphan targeting the box → "unresolved"
+00:17 +293: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: retake supersedes old task and keeps old photograph
+00:17 +293: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an orphan targeting a DIFFERENT box is ignored
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_70d8755f\lwcam_stats_SAX04.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_70d8755f\lwcam_stats_SAX04.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\bi_db_70d8755f\lwcam_stats_SAX04_2026-07.db
+00:17 +294: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: retake supersedes old task and keeps old photograph
+00:17 +294: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an orphan targeting a DIFFERENT box is ignored
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_70d8755f\lwcam_stats_SAX04_2026-07.db
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\bi_db_70d8755f\lwcam_stats_SAX04_2026-10.db
+00:17 +295: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: older completion preserves a newer applying generation
+00:17 +295: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an orphan targeting a DIFFERENT box is ignored
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_70d8755f\lwcam_stats_SAX04_2026-10.db
+📅 Daily summary updated for 2026-07-20 — Device: SAX04, Opr: alice, Count: 1
+🆕 Added upload record: SAX04_IMG_20260720_100000_001.jpg (Device: SAX04)
+00:17 +296: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: older completion preserves a newer applying generation
+00:17 +297: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: older completion preserves a newer applying generation
+00:17 +298: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: cancel only stops local waiting; published request survives
+00:17 +298: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an assigned name with no parseable base is not flagged
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\bi_db_3e689f19\lwcam_stats_SAX04.db
+00:17 +298: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: guarded completion preserves an unreadable intent
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:17 +299: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: discardStaged removes only the matching intent and keeps the photo
+00:17 +299: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an assigned name with no parseable base is not flagged
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\bi_db_3e689f19\lwcam_stats_SAX04.db
+00:17 +300: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an assigned name with no parseable base is not flagged
+00:17 +301: D:/LWCAM-Suite/LWCAM/test/services/box_integrity_test.dart: verifyBoxComplete an assigned name with no parseable base is not flagged
+00:17 +302: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: confirmation validates again, activates once and acknowledges pointer
+00:17 +302: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: applying survives Undo, restaging and recovery
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:17 +303: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: confirmation validates again, activates once and acknowledges pointer
+00:17 +304: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: applying survives Undo, restaging and recovery
+00:17 +305: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: complete with a generation guard does not delete a newer intent
+00:17 +306: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: complete with a generation guard does not delete a newer intent
+00:17 +306: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:17 +307: D:/LWCAM-Suite/LWCAM/test/services/color_rework_test.dart: complete with a generation guard does not delete a newer intent
+00:18 +308: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: legacy or yesterday profile cannot be confirmed
+00:18 +308: D:/LWCAM-Suite/LWCAM/test/services/device_gate_cache_test.dart: offline and never bound: capture stays allowed (skipped)
+ℹ️ Device registry: unreachable and no cached binding for SAX01 - gate skipped.
+00:18 +309: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: legacy or yesterday profile cannot be confirmed
+00:18 +309: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_fda644ab\lwcam_stats_station.db
+00:18 +310: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: legacy or yesterday profile cannot be confirmed
+00:18 +311: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+00:18 +311: D:/LWCAM-Suite/LWCAM/test/services/device_gate_cache_test.dart: the cache is per device
+ℹ️ Device registry: unreachable and no cached binding for SAX02 - gate skipped.
+00:18 +312: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: interrupted capture slot restores overlay and binding idempotently
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_fda644ab\lwcam_stats_station.db
+00:18 +313: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: no intent and no input directory allow metadata
+00:18 +313: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:18 +314: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: no intent and no input directory allow metadata
+00:18 +315: D:/LWCAM-Suite/LWCAM/test/services/calibration_task_client_test.dart: ready marker conflict is rejected instead of overwriting committed work
+00:18 +316: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +316: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:18 +317: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +318: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_a24febed\lwcam_stats_station.db
+00:18 +318: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_879624c7\lwcam_stats_station.db
+00:18 +319: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +320: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +321: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\rework_lifecycle_a24febed\lwcam_stats_station.db
+00:18 +322: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +322: D:/LWCAM-Suite/LWCAM/test/services/open_rework_cache_test.dart: a failed read yields an empty cache instead of throwing
+ℹ️ Rework badges unavailable: Cannot reach the database.
+00:18 +323: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +323: D:/LWCAM-Suite/LWCAM/test/services/open_rework_cache_test.dart: a failed read clears previously cached items
+ℹ️ Rework badges unavailable: offline
+00:18 +324: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +325: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +326: D:/LWCAM-Suite/LWCAM/test/services/color_rework_lifecycle_test.dart: retention preserves pending and referenced photos but prunes completed copies
+00:18 +327: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+00:18 +328: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+00:19 +329: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+00:19 +330: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_879624c7\lwcam_stats_station.db
+00:19 +331: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: unapplied abandoned staging allows metadata without source bytes
+00:19 +332: D:/LWCAM-Suite/LWCAM/test/services/open_rework_cache_test.dart: pending local closures an unrelated key does not filter anything
+00:19 +332: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: normal Undo allows metadata with the share absent
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:19 +333: D:/LWCAM-Suite/LWCAM/test/services/node_config_service_hardening_test.dart: an unreadable protected blob falls back to the plain password
+00:19 +334: D:/LWCAM-Suite/LWCAM/test/services/node_config_service_hardening_test.dart: an unreadable protected blob falls back to the plain password
+⚠️ Node config: pgPasswordProtected not readable by this Windows user (bad).
+00:19 +335: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: normal Undo allows metadata with the share absent
+00:19 +336: D:/LWCAM-Suite/LWCAM/test/services/node_config_service_hardening_test.dart: a save never writes the plain password over a protected blob
+00:19 +337: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying blocks metadata before any remote marker could be written
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:19 +337: D:/LWCAM-Suite/LWCAM/test/services/node_config_service_hardening_test.dart: a corrupt file is not overwritten with defaults
+⚠️ Node config read failed (C:\Users\12699\AppData\Local\Temp\node_cfg_68d3c4ef\lwcam_node_config.json): FormatException: Unexpected character (at character 2)
+{not json
+ ^
+ — using a fresh config.
+00:19 +338: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying blocks metadata before any remote marker could be written
+00:19 +339: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying blocks metadata before any remote marker could be written
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_a5810343\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_a5810343\lwcam_stats_station.db
+00:19 +340: D:/LWCAM-Suite/LWCAM/test/services/orphan_image_store_test.dart: retrying succeeds on the 3rd attempt after two throws
+00:19 +341: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:19 +342: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+00:19 +343: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_56f873bc\lwcam_stats_station.db
+00:19 +344: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: applying survives a fresh local read and a changed share path
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_56f873bc\lwcam_stats_station.db
+00:19 +345: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher hash is not the plaintext and verifies correctly
+00:20 +346: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher hash is not the plaintext and verifies correctly
+00:20 +346: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: an applying sibling not in the current worklist blocks the folder
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_cbf5e392\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_cbf5e392\lwcam_stats_station.db
+00:20 +347: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher hash is not the plaintext and verifies correctly
+00:20 +348: D:/LWCAM-Suite/LWCAM/test/services/path_utils_test.dart: sanitizeWindowsName replaces invalid Windows filename characters
+00:20 +348: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:20 +349: D:/LWCAM-Suite/LWCAM/test/services/orphan_image_store_test.dart: OrphanImageStore collision uniquifies the stored name; sidecar keeps the real name
+00:20 +350: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +351: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +352: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +353: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_a530f711\lwcam_stats_station.db
+00:20 +354: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +355: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +356: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_a530f711\lwcam_stats_station.db
+00:20 +357: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +358: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: only the successfully installed generation can finish with metadata
+00:20 +359: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +360: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +360: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: another folder and another device do not block metadata
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:20 +361: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +362: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +363: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +364: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +365: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher rejects the wrong password
+00:20 +366: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: another folder and another device do not block metadata
+00:20 +367: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: another folder and another device do not block metadata
+00:20 +368: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: another folder and another device do not block metadata
+00:20 +369: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:20 +369: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy intent without folder identity matches across input/output roots
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_8939a63c\lwcam_stats_station.db
+00:20 +370: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:20 +371: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:20 +372: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +373: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +373: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy intent without folder identity matches across input/output roots
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_8939a63c\lwcam_stats_station.db
+00:21 +374: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +375: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +376: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +377: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +377: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:21 +378: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +379: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +380: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +381: D:/LWCAM-Suite/LWCAM/test/services/password_hasher_test.dart: PasswordHasher two hashes of the same password differ (random salt)
+00:21 +382: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +383: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +384: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +385: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +386: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_12b05f0c\lwcam_stats_station.db
+00:21 +387: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +388: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +389: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +390: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +391: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +392: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_12b05f0c\lwcam_stats_station.db
+00:21 +393: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy ambiguous intent with unavailable source needs recovery
+00:21 +394: D:/LWCAM-Suite/LWCAM/test/services/pg_statements_test.dart: FK resolution — project key resolves projects by project_key, not the editable project_id
+00:21 +395: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+00:21 +396: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:21 +397: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+00:21 +398: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+00:21 +399: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+00:21 +400: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: corrupt owned intent cannot be mistaken for no interrupted work
+00:21 +401: D:/LWCAM-Suite/LWCAM/test/services/pg_statements_test.dart: buildUsersStoreFromPgRows maps roles from the users.roles column, and projectKeys from user_projects, tolerating unknown role segments
+00:21 +402: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: (setUpAll)
+00:21 +402: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: readable legacy abandoned staging remains recoverable
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:21 +403: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: (setUpAll)
+00:21 +403: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: readable legacy abandoned staging remains recoverable
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_b8b9395c\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_b8b9395c\lwcam_stats_station.db
+00:21 +404: D:/LWCAM-Suite/LWCAM/test/services/pg_statements_test.dart: buildUsersStoreFromPgRows a qc account is now a first-class account here, and a role this app still does not model survives the snapshot round-trip — the pull rewrites the shared snapshot LWCam Admin pushes from, so losing one would revoke that account on the next admin save
+00:21 +404: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:21 +405: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: buildFolderMarkerPayload carries the box natural keys + folder identity
+00:21 +406: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:21 +407: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +408: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +409: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_377277b9\lwcam_stats_station.db
+00:22 +410: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +411: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +412: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +413: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +414: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +414: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\marker_31bd4fc0\lwcam_stats_SAX01.db
+00:22 +414: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_377277b9\lwcam_stats_station.db
+00:22 +415: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: legacy held marker blocks metadata even before the photo changed
+00:22 +416: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +417: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +418: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +418: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: restaging legacy held marker preserves the interrupted operation
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:22 +419: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +420: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +421: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +422: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +423: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +424: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +425: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +426: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +426: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: restaging legacy held marker preserves the interrupted operation
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_dd7e99cf\lwcam_stats_station.db
+00:22 +427: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +428: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\marker_31bd4fc0\lwcam_stats_SAX01.db
+00:22 +429: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +430: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +431: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +431: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: restaging legacy held marker preserves the interrupted operation
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_dd7e99cf\lwcam_stats_station.db
+00:22 +432: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +433: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +434: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +434: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: restaging ambiguous legacy work offline retains its original intent
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:22 +435: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +436: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +437: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +438: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +438: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: committed receipt permits metadata after failed intent cleanup
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:22 +439: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +440: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers writes only into the box's persisted day dir — a same-named folder under another day dir is not the box's and gets no marker
+00:22 +441: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: committed receipt permits metadata after failed intent cleanup
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_c09077d7\lwcam_stats_station.db
+00:23 +441: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\marker_count_44738fb1\lwcam_stats_SAX01.db
+00:23 +442: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: committed receipt permits metadata after failed intent cleanup
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_c09077d7\lwcam_stats_station.db
+00:23 +442: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\marker_count_44738fb1\lwcam_stats_SAX01.db
+00:23 +443: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: committed receipt permits metadata after failed intent cleanup
+00:23 +444: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+00:23 +445: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+00:23 +446: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+00:23 +447: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+00:23 +448: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers image_count counts only image files LWIP would read
+00:23 +449: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: rolled back receipt cannot exempt an uncommitted replacement
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:23 +450: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: rolled back receipt cannot exempt an uncommitted replacement
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_109d97d7\lwcam_stats_station.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_109d97d7\lwcam_stats_station.db
+00:23 +451: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers refuses to overwrite a marker carrying another folder's identity (two PCs, one NAS, same day, same Volume)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\marker_foreign_9165be\lwcam_stats_SAX01.db
+00:23 +451: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: old committed receipt never exempts a newer applying generation
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:23 +452: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers refuses to overwrite a marker carrying another folder's identity (two PCs, one NAS, same day, same Volume)
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\marker_foreign_9165be\lwcam_stats_SAX01.db
+00:23 +452: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: old committed receipt never exempts a newer applying generation
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\metadata_rework_8295613b\lwcam_stats_station.db
+00:23 +453: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers refuses to overwrite a marker carrying another folder's identity (two PCs, one NAS, same day, same Volume)
+⚠️ Could not write processing marker in C:\Users\12699\AppData\Local\Temp\marker_foreign_dest_9ab2e4e3\20261028\F-ONE: Bad state: marker already belongs to project pabc / box "BOX-OTHER-PC" / folder 1 — another group or PC landed in C:\Users\12699\AppData\Local\Temp\marker_foreign_dest_9ab2e4e3\20261028\F-ONE
+00:23 +453: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: old committed receipt never exempts a newer applying generation
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\metadata_rework_8295613b\lwcam_stats_station.db
+00:23 +454: D:/LWCAM-Suite/LWCAM/test/services/metadata_rework_guard_test.dart: old committed receipt never exempts a newer applying generation
+00:23 +455: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: (setUpAll)
+00:23 +455: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers legacy: a box copied before the day dir was persisted falls back to scanning the root's day dirs by folder name
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\marker_legacy_a8ef19f0\lwcam_stats_SAX01.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\marker_legacy_a8ef19f0\lwcam_stats_SAX01.db
+00:24 +455: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sources_all_devices_3a191b8f\lwcam_stats_SAX01.db
+00:24 +455: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers legacy: a box copied before the day dir was persisted falls back to scanning the root's day dirs by folder name
+00:24 +456: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+00:24 +456: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers missing folder dirs and blank destinations stay retryable
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\marker_skip_1df7cf2e\lwcam_stats_SAX01.db
+00:24 +456: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning healthy rows are acked and only the poison row is retried
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\isolate_poison_f60e80c1\lwcam_stats_devIsolate.db
+00:24 +456: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers missing folder dirs and blank destinations stay retryable
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\marker_skip_1df7cf2e\lwcam_stats_SAX01.db
+00:24 +456: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sources_all_devices_3a191b8f\lwcam_stats_SAX01.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sources_all_devices_3a191b8f\lwcam_stats_SAX04.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers a recovered unbound page names the cause and can be accepted
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\marker_colour_833567e9\lwcam_stats_SAX01.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sources_all_devices_3a191b8f\lwcam_stats_SAX04.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sources_all_devices_3a191b8f\lwcam_stats_PROCESSING.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning healthy rows are acked and only the poison row is retried
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\isolate_poison_f60e80c1\lwcam_stats_devIsolate.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers a recovered unbound page names the cause and can be accepted
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\marker_colour_833567e9\lwcam_stats_SAX01.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sources_all_devices_3a191b8f\lwcam_stats_PROCESSING.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records a record past the cap is held, not deleted; drain skips it
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_733526dc\lwcam_stats_devHold.db
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers a recovered unbound page names the cause and can be accepted
+⚠️ Could not write processing marker in C:\Users\12699\AppData\Local\Temp\marker_colour_dest_c1d9f337\20261028\F-ONE: Bad state: a.jpg: no stored colour decision after recovery (damaged ledger)
+00:24 +457: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning healthy rows are acked and only the poison row is retried
+⚠️ Outbox row capture_boxes/2 failed alone: Bad state: project "x" not in PG yet (pull pending?)
+00:24 +458: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC getOutboxDatabases lists all device DBs, bound device FIRST
+00:24 +459: D:/LWCAM-Suite/LWCAM/test/services/processing_marker_service_test.dart: writeBoxProcessingMarkers a recovered unbound page names the cause and can be accepted
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records a record past the cap is held, not deleted; drain skips it
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning a poison row does not consume the healthy rows' retry budget
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\isolate_budget_9529cf87\lwcam_stats_devIsolate.db
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC a device with no DB file yet contributes nothing
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sources_single_71f00c0\lwcam_stats_SAX01.db
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records a record past the cap is held, not deleted; drain skips it
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC a device with no DB file yet contributes nothing
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sources_single_71f00c0\lwcam_stats_SAX01.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sources_single_71f00c0\lwcam_stats_SAX09.db
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning a poison row does not consume the healthy rows' retry budget
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\isolate_budget_9529cf87\lwcam_stats_devIsolate.db
+00:24 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records a record past the cap is held, not deleted; drain skips it
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_733526dc\lwcam_stats_devHold.db
+00:25 +460: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning a poison row does not consume the healthy rows' retry budget
+⚠️ Outbox row capture_boxes/1 failed alone: Bad state: project "x" not in PG yet (pull pending?)
+00:25 +461: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records a record past the cap is held, not deleted; drain skips it
+⚠️ Holding outbox row capture_boxes/1 after 20 attempts — box upsert after 20 attempts
+00:25 +461: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC a device with no DB file yet contributes nothing
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sources_single_71f00c0\lwcam_stats_SAX09.db
+00:25 +462: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records a record past the cap is held, not deleted; drain skips it
+00:25 +462: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning when every row succeeds alone, nothing is left pending
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\isolate_flaky_c554ce71\lwcam_stats_devIsolate.db
+00:25 +463: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning when every row succeeds alone, nothing is left pending
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\isolate_flaky_c554ce71\lwcam_stats_devIsolate.db
+00:25 +464: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: (setUpAll)
+00:25 +464: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC one tick drains the OTHER device's stranded rows
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\drain_other_device_6670a50a\lwcam_stats_SAX01.db
+00:25 +464: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records Try again un-holds, resets attempts, and the next drain sends
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_725f4d18\lwcam_stats_devHold.db
+00:25 +464: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC one tick drains the OTHER device's stranded rows
+00:25 +464: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning an offline sink leaves every row queued
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\isolate_offline_3eaf1724\lwcam_stats_devIsolate.db
+00:25 +465: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC one tick drains the OTHER device's stranded rows
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\drain_other_device_6670a50a\lwcam_stats_SAX01.db
+00:25 +465: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records Try again un-holds, resets attempts, and the next drain sends
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_725f4d18\lwcam_stats_devHold.db
+00:25 +465: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC one tick drains the OTHER device's stranded rows
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\drain_other_device_6670a50a\lwcam_stats_SAX04.db
+00:25 +465: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records Try again un-holds, resets attempts, and the next drain sends
+⚠️ Holding outbox row capture_boxes/1 after 20 attempts — never appeared
+00:25 +465: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a tick first queues what PG never got, then drains it
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_catchup_1ce8a769\lwcam_stats_devSync.db
+00:25 +465: D:/LWCAM-Suite/LWCAM/test/services/sync_batch_isolation_test.dart: batch poisoning an offline sink leaves every row queued
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\isolate_offline_3eaf1724\lwcam_stats_devIsolate.db
+00:25 +466: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC one tick drains the OTHER device's stranded rows
+00:25 +467: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC one tick drains the OTHER device's stranded rows
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\drain_other_device_6670a50a\lwcam_stats_SAX04.db
+00:25 +467: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: held records un-held row starts again from zero attempts
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_9cffbedc\lwcam_stats_devHold.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_9cffbedc\lwcam_stats_devHold.db
+⚠️ Holding outbox row capture_boxes/1 after 20 attempts — x
+00:25 +468: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a tick first queues what PG never got, then drains it
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a tick first queues what PG never got, then drains it
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: dependents of a held parent a held box holds its folders and images at once, no attempts burned; another box is unaffected
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_ad9e48e8\lwcam_stats_devHold.db
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\drain_order_348c318d\lwcam_stats_SAX01.db
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a tick first queues what PG never got, then drains it
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_catchup_1ce8a769\lwcam_stats_devSync.db
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: dependents of a held parent a held box holds its folders and images at once, no attempts burned; another box is unaffected
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_ad9e48e8\lwcam_stats_devHold.db
+⚠️ Holding outbox row capture_boxes/1 after 0 attempts — box belongs to another device
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a tick first queues what PG never got, then drains it
+📤 Queued 1 capture row(s) the database never got
+00:25 +469: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\drain_order_348c318d\lwcam_stats_SAX01.db
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\drain_order_348c318d\lwcam_stats_SAX04.db
+00:25 +470: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+00:25 +471: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+00:26 +471: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: dependents of a held parent a held folder holds only its own folder images; a row queued later is caught by the next tick; Try again releases all together
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_ffc7cd4f\lwcam_stats_devHold.db
+00:26 +471: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService idle when the outbox is empty; the sink is never touched
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_empty_ca51665d\lwcam_stats_devSync.db
+00:26 +472: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+00:26 +473: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\drain_order_348c318d\lwcam_stats_SAX04.db
+00:26 +474: D:/LWCAM-Suite/LWCAM/test/services/sync_all_devices_drain_test.dart: outbox sources span every device on the PC rows are ordered parents-before-children WITHIN each device
+00:26 +475: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService idle when the outbox is empty; the sink is never touched
+00:26 +475: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: dependents of a held parent a held folder holds only its own folder images; a row queued later is caught by the next tick; Try again releases all together
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_ffc7cd4f\lwcam_stats_devHold.db
+00:26 +475: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService idle when the outbox is empty; the sink is never touched
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_empty_ca51665d\lwcam_stats_devSync.db
+00:26 +476: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: dependents of a held parent a held folder holds only its own folder images; a row queued later is caught by the next tick; Try again releases all together
+00:26 +476: D:/LWCAM-Suite/LWCAM/test/services/thumbnail_service_test.dart: ThumbnailService.buildPngThumbnail returns null (never throws) for a corrupt/unreadable image
+⚠️ Thumbnail generation failed for not_an_image.jpg: Exception: Invalid image data
+00:26 +477: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: dependents of a held parent a held folder holds only its own folder images; a row queued later is caught by the next tick; Try again releases all together
+00:26 +477: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains outbox rows, acks them, and updates pendingCount
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_drain_15aac565\lwcam_stats_devSync.db
+00:26 +478: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains outbox rows, acks them, and updates pendingCount
+00:26 +478: D:/LWCAM-Suite/LWCAM/test/services/thumbnail_service_test.dart: ThumbnailService.buildPngThumbnail returns null for a file that does not exist
+⚠️ Thumbnail generation failed for missing.jpg: PathNotFoundException: Cannot open file, path = 'C:\Users\12699\AppData\Local\Temp\thumb_missing_844e6ef9\missing.jpg' (OS Error: 系统找不到指定的文件。, errno = 2)
+00:26 +479: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains outbox rows, acks them, and updates pendingCount
+00:26 +479: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: schema level too old: the service queues, counts no attempt, warns
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_f2307772\lwcam_stats_devHold.db
+00:26 +480: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains outbox rows, acks them, and updates pendingCount
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_drain_15aac565\lwcam_stats_devSync.db
+00:26 +481: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains outbox rows, acks them, and updates pendingCount
+00:26 +482: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains outbox rows, acks them, and updates pendingCount
+00:26 +483: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: schema level too old: the service queues, counts no attempt, warns
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_f2307772\lwcam_stats_devHold.db
+00:26 +484: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: schema level too old: the service queues, counts no attempt, warns
+00:26 +484: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\sync_svc_order_79c2d7da\lwcam_stats_devSync_2026-01.db
+00:26 +485: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: schema level too old: the service queues, counts no attempt, warns
+00:26 +486: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_order_79c2d7da\lwcam_stats_devSync_2026-01.db
+00:26 +487: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+📂 Using monthly device database: C:\Users\12699\AppData\Local\Temp\sync_svc_order_79c2d7da\lwcam_stats_devSync_2026-10.db
+00:26 +488: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+✅ Monthly database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_order_79c2d7da\lwcam_stats_devSync_2026-10.db
+00:26 +489: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_order_79c2d7da\lwcam_stats_devSync.db
+00:26 +490: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+00:26 +491: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+00:26 +492: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+00:26 +492: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: heartbeat backlog counts unsent (not held) and held
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_hold_6c5ada41\lwcam_stats_devHold.db
+00:26 +493: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_order_79c2d7da\lwcam_stats_devSync.db
+00:26 +494: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+📅 Daily summary updated for 2026-01-01 — Device: devSync, Opr: alice, Count: 1
+🆕 Added upload record: IMG_1.jpg (Device: devSync)
+00:26 +494: D:/LWCAM-Suite/LWCAM/test/services/transfer_queue_service_test.dart: TransferQueueService queue management cancelQueued removes a queued job, moves it to history as cancelled
+⚠️ Could not delete stage dir for box 7: PathNotFoundException: Deletion failed, path = 'C:\Users\12699\AppData\Local\Temp\transfer_queue_job_test_ecdee025' (OS Error: 系统找不到指定的文件。, errno = 2)
+00:26 +494: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: heartbeat backlog counts unsent (not held) and held
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_hold_6c5ada41\lwcam_stats_devHold.db
+00:26 +495: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drains a batch in parents-first order regardless of insert order
+00:26 +496: D:/LWCAM-Suite/LWCAM/test/services/sync_hold_test.dart: heartbeat backlog counts unsent (not held) and held
+00:26 +497: D:/LWCAM-Suite/LWCAM/test/services/transfer_queue_service_test.dart: TransferQueueService queue management dismiss removes a finished job from history
+00:26 +498: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources reads an existing snapshot file
+00:26 +498: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService inserting a replacement record never enqueues an outbox row, even with sync enabled
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_replacement_54f49f11\lwcam_stats_devSync.db
+00:26 +499: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources reads an existing snapshot file
+00:26 +499: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService inserting a replacement record never enqueues an outbox row, even with sync enabled
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_replacement_54f49f11\lwcam_stats_devSync.db
+00:27 +500: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources reads an existing snapshot file
+00:27 +501: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources reads an existing snapshot file
+00:27 +501: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService respects batchSize: drains at most N rows per tick
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_batch_cdc8dddb\lwcam_stats_devSync.db
+00:27 +502: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources reads an existing snapshot file
+00:27 +502: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService respects batchSize: drains at most N rows per tick
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_batch_cdc8dddb\lwcam_stats_devSync.db
+00:27 +503: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources reads an existing snapshot file
+00:27 +504: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a generic write failure leaves the row pending with attempts++ and a scheduled retry, state=error
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_fail_7971c10\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_fail_7971c10\lwcam_stats_devSync.db
+⚠️ Outbox row capture_boxes/1 failed alone: Exception: boom
+00:27 +505: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources no file yet → none
+00:27 +505: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService exponential backoff grows across repeated failures
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_backoff_168dd058\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_backoff_168dd058\lwcam_stats_devSync.db
+⚠️ Outbox row capture_boxes/1 failed alone: Exception: e1
+⚠️ Outbox row capture_boxes/1 failed alone: Exception: e1
+00:27 +506: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources no file yet → none
+00:27 +506: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a connect failure sets state=offline without touching attempts (transient, not a write failure)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_offline_15995ef9\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_offline_15995ef9\lwcam_stats_devSync.db
+00:27 +507: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a connect failure sets state=offline without touching attempts (transient, not a write failure)
+00:27 +508: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources torn (empty) file → none
+00:27 +508: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a non-connect write failure sets state=error and backs the row off
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_drift_6628659\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_drift_6628659\lwcam_stats_devSync.db
+⚠️ Outbox row capture_boxes/1 failed alone: Bad state: project not in PG yet
+00:27 +509: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources torn (empty) file → none
+00:27 +509: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a row scheduled in the future is not selected until its time arrives
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_future_7d9b4d76\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_future_7d9b4d76\lwcam_stats_devSync.db
+00:28 +510: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources torn (empty) file → none
+00:28 +510: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService reentrancy guard: overlapping syncNow calls only drain once
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_reentrant_1445e10b\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_reentrant_1445e10b\lwcam_stats_devSync.db
+00:28 +511: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources torn (empty) file → none
+00:28 +511: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService drainEnabled=false skips the outbox drain but the users/projects pull still runs (Fix 7: the pull can never be turned off independently of PG being configured)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_drain_disabled_8eb48b82\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_drain_disabled_8eb48b82\lwcam_stats_devSync.db
+00:28 +512: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: load / sources torn (empty) file → none
+00:28 +512: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a torn outbox payload escapes the fine-grained handling but is caught by the catch-all tick backstop instead of reaching the unawaited timer caller (Fix 9)
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_torn_payload_ed5c8b54\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_torn_payload_ed5c8b54\lwcam_stats_devSync.db
+00:28 +513: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a torn outbox payload escapes the fine-grained handling but is caught by the catch-all tick backstop instead of reaching the unawaited timer caller (Fix 9)
+⚠️ Sync tick failed: FormatException: Unexpected character (at character 2)
+{not valid json
+ ^
+
+00:28 +514: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate noStore when nothing loaded
+00:28 +515: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService pull runs BEFORE the outbox drain (FK parents first) and the box-name pull runs at the tail
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_1409c745\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_1409c745\lwcam_stats_devSync.db
+00:28 +516: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate ok / wrongPassword / unknownUser
+00:28 +516: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService no applyPulledStore configured skips the pull but still drains
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_skip_bb1523c0\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_skip_bb1523c0\lwcam_stats_devSync.db
+00:28 +517: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate ok / wrongPassword / unknownUser
+00:28 +517: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a connect failure during the pull sets state=offline and skips the rest of the tick
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_offline_1bccc85a\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_offline_1bccc85a\lwcam_stats_devSync.db
+00:28 +518: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate ok / wrongPassword / unknownUser
+00:28 +518: D:/LWCAM-Suite/LWCAM/test/services/sync_service_test.dart: SyncService a generic pull failure keeps the existing snapshot untouched, sets state=error, and the drain still runs
+📂 Using per-device database: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_error_1aef4680\lwcam_stats_devSync.db
+✅ Database opened successfully at: C:\Users\12699\AppData\Local\Temp\sync_svc_pull_error_1aef4680\lwcam_stats_devSync.db
+⚠️ Users/projects pull failed: Exception: boom
+00:28 +519: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate ok / wrongPassword / unknownUser
+00:29 +520: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate inactive users are rejected
+00:29 +521: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: authenticate mustChangePassword is surfaced for a forced-change account
+00:29 +522: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: changeOwnPassword a database without the function or the right to call it answers needsDbUpdate, not an error that locks the user out
+00:30 +523: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: changeOwnPassword calls the database function with the old password and a bcrypt hash of the new one
+00:31 +524: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: changeOwnPassword the database refusing (false) leaves the local snapshot unchanged
+00:32 +525: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: changeOwnPassword offline: refused, nothing queued or written, no plaintext on disk
+00:32 +526: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: changeOwnPassword a database error other than unreachable propagates and changes nothing
+00:33 +527: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: recordLogin delegates to the directory and never throws even when unreachable
+00:33 +528: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: markProjectHasData delegates to the directory and never throws even when unreachable
+00:33 +529: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: shared-file protection (LWCam Admin offline edits) applySnapshot refuses to overwrite a dirty file — a pull must never destroy LWCam Admin's unpushed edits/tombstones
+ℹ️ Snapshot pull skipped: LWCam Admin has unpushed offline edits queued in C:\Users\12699\AppData\Local\Temp\users_snapshot_576c899c\lwcam_users.json.
+00:33 +530: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: shared-file protection (LWCam Admin offline edits) the static writeSnapshotFile applies the same guard
+ℹ️ Snapshot pull skipped: LWCam Admin has unpushed offline edits queued in C:\Users\12699\AppData\Local\Temp\users_snapshot_206ac1c3\lwcam_users.json.
+00:34 +531: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: shared-file protection (LWCam Admin offline edits) LWCAM's own local rewrite (changeOwnPassword mirror) round-trips the admin-only keys instead of stripping them
+00:34 +532: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: shared-file protection (LWCam Admin offline edits) a clean (non-dirty) file is overwritten normally by the pull
+00:35 +533: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: projects getter exposes the catalog from the last successful load
+00:35 +534: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: empty-pull guard (Fix 3) applySnapshot keeps the existing snapshot when the pulled store has zero users — an empty cloud users table must not wipe local accounts
+⚠️ Pulled users store is empty — cloud users table empty? Keeping existing snapshot at C:\Users\12699\AppData\Local\Temp\users_snapshot_3aeed18a\lwcam_users.json.
+00:35 +535: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: empty-pull guard (Fix 3) an empty pull applies normally when there is no existing snapshot (fresh station — nothing to protect)
+00:35 +536: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: empty-pull guard (Fix 3) writeSnapshotFile (static variant) keeps an existing on-disk snapshot when the pulled store is empty
+⚠️ Pulled users store is empty — cloud users table empty? Keeping existing snapshot at C:\Users\12699\AppData\Local\Temp\users_snapshot_7a0991a6\lwcam_users.json.
+00:35 +537: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: retired pending-password queue file an old queue file is deleted on a pull and its hashes are never applied
+ℹ️ Dropping retired pending password queue (1 entries: admin) — password changes now require the database.
+00:36 +538: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: retired pending-password queue file a corrupt queue file is also removed, without throwing
+ℹ️ Dropping retired pending password queue (0 entries: ) — password changes now require the database.
+00:36 +539: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: cross-process lock (Fix 6) the lock file is created and released around a write
+00:37 +540: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: cross-process lock (Fix 6) a stale lock past the grace period is cleared instead of wedging the write forever
+00:37 +541: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: the shared lock is never held across a PG call changeOwnPassword calls the database before taking the lock
+00:37 +542: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: applySnapshot overwrites the local file and swaps in the pulled store
+00:38 +543: D:/LWCAM-Suite/LWCAM/test/services/users_store_service_test.dart: writeSnapshotFile the static pre-login variant writes a file a later load() reads back
+00:38 +544: All tests passed!

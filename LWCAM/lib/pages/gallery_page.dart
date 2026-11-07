@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:get/get.dart';
@@ -30,7 +31,9 @@ import '../services/audit_log_service.dart';
 import '../services/box_integrity.dart' show localImageNameForCloudImage;
 import '../services/node_config_service.dart';
 import '../services/open_rework_cache.dart';
-import '../services/processing_marker_service.dart' show setReworkInProgress;
+import '../services/processing_marker_service.dart' show setReworkInProgress, updateReworkColorBinding, ensureReworkCaptureMarker;
+import '../services/color_capture_session.dart';
+import '../services/color_rework_store.dart';
 import '../services/pg_statements.dart' as st;
 import '../services/fs_probe.dart' show FsProbe;
 import '../services/rework_service.dart'
@@ -217,20 +220,56 @@ String? reworkResolutionFor(
   return null;
 }
 
+/// The source file a submit may write for [imageName].
+///
+/// Only a page staged in THIS session has one. A metadata-only item must never
+/// consult a durable intent left behind by an Undo, a box switch or a restart:
+/// doing so used to overwrite the page with a photo the operator had abandoned.
+/// A staged page still verifies that its durable intent is the same generation.
+Future<File?> reworkSourceForItem({
+  required File? staged,
+  required Future<File?> Function() pending,
+}) async {
+  if (staged == null) return null;
+  final durable = await pending();
+  if (durable == null || !p.equals(durable.path, staged.path)) {
+    throw StateError('Recapture staging is damaged; retake this page');
+  }
+  return durable;
+}
+
+/// Image names whose closure is already in the local outbox, so a page whose
+/// request was submitted before a crash or a partial failure is not offered
+/// for a second write. [pendingClosureKeys] uses the outbox entity key
+/// `<project>|<box>|<folderSeq>|<image>`.
+Set<String> closedReworkImages(
+  List<ReworkItem> items,
+  Set<String> pendingClosureKeys,
+) => {
+  for (final item in items)
+    if (pendingClosureKeys.contains(
+      '${item.projectKey}|${item.boxName}|${item.folderSeq}|${item.imageName}',
+    ))
+      item.imageName,
+};
+
 /// How many OPEN rework items remain unresolved (neither a staged recapture
-/// nor a metadata fix).
+/// nor a metadata fix, and not already closed).
 ///
 /// LWIP flips a folder's qc_status to PENDING on ANY file change, regardless
 /// of how many of the folder's other rejected pages are still bad — so
 /// Submit must stay disabled until every item is settled. A partial recapture
 /// (2 of 5 rejected pages) would otherwise send the folder back to QC with
-/// the other 3 still bad.
+/// the other 3 still bad. A page already closed in a partial submit must not
+/// be re-counted just because it is still in the page's worklist.
 int reworkOpenItemCount(
   List<ReworkItem> items, {
   required Set<String> staged,
   required Set<String> metadataFixed,
+  Set<String> closed = const {},
 }) => items
     .where((item) =>
+        !closed.contains(item.imageName) &&
         reworkResolutionFor(
           item.imageName,
           staged: staged,
@@ -339,6 +378,10 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   String? _reworkFocusedImage;
 
   bool _reworkSubmitting = false;
+
+  /// Pages whose Undo is discarding a durable intent; the tile's buttons stay
+  /// disabled until the operation finishes so a double tap cannot race it.
+  final Set<String> _reworkUndoing = {};
 
   /// Bumped whenever a rework photo is staged, and mixed into the tile image
   /// keys so re-recapturing the same slot repaints. Needed because a repeat
@@ -1198,6 +1241,9 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       // baseline on the next tick and is silently never ingested.
       final listed = await _listDeviceImageNamesOrNull();
       if (listed == null) {
+        // Pause binding until begin() identifies the phone again; the capture
+        // boundary itself survives a transient adb failure.
+        ColorCaptureSession.phoneUnavailable();
         return false;
       }
       final currentNames = listed.toSet();
@@ -1220,6 +1266,11 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       final previousNames = Set<String>.from(_knownDeviceFileNames);
       final newNames = currentNames.difference(previousNames).toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      if (_isBoxMode && newNames.isNotEmpty &&
+          !await ColorCaptureSession.begin(auth.deviceId.value)) {
+        return false;
+      }
 
       // Never import replacement captures as standalone gallery images —
       // the original slot's tile already displays them.
@@ -1468,6 +1519,29 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     // Restore replacement records before filtering so replacement captures
     // on the device are excluded from the QC grid — the original slot's
     // tile already displays them.
+    if (_boxSession != null) {
+      final recovery = await ColorReworkStore.recoverCaptureSlots(
+        auth.deviceId.value,
+        _boxSession!.assignments.keys.toList(),
+        dateKeyFor: _dateKeyFromFilename,
+        username: auth.username.value,
+      );
+      for (final entry in recovery.recovered.entries) {
+        await _boxSession!.replaceDurableImage(entry.key, entry.value);
+      }
+      if (recovery.failed.isNotEmpty) {
+        // The record, its bytes and the page's pending flag stay as they are,
+        // so transfer keeps refusing the page until a retake completes.
+        final pages = recovery.failed.keys.join(', ');
+        print('⚠️ Replacement recovery failed:\n'
+            '${recovery.failed.entries.map((e) => '${e.key}: ${e.value}').join('\n')}');
+        showAppSnackBar(
+          'Replacement not recovered',
+          'Retake ${recovery.failed.length == 1 ? 'this page' : 'these pages'}: '
+              '$pages. ${recovery.failed.values.first}',
+        );
+      }
+    }
     await _restoreReplacementStateFromDb();
     files = files
         .where((name) => !_originalNameByReplacement.containsKey(name))
@@ -2626,6 +2700,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   ) async {
     if (!mounted) return;
 
+    if (_isBoxMode && !await ColorCaptureSession.begin(auth.deviceId.value)) return;
     final beforeNames = (await _listDeviceImageNames()).toSet();
 
     setState(() {
@@ -2693,6 +2768,15 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
       }
 
       final replacementFilename = p.basename(replacementFile.path);
+      final replacementBinding = _boxSession == null ? null :
+          await ColorCaptureSession.bindingFor(auth.deviceId.value, replacementFilename);
+      File? durableReplacement;
+      if (replacementBinding != null) {
+        durableReplacement = await ColorReworkStore.stage(auth.deviceId.value,
+            'capture-slot:$originalName', replacementFile, replacementBinding);
+        await ColorReworkStore.beginApply(auth.deviceId.value, 'capture-slot:$originalName');
+        await UploadStatsDB().markColorReplacementPending(auth.deviceId.value, originalName);
+      }
       await _discardPreviousReplacementForSlot(originalName);
 
       // Delete the erroneous original from the device by renaming the new
@@ -2702,7 +2786,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         replacementName: replacementFilename,
       );
 
-      var slotDisplayFile = replacementFile;
+      var slotDisplayFile = durableReplacement ?? replacementFile;
       if (swapped) {
         // Mirror the device state locally: the corrected pixels now live
         // under the original's filename, so the existing tile and preview
@@ -2772,6 +2856,14 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         scanningOpr: auth.username.value,
         replacementType: replacementType,
       );
+      if (replacementBinding != null) {
+        await UploadStatsDB().saveColorBinding(auth.deviceId.value, originalName, replacementBinding.toJson());
+        await ColorReworkStore.complete(
+          auth.deviceId.value,
+          'capture-slot:$originalName',
+          staged: durableReplacement,
+        );
+      }
       await _auditOrNull?.logReplacement(
         event: 'created',
         originalFilename: originalName,
@@ -5072,19 +5164,119 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         print('⚠️ Rework: could not read the station config: $e');
       }
     }
+    // A closure already in the outbox means that request is submitted even
+    // when PG has not drained it yet. Rebuild the session's closed set from
+    // the outbox, so a re-entry after a partial submit does not offer the page
+    // for a second write.
+    final pendingClosures = await UploadStatsDB().pendingReworkClosureKeys(
+      auth.deviceId.value,
+    );
+    final closed = closedReworkImages(_reworkItems, pendingClosures);
+    final session = _boxSession;
+    if (session != null) {
+      session.reworkClosed
+        ..clear()
+        ..addAll(closed);
+      for (final name in closed) {
+        session.reworkStaged.remove(name);
+        session.reworkMetadataFixed.remove(name);
+      }
+    }
+    final awaiting = _reworkItems
+        .where((item) => !closed.contains(item.imageName))
+        .toList();
     c.groupedImages.clear();
-    final resolved = await Future.wait(_reworkItems.map(_resolveReworkInput));
+    final resolved = await Future.wait(awaiting.map(_resolveReworkInput));
+    final recoveryNotes = <String>[];
+    for (var i = 0; i < awaiting.length; i++) {
+      final item = awaiting[i];
+      final target = resolved[i].file;
+      if (target == null || _reworkStaged.containsKey(item.imageName)) continue;
+      try {
+        final recovered =
+            await ColorReworkStore.recoverApplying(auth.deviceId.value, target.path) ??
+            // The same page's interrupted apply recorded under an older path:
+            // continued here only when that path is proven to be this folder.
+            await ColorReworkStore.relocateApplying(
+              auth.deviceId.value,
+              folderKey: item.folderKey,
+              folderPath: item.folderPath,
+              newTarget: target.path,
+            );
+        if (recovered != null) _reworkStaged[item.imageName] = recovered;
+      } catch (e) {
+        recoveryNotes.add('${item.imageName}: $e');
+      }
+    }
+    recoveryNotes.addAll(await _hiddenReworkRecords());
     final missing = resolved.where((r) => r.file == null).length;
     final down = resolved.any((r) => r.unreachable);
     if (!mounted) return;
     setState(() {
-      statusMsg = down
+      statusMsg = recoveryNotes.isNotEmpty
+          ? '${recoveryNotes.length} interrupted recapture(s) need attention — '
+                '${recoveryNotes.first}'
+          : awaiting.isEmpty
+          ? 'All rework in this group is submitted — waiting for QC.'
+          : down
           ? _kInputShareDown
           : missing == 0
-          ? '${_reworkItems.length} image(s) awaiting rework in this group.'
-          : '${_reworkItems.length} image(s) awaiting rework — $missing source '
+          ? '${awaiting.length} image(s) awaiting rework in this group.'
+          : '${awaiting.length} image(s) awaiting rework — $missing source '
                 'file(s) could not be found on this PC.';
     });
+    if (recoveryNotes.isNotEmpty) {
+      print('⚠️ Rework recovery needs attention:\n${recoveryNotes.join('\n')}');
+      showAppSnackBar(
+        'Interrupted recapture',
+        recoveryNotes.join('\n'),
+      );
+    }
+  }
+
+  /// Interrupted or unreadable recapture records for this group's folders
+  /// whose page is not being recovered on this screen (a sibling outside the
+  /// worklist, a record under another path, an unattributable record). They
+  /// keep blocking the folder's submit; this names them.
+  Future<List<String>> _hiddenReworkRecords() async {
+    final notes = <String>[];
+    final seen = <String>{};
+    // Records being recovered on this screen, directly or as the old path a
+    // relocated generation continues.
+    final handled = <String>{};
+    for (final file in _reworkStaged.values) {
+      handled.add(p.normalize(file.parent.path).toLowerCase());
+      try {
+        final old = await ColorReworkStore.supersededGeneration(file);
+        if (old != null) handled.add(p.normalize(old.parent.path).toLowerCase());
+      } catch (_) {
+        // Reported by the submit guard; nothing is handled here.
+      }
+    }
+    final folders = <String, ReworkItem>{
+      for (final item in _reworkItems) item.folderKey: item,
+    };
+    for (final item in folders.values) {
+      try {
+        final records = await ColorReworkStore.outstanding(
+          auth.deviceId.value,
+          folderKey: item.folderKey,
+          folderPath: item.folderPath,
+        );
+        for (final record in records) {
+          if (!seen.add(record.directory.path)) continue;
+          if (handled.contains(p.normalize(record.directory.path).toLowerCase())) continue;
+          notes.add(record.unattributed
+              ? 'unattributed recapture record (${record.describe()}; '
+                    '${record.problem}) — an administrator must resolve it'
+              : '${item.folderName}: ${record.describe()}'
+                    '${record.problem == null ? '' : ' (${record.problem})'}');
+        }
+      } catch (e) {
+        notes.add('${item.folderName}: could not read recapture records: $e');
+      }
+    }
+    return notes;
   }
 
   /// The "Rework Mode" pill, beside the overflow menu.
@@ -5313,8 +5505,12 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     final cs = Theme.of(context).colorScheme;
     final staged = _reworkStaged[item.imageName];
     final marked = _reworkMetadataFixed.contains(item.imageName);
+    final closed = _boxSession?.reworkClosed.contains(item.imageName) ?? false;
     final focused = _reworkFocusedImage == item.imageName;
-    final busy = _isWaitingForRecapture || _reworkSubmitting;
+    final busy =
+        _isWaitingForRecapture ||
+        _reworkSubmitting ||
+        _reworkUndoing.contains(item.imageName);
     final source = staged ?? _reworkInputFileFor(item);
     return GestureDetector(
       key: _reworkTileKey(item.imageName),
@@ -5366,7 +5562,17 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                         Colors.white,
                       ),
                     ),
-                  if (staged != null)
+                  if (closed)
+                    Positioned(
+                      bottom: 6,
+                      left: 6,
+                      child: _reworkBadge(
+                        'SUBMITTED',
+                        lw.info,
+                        lw.onInfo,
+                      ),
+                    )
+                  else if (staged != null)
                     Positioned(
                       bottom: 6,
                       left: 6,
@@ -5457,7 +5663,15 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
             // processed and indexed by QC.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              child: staged != null || marked
+              child: closed
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Submitted — waiting for QC',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    )
+                  : staged != null || marked
                   ? TextButton.icon(
                       onPressed: busy
                           ? null
@@ -5536,13 +5750,40 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     ),
   );
 
-  void _undoReworkResolution(ReworkItem item) {
-    final staged = _reworkStaged.remove(item.imageName);
-    _reworkMetadataFixed.remove(item.imageName);
-    if (staged != null) {
-      staged.delete().catchError((Object _) => staged);
+  Future<void> _undoReworkResolution(ReworkItem item) async {
+    if (_reworkUndoing.contains(item.imageName) ||
+        _reworkSubmitting ||
+        _isWaitingForRecapture ||
+        (_boxSession?.reworkClosed.contains(item.imageName) ?? false)) {
+      return;
     }
-    setState(() {});
+    final staged = _reworkStaged[item.imageName];
+    if (staged != null) {
+      _reworkUndoing.add(item.imageName);
+      if (mounted) setState(() {});
+      try {
+        // Discard the durable intent BEFORE deleting the photo: a failed
+        // discard must leave both in place so the operator can retry, rather
+        // than leaving an intent that points at a deleted file.
+        await ColorReworkStore.discardStaged(staged);
+      } catch (e) {
+        _reworkUndoing.remove(item.imageName);
+        if (mounted) {
+          setState(() {});
+          showAppSnackBar('Undo failed', '$e');
+        }
+        return;
+      }
+      _reworkUndoing.remove(item.imageName);
+      _reworkStaged.remove(item.imageName);
+      try {
+        await staged.delete();
+      } catch (e) {
+        print('ℹ️ Could not delete discarded recapture photo: $e');
+      }
+    }
+    _reworkMetadataFixed.remove(item.imageName);
+    if (mounted) setState(() {});
   }
 
   /// Submit lives in the header beside the status block. There is no separate
@@ -5550,15 +5791,21 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   /// _editReworkMetadata), so the only thing left to submit is the images.
   Widget _buildReworkSubmitButton() {
     final lw = LifewoodColors.of(context);
+    final closed = _boxSession?.reworkClosed ?? const <String>{};
     final closes = _reworkStaged.length + _reworkMetadataFixed.length;
     final open = reworkOpenItemCount(
       _reworkItems,
       staged: _reworkStaged.keys.toSet(),
       metadataFixed: _reworkMetadataFixed,
+      closed: closed,
     );
     return FilledButton.icon(
       onPressed:
-          (open > 0 || closes == 0 || _reworkSubmitting || _isWaitingForRecapture)
+          (open > 0 ||
+              closes == 0 ||
+              _reworkSubmitting ||
+              _isWaitingForRecapture ||
+              _reworkUndoing.isNotEmpty)
           ? null
           : _onSubmitReworkPressed,
       style: FilledButton.styleFrom(
@@ -5625,6 +5872,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     CaptureFolder folder,
     List<ReworkItem> items,
   ) async {
+    if (_reworkSubmitting || _reworkUndoing.isNotEmpty) return;
     final session = _boxSession!;
     final edited = await showDialog<CaptureFolder>(
       context: context,
@@ -5705,6 +5953,11 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   }
 
   Future<void> _markReworkMetadataFixed(ReworkItem item) async {
+    if (_reworkSubmitting ||
+        _reworkUndoing.isNotEmpty ||
+        (_boxSession?.reworkClosed.contains(item.imageName) ?? false)) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -5767,6 +6020,11 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
   /// Staging only — nothing is written until Submit Rework, so LWIP reprocesses
   /// the folder once and QC never sees it half fixed.
   Future<void> _startReworkRecaptureForSlot(ReworkItem item) async {
+    if (_reworkSubmitting ||
+        _reworkUndoing.isNotEmpty ||
+        (_boxSession?.reworkClosed.contains(item.imageName) ?? false)) {
+      return;
+    }
     final input = await _resolveReworkInput(item);
     final target = input.file;
     if (target == null) {
@@ -5828,6 +6086,7 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     await _armShutterHotkey();
 
     try {
+      if (_boxSession != null && !await ColorCaptureSession.begin(auth.deviceId.value)) return;
       final beforeNames = (await _listDeviceImageNames()).toSet();
       if (beforeNames.isEmpty && (_workingPath ?? '').isEmpty) {
         showAppSnackBar(
@@ -5902,10 +6161,12 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         await pulled.copy(slotFile.path);
         await _deleteLocalFileIfExists(pulled);
       }
+      final binding = await ColorCaptureSession.bindingFor(auth.deviceId.value, newName);
+      final durable = await ColorReworkStore.stage(auth.deviceId.value, target.path, slotFile, binding, folderKey: item.folderKey);
       await FileImage(slotFile).evict();
 
       setState(() {
-        _reworkStaged[item.imageName] = slotFile;
+        _reworkStaged[item.imageName] = durable;
         _reworkStageEpoch++; // repaint the tile even on a repeat recapture
         // A recapture supersedes a metadata-only claim on the same image.
         _reworkMetadataFixed.remove(item.imageName);
@@ -5950,6 +6211,11 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
     final username = auth.currentUser.value?.username ?? '';
     final deviceId = auth.deviceId.value;
     final db = UploadStatsDB();
+    if (_reworkSubmitting ||
+        _isWaitingForRecapture ||
+        _reworkUndoing.isNotEmpty) {
+      return;
+    }
     setState(() {
       _reworkSubmitting = true;
       statusMsg = 'Applying rework…';
@@ -5967,14 +6233,26 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
         boxId: box.id,
       )) {
         final items = byFolder[folder.folderSeq]!;
+        final verified = <int, File>{};
+        final metadataReady = <int>{};
+        var folderBlocked = false;
         final recaptured = <int>{}; // reworkIds settled by a new photo
         // Input folders whose completion marker says "rework in progress"
         // while files are being replaced (LWIP holds off until it is cleared).
         final flagged = <String>{};
+        final failedFolders = <String>{};
 
         for (final item in items) {
-          final source = _reworkStaged[item.imageName];
-          if (source == null) continue;
+          if (session.reworkClosed.contains(item.imageName)) continue;
+          final staged = _reworkStaged[item.imageName];
+          if (staged == null) {
+            // Metadata changes no pixels. Never resolve/probe the input share
+            // for it; the local recovery check below guards the whole folder.
+            if (_reworkMetadataFixed.contains(item.imageName)) {
+              metadataReady.add(item.reworkId);
+            }
+            continue;
+          }
           final input = await _resolveReworkInput(item);
           final target = input.file;
           if (target == null) {
@@ -5983,14 +6261,31 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
                   ? '${item.imageName}: $_kInputShareDown'
                   : '${item.imageName}: could not resolve its source file',
             );
+            folderBlocked = true;
             continue;
           }
           try {
+            final source = await reworkSourceForItem(
+              staged: staged,
+              pending: () => ColorReworkStore.pending(deviceId, target.path),
+            );
+            if (source == null) throw StateError('Missing staged recapture');
             final inputDir = target.parent.path;
+            final sidecar = File('${source.path}.color.json');
+            if (!await sidecar.exists()) throw StateError('Missing recapture calibration intent; retake the page');
+            final binding = ColorBinding.fromJson(Map<String, dynamic>.from(jsonDecode(await sidecar.readAsString()) as Map));
+            // Persist locally before even holding the remote marker. After a
+            // crash, metadata can detect interrupted work without that share.
+            await ColorReworkStore.beginApply(deviceId, target.path);
             if (!flagged.contains(inputDir)) {
               // Fail closed: an unflagged folder could be fingerprinted by LWIP
               // half-replaced, so a failed flag write skips the replacement.
-              await setReworkInProgress(inputDir, true);
+              await ensureReworkCaptureMarker(inputDir, {
+                'project_key': item.projectKey, 'project_id': item.projectId,
+                'box_name': item.boxName, 'folder_seq': item.folderSeq,
+                'folder_name': item.folderName, 'device_id': deviceId,
+              });
+              await setReworkInProgress(inputDir, true, requireReadable: true);
               flagged.add(inputDir);
             }
             setState(() => statusMsg = 'Replacing ${item.imageName}…');
@@ -5998,49 +6293,157 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
               source: source,
               target: target,
             );
+            await updateReworkColorBinding(inputDir, p.basename(target.path), binding);
+            final assignments = await db.getAssignmentsForBox(deviceId: deviceId, boxId: box.id);
+            final localName = localImageNameForCloudImage(deviceId, item.imageName, assignments.keys);
+            await db.saveColorBinding(deviceId, localName, binding.toJson());
             wrote++;
             recaptured.add(item.reworkId);
+            verified[item.reworkId] = target;
             await _refreshSavedBoxThumbnail(box.id, item.imageName, target);
           } catch (e) {
+            failedFolders.add(target.parent.path);
             print('⚠️ Rework write failed for ${item.imageName}: $e');
             failures.add('${item.imageName}: $e');
           }
         }
 
-        for (final inputDir in flagged) {
+        if (metadataReady.isNotEmpty || recaptured.isNotEmpty) {
           try {
-            await setReworkInProgress(inputDir, false);
+            await ColorReworkStore.assertMetadataSafe(
+              deviceId,
+              folderKey: items.first.folderKey,
+              folderPath: items.first.folderPath,
+              completing: [
+                for (final item in items)
+                  if (recaptured.contains(item.reworkId))
+                    _reworkStaged[item.imageName]!,
+              ],
+            );
           } catch (e) {
+            folderBlocked = true;
+            failures.add('${items.first.folderName}: $e');
+          }
+        }
+
+        for (final inputDir in flagged) {
+          if (folderBlocked || failedFolders.isNotEmpty) continue;
+          try {
+            await setReworkInProgress(inputDir, false, requireReadable: true);
+          } catch (e) {
+            failedFolders.add(inputDir);
             print('⚠️ Rework: could not clear the in-progress flag: $e');
             failures.add('$inputDir: could not mark the rework finished ($e)');
           }
         }
 
         var closedInFolder = 0;
-        for (final item in items) {
-          final resolution = recaptured.contains(item.reworkId)
-              ? 'Recapture'
-              : reworkResolutionFor(
-                  item.imageName,
-                  staged: const {}, // a staged write that failed must not close
-                  metadataFixed: _reworkMetadataFixed,
-                );
-          if (resolution == null) continue;
-          closedInFolder++;
-          await db.enqueueReworkClosed(
-            deviceId: deviceId,
-            projectKey: item.projectKey,
-            projectId: item.projectId,
-            boxName: item.boxName,
-            folderSeq: item.folderSeq,
-            folderName: item.folderName,
-            imageName: item.imageName,
-            assignedUsername: username,
-            reworkType: resolution,
-            comment: resolution == 'Recapture'
-                ? 'Recaptured in LWCAM (was: ${item.reason})'
-                : 'Metadata corrected in LWCAM (was: ${item.reason})',
+        final settled = <ReworkItem, String>{};
+        final localDb = await db.getDatabase(deviceId);
+        await localDb.transaction((txn) async {
+          for (final item in items) {
+            if (session.reworkClosed.contains(item.imageName)) continue;
+            final target = verified[item.reworkId];
+            if (folderBlocked || failedFolders.isNotEmpty) continue;
+            if (target == null && !metadataReady.contains(item.reworkId)) continue;
+            final resolution = recaptured.contains(item.reworkId)
+                ? 'Recapture'
+                : reworkResolutionFor(
+                    item.imageName,
+                    staged: const {}, // a staged write that failed must not close
+                    metadataFixed: _reworkMetadataFixed,
+                  );
+            if (resolution == null) continue;
+            await db.enqueueReworkClosed(
+              transaction: txn,
+              deviceId: deviceId,
+              projectKey: item.projectKey,
+              projectId: item.projectId,
+              boxName: item.boxName,
+              folderSeq: item.folderSeq,
+              folderName: item.folderName,
+              imageName: item.imageName,
+              assignedUsername: username,
+              reworkType: resolution,
+              comment: resolution == 'Recapture'
+                  ? 'Recaptured in LWCAM (was: ${item.reason})'
+                  : 'Metadata corrected in LWCAM (was: ${item.reason})',
+            );
+            if (resolution == 'Recapture') {
+              final staged = _reworkStaged[item.imageName]!;
+              await ColorReworkStore.recordCommitted(txn, staged);
+              // A relocated generation retires the old-path record it
+              // continues, in the same transaction as the closure.
+              final superseded =
+                  await ColorReworkStore.supersededGeneration(staged);
+              if (superseded != null) {
+                await ColorReworkStore.recordCommitted(txn, superseded);
+              }
+            }
+            closedInFolder++;
+            settled[item] = resolution;
+          }
+
+          final resetQcStatus = reworkShouldResetQcStatus(
+            closedInFolder: closedInFolder,
+            recapturedInFolder: recaptured.length,
           );
+          // The metadata was already saved by Edit Metadata; it is RE-SENT here
+          // rather than sending an empty patch, because the outbox coalesces on
+          // (project, box, folder_seq) — a later row with no metadata would
+          // REPLACE the undrained patch and silently lose the operator's edits.
+          // Recomputed against the same cloud baseline, so this is always a
+          // superset of what is already queued.
+          final changed = _changedReworkColumns(folder, items);
+          if (changed.isNotEmpty || resetQcStatus) {
+            await db.enqueueFolderRework(
+              transaction: txn,
+              deviceId: deviceId,
+              projectKey: items.first.projectKey,
+              projectId: items.first.projectId,
+              boxName: items.first.boxName,
+              folderSeq: folder.folderSeq,
+              folderName: folder.folderName ?? '',
+              changedMetadata: changed,
+              resetQcStatus: resetQcStatus,
+              isCreatedThumbnail: items.first.isCreatedThumbnail,
+            );
+          }
+        });
+        // Only expose completion after closure AND folder update committed.
+        for (final entry in settled.entries) {
+          final item = entry.key;
+          final resolution = entry.value;
+          // The request is submitted as soon as its closure is in the outbox.
+          // Drop it from the page's worklist (a partial submit must not ask
+          // for it again), the open set and the staging map.
+          session.reworkClosed.add(item.imageName);
+          final staged = _reworkStaged.remove(item.imageName);
+          _reworkMetadataFixed.remove(item.imageName);
+          _reworkItems.removeWhere(
+            (candidate) =>
+                candidate.imageName == item.imageName &&
+                candidate.folderSeq == item.folderSeq,
+          );
+          if (resolution == 'Recapture' && verified[item.reworkId] != null) {
+            try {
+              final superseded = staged == null
+                  ? null
+                  : await ColorReworkStore.supersededGeneration(staged);
+              await ColorReworkStore.complete(
+                deviceId,
+                verified[item.reworkId]!.path,
+                staged: staged,
+              );
+              if (superseded != null) {
+                await ColorReworkStore.completeGeneration(superseded);
+              }
+            } catch (e) {
+              // The closure is already in the outbox; an intent-cleanup
+              // failure must not abort the rest of the submit.
+              print('⚠️ Could not clear recapture intent for ${item.imageName}: $e');
+            }
+          }
           closed++;
           _auditOrNull?.log(
             'rework_submit',
@@ -6053,34 +6456,13 @@ class _GalleryPageState extends State<GalleryPage> with WidgetsBindingObserver {
             },
           );
         }
-
-        final resetQcStatus = reworkShouldResetQcStatus(
-          closedInFolder: closedInFolder,
-          recapturedInFolder: recaptured.length,
-        );
-        // The metadata was already saved by Edit Metadata; it is RE-SENT here
-        // rather than sending an empty patch, because the outbox coalesces on
-        // (project, box, folder_seq) — a later row with no metadata would
-        // REPLACE the undrained patch and silently lose the operator's edits.
-        // Recomputed against the same cloud baseline, so this is always a
-        // superset of what is already queued.
-        final changed = _changedReworkColumns(folder, items);
-        if (changed.isNotEmpty || resetQcStatus) {
-          await db.enqueueFolderRework(
-            deviceId: deviceId,
-            projectKey: items.first.projectKey,
-            projectId: items.first.projectId,
-            boxName: items.first.boxName,
-            folderSeq: folder.folderSeq,
-            folderName: folder.folderName ?? '',
-            changedMetadata: changed,
-            resetQcStatus: resetQcStatus,
-            isCreatedThumbnail: items.first.isCreatedThumbnail,
-          );
-        }
       }
 
-      await OpenReworkCache.instance.refresh(username);
+      final closedKeys = await db.pendingReworkClosureKeys(deviceId);
+      await OpenReworkCache.instance.refresh(
+        username,
+        alreadyClosedKeys: closedKeys,
+      );
       if (!mounted) return;
 
       if (failures.isNotEmpty) {

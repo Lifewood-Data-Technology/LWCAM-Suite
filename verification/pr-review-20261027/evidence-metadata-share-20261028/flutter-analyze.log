@@ -1,0 +1,9 @@
+Analyzing LWCAM...                                              
+
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\controllers\box_session_controller.dart:176:7 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\services\box_integrity.dart:199:5 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\services\box_integrity.dart:201:5 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\services\pg_sync_sink.dart:251:11 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\services\transfer_queue_service.dart:369:9 - curly_braces_in_flow_control_structures
+
+5 issues found. (ran in 28.8s)

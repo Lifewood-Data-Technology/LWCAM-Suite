@@ -69,7 +69,7 @@ void main() {
         addTearDown(() => db.debugCloseAllForTests());
 
         final fresh = await db.getDatabase('devFresh9');
-        expect(await fresh.getVersion(), 2);
+        expect(await fresh.getVersion(), 3);
 
         final tables = (await fresh.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table'",

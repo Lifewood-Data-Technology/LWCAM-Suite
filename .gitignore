@@ -39,3 +39,10 @@ LWIP/tools/
 
 # ---- editor/hand-made backups ------------------------------------------
 *.bak
+
+# ---- local IDE settings and diagnostic logs ---------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+*.log

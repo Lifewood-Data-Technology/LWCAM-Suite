@@ -507,3 +507,16 @@ Every part queues and retries. None blocks capture.
 - Module READMEs: [LWCAM](../LWCAM/README.md), [LWCamAdmin](../LWCamAdmin/README.md),
   [LWIP](../LWIP/README.md), [QC Platform](../LWCam_QC_Platform/README.md),
   [Upload](../LWCam_Upload/README.md).
+
+## LWIP-owned calibration
+
+LWIPSetup includes the full ColorCal algorithm and run_calibration_task.py,
+using the existing Python and offline wheels. Setup verifies these imports.
+The existing LWCam LWIP boot task owns the coordinator and its short-lived child;
+no additional task, service or port is registered. Upgrade process matching by
+installation command line also covers this child.
+
+LWCamSetup carries only the file-task client/UI and per-page bindings, with no
+Python archive, calibration wheels or calibration setup script. Legacy data is
+not recursively removed. QC retains its own byte-identical consumer code.
+Upgrade QC, LWIP, then capture; enable only after [acceptance](../docs/COLOR-CALIBRATION.zh-CN.md).

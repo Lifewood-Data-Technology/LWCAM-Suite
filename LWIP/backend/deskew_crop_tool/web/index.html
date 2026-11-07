@@ -370,8 +370,30 @@
     el.failedBox.classList.toggle("hidden", failed.length === 0);
   }
 
+  function renderCalibration(s) {
+    var box = document.getElementById("calibration-status");
+    if (!box) {
+      box = document.createElement("pre");
+      box.id = "calibration-status";
+      box.style.whiteSpace = "pre-wrap";
+      var anchor = document.getElementById("stat-waiting");
+      if (anchor) anchor.parentNode.parentNode.insertAdjacentElement("afterend", box);
+    }
+    s = s || {};
+    var lines = ["Colour calibration: " + (s.state || "starting"), "Queued: " + (s.queued || 0)];
+    if (s.state === "running") lines.push("Task: " + s.task_id + " / " + s.device_id,
+      "Elapsed: " + Math.max(0, Math.floor(Date.now() / 1000 - s.started_at)) + " s");
+    if (s.error) lines.push(s.error);
+    ["succeeded", "failed"].forEach(function (kind) {
+      var r = s["last_" + kind];
+      if (r) lines.push("Last " + kind + ": " + r.device_id + " / " + r.task_id +
+        (r.profile_id ? " / " + r.profile_id : "") + (r.error ? " / " + r.error.message : ""));
+    });
+    box.textContent = lines.join("\n");
+  }
+
   function pollStatus() {
-    api("/api/status").then(function (res) { if (res.ok) { renderStatus(res.data); } });
+    api("/api/status").then(function (res) { if (res.ok) { renderStatus(res.data); renderCalibration(res.data.calibration); } });
   }
 
   function renderLog(lines) {

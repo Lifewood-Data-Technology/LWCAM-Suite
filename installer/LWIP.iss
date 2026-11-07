@@ -50,6 +50,8 @@ Source: "Trust this LWCam server.cmd"; DestDir: "{app}"; Flags: ignoreversion
 ; LWIP source only, no tests/benchmark (siblings of this folder, so a Source
 ; rooted at deskew_crop_tool\* never picks them up) and no runtime bytecode.
 Source: "{#LwipDir}\backend\deskew_crop_tool\*"; DestDir: "{app}\backend\deskew_crop_tool"; Flags: ignoreversion recursesubdirs; Excludes: "*.pyc,__pycache__\*"
+Source: "{#LwipDir}\backend\run_calibration_task.py"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "{#LwipDir}\backend\color_cal_tool\*"; DestDir: "{app}\backend\color_cal_tool"; Flags: ignoreversion recursesubdirs; Excludes: "*.pyc,__pycache__\*"
 Source: "{#LwipDir}\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LwipDir}\wheels\*"; DestDir: "{app}\wheels"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LwipDir}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -541,13 +543,16 @@ end;
 // Bytecode LWIP writes at runtime, never installed by Setup and so never
 // tracked by it. Removed BEFORE the uninstaller's own folder cleanup: that
 // cleanup only removes a folder it created if it ends up EMPTY, and a
-// leftover __pycache__ would otherwise leave {app}\backend\deskew_crop_tool
-// behind as an empty shell (see QCPlatform.iss's DeleteRuntimeLeftovers,
-// which this mirrors - deskew_crop_tool has no sub-packages of its own, so
-// there is only the one path).
+// leftover __pycache__ would otherwise leave its package folder behind as an
+// empty shell (see QCPlatform.iss's DeleteRuntimeLeftovers, which this
+// mirrors). Setup's own import check and calibration tasks compile all three:
+// deskew_crop_tool, color_cal_tool, and run_calibration_task.py in backend.
+// Neither package has sub-packages of its own.
 procedure DeleteLwipRuntimeLeftovers();
 begin
   DelTree(ExpandConstant('{app}\backend\deskew_crop_tool\__pycache__'), True, True, True);
+  DelTree(ExpandConstant('{app}\backend\color_cal_tool\__pycache__'), True, True, True);
+  DelTree(ExpandConstant('{app}\backend\__pycache__'), True, True, True);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

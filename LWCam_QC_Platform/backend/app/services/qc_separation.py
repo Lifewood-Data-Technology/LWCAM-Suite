@@ -65,6 +65,9 @@ def child_manifest(parent_manifest: dict[str, Any] | None, image_names) -> dict[
         return None
     result = dict(parent_manifest)
     result["files"] = files
+    from color_cal_tool.contract import subset
+    if isinstance(result.get("source_identity"), dict):
+        result["source_identity"] = subset(result["source_identity"], names)
     thumbs = parent_manifest.get("thumbnails")
     if isinstance(thumbs, dict) and isinstance(thumbs.get("files"), list):
         # LWIP names a thumbnail <stem>.jpg whatever the page's extension.

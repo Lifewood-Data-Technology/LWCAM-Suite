@@ -8,9 +8,12 @@ by it, covering this PC's name, IP addresses and Tailscale name.
   address ranges, so a PC that trusts it can be lied to about nothing else.
 * The CA is never silently replaced: only a CA that lacks NameConstraints (the
   first, unconstrained builds) is regenerated, and a half-present CA is refused.
-* The leaf is re-issued when a wanted name/IP is missing, its key does not match,
-  it was not signed by the current CA, or it has under 30 days left. Extra names
-  already in it do not matter, so a churning address does not cause re-issues.
+* The leaf contains only names/IPs permitted by the existing CA. A new LAN
+  outside its constraints is omitted until an administrator updates the CA;
+  localhost remains usable. Existing forbidden SANs force leaf renewal.
+* The leaf is re-issued when a permitted wanted name/IP is missing, its key does
+  not match, it has the wrong issuer, or it has under 30 days left. Extra permitted
+  names are retained, so a churning address does not cause re-issues.
 * QC, LWIP and Upload all call ensure_certificates on the same folder at boot:
   a lock file serialises them and every file is replaced atomically, cert last.
 
@@ -342,6 +345,11 @@ def _leaf_usable(crt_path: Path, key_path: Path, ca_cert: x509.Certificate, want
         ):
             return False
         cert.verify_directly_issued_by(ca_cert)
+        sans = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        if _uncovered(ca_cert, set(sans.get_values_for_type(x509.DNSName)),
+                      {str(ip) for ip in sans.get_values_for_type(x509.IPAddress)}):
+            # One forbidden SAN invalidates the whole chain, even for localhost.
+            return False
         return wanted <= _san_set(cert) and cert.not_valid_after_utc - _now() > RENEW_BEFORE
     except Exception:  # noqa: BLE001 - anything unreadable or mismatched means re-issue
         return False
@@ -353,18 +361,23 @@ def ensure_certificates(folder: Path | str) -> tuple[Path, Path]:
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     dns, ips = local_names()  # slow probes stay outside the lock
-    wanted = dns | ips
     crt_path, key_path = folder / "server.crt", folder / "server.key"
     with _folder_lock(folder):
         ca_key, ca_cert = _ensure_ca(folder, dns, ips)
-        if _leaf_usable(crt_path, key_path, ca_cert, wanted):
-            return crt_path, key_path
         outside = _uncovered(ca_cert, dns, ips)
         if outside:
             LOGGER.warning(
-                "TLS: the CA's NameConstraints do not cover %s; clients will refuse the certificate "
-                "until the CA in %s is deleted, regenerated and trusted again", outside, folder,
+                "TLS: omitting names outside the existing CA's NameConstraints: %s. "
+                "Permitted names (including localhost) remain usable; an administrator "
+                "must update and re-trust the CA in %s to enable those new addresses", outside, folder,
             )
+            dns -= set(outside)
+            ips -= set(outside)
+        wanted = dns | ips
+        if not wanted:
+            raise RuntimeError(f"no local names are permitted by the CA in {folder}")
+        if _leaf_usable(crt_path, key_path, ca_cert, wanted):
+            return crt_path, key_path
         key = ec.generate_private_key(ec.SECP256R1())
         sans = [x509.DNSName(d) for d in sorted(dns)] + [
             x509.IPAddress(ipaddress.ip_address(i)) for i in sorted(ips)

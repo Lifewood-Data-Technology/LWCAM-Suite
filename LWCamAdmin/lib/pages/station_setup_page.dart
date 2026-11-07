@@ -87,6 +87,12 @@ class _StationSetupPageState extends State<StationSetupPage> {
             ),
             const SizedBox(height: 8),
             SwitchListTile(
+              title: const Text('Daily colour calibration (Box Mode)'),
+              subtitle: const Text('Uses the local capture calibration tool. LWIP and QC read calibration from each folder.'),
+              value: _c.colorCalEnabled.value,
+              onChanged: (v) => _c.colorCalEnabled.value = v,
+            ),
+            SwitchListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
               title: const Text('Enable connection'),
