@@ -7,6 +7,15 @@ Newest first. The All-In-One edition keeps its own changelog on branch
 
 ## [Unreleased]
 
+- QC engine and LWIP: when `LWCAM_NODE_CONFIG` is set, read settings (QC) and
+  the database login (LWIP) from LWCam Admin's `lwcam_node_config.json`. This is
+  for the All-In-One edition; Module installs never set it and are unchanged.
+
+- AI review: the default extract model is now `qwen/qwen3.6-35b-a3b`. The old
+  default `qwen/qwen3-vl-8b-instruct` has no OpenRouter provider that supports
+  reasoning any more, so every job on default settings failed with 404. The
+  404 message now also names that cause.
+
 - Check a rework folder's recapture records before replacing any photo, so a
   blocked folder is never left half-replaced and held from LWIP.
 - Allow Undo again when a recapture submit fails before touching the folder

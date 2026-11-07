@@ -4,7 +4,9 @@ One Settings class holds every tunable: database login, JWT, preview/work/audit
 folders, AI review, export, and network binding/TLS. Values come from defaults,
 then a dev .env, then the config.txt overrides that
 app.core.server_settings.load_server_settings_overrides() returns (config.txt
-keys are camelCase, fields here are snake_case). Settings are read once at
+keys are camelCase, fields here are snake_case). On an All-In-One station
+(LWCAM_NODE_CONFIG set) the overrides come from LWCam Admin's
+lwcam_node_config.json instead (app.core.node_config), and config.txt is ignored. Settings are read once at
 process start. Secrets have no usable default on purpose. The long comments on
 the AI review fields record measurements behind the chosen defaults.
 """
@@ -15,6 +17,7 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
+from app.core.node_config import load_node_config, node_config_mode, settings_overrides
 from app.core.server_settings import load_server_settings_overrides
 
 
@@ -165,7 +168,10 @@ class Settings(BaseSettings):
     ai_review_compare_output_mode: Literal["json_schema", "json_object", "prompt_json"] = "json_schema"
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_extract_model: str = "qwen/qwen3-vl-8b-instruct"
+    # Must have an OpenRouter provider that supports `reasoning` (extract runs
+    # with it "enabled" and require_parameters=True). qwen3-vl-8b-instruct lost
+    # its last such provider in 2026-11 and every job failed with 404.
+    openrouter_extract_model: str = "qwen/qwen3.6-35b-a3b"
     openrouter_compare_model: str = "qwen/qwen3.5-flash-02-23"
     export_temp_dir: str = ""
     export_output_dir: str = ""
@@ -248,4 +254,7 @@ class Settings(BaseSettings):
         )
 
 
-settings = Settings(**load_server_settings_overrides())
+settings = Settings(
+    # All-In-One: LWCam Admin's lwcam_node_config.json, never config.txt.
+    **(settings_overrides(load_node_config()) if node_config_mode() else load_server_settings_overrides())
+)

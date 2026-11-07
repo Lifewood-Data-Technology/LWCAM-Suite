@@ -114,7 +114,11 @@ def describe_provider_failure(error: Exception | None) -> str:
     if status == 402:
         return "The AI provider account has no credit left."
     if status == 404:
-        return "The AI provider does not know the configured model. Check the model names in QC server config.txt."
+        return (
+            "The AI provider does not know the configured model, or no provider of it "
+            "supports the requested options (reasoning, structured output). Check the "
+            "model names in QC server config.txt."
+        )
     if status == 429:
         return "The AI provider is rate-limiting requests. Retry later."
     if isinstance(status, int):

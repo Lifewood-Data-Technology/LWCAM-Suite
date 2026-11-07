@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -129,6 +130,22 @@ class DeskewCropToolTests(unittest.TestCase):
             self.assertEqual(config.db_user, "lwip")
             self.assertEqual(config.db_password, "hunter2")
             self.assertIs(config.db_use_ssl, True)
+
+    def test_all_in_one_takes_db_login_from_node_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            node = Path(temporary) / "lwcam_node_config.json"
+            node.write_text(json.dumps({
+                "pgHost": "127.0.0.1", "pgPort": 5433, "pgDatabase": "lwcam_aio",
+                "pgUser": "lwcam_user", "pgPassword": "from-node",
+            }), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"LWCAM_NODE_CONFIG": str(node)}):
+                config = load_config(_write_config(
+                    Path(temporary), cloud_report=True, db_host="ignored", db_user="ignored", db_password="ignored",
+                ))
+            self.assertEqual(
+                (config.db_host, config.db_port, config.db_name, config.db_user, config.db_password),
+                ("127.0.0.1", 5433, "lwcam_aio", "lwcam_user", "from-node"),
+            )
 
     def test_snapshot_changes_when_an_image_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
